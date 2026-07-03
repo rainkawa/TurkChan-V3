@@ -1,55 +1,108 @@
-# Komuniti — Community Discussion Platform
+# Komuniti — a self-hosted community discussion platform
 
-A self-hosted, Reddit-style discussion platform for community organisations (NGO programmes, youth organisations, mosques, madrasahs). Built per the Community Platform PRD v0.1: accounts, communities, posts, nested comments, voting, ranked feeds, and a full moderation + admin layer.
+A Reddit-style discussion platform for community organisations — NGO programmes, youth organisations, mosques, madrasahs. User-created communities, threaded discussions, and community voting that determines visibility, at small-community scale (hundreds to low thousands of users), with the moderation layer such organisations actually need on day one.
 
-## Stack
+Built as a single deployable monolith: one process, one database file, no external services required to run it.
 
-- **TypeScript + Hono** — one monolith, server-side-rendered JSX views (mobile-first), small vanilla-JS enhancement layer (optimistic voting, markdown preview, local-storage drafts).
-- **SQLite via built-in `node:sqlite`** — zero native dependencies, FTS5 search. The schema is written portably (plain SQL types, epoch-ms timestamps) so production can move to PostgreSQL as the PRD recommends; SQLite is ideal for the single-VPS deployment target and for hermetic tests.
-- **Argon2id** password hashing (`@node-rs/argon2`), HTTP-only SameSite=Lax session cookies.
-- **Local object storage adapter** with a pre-signed-style upload flow (unguessable UUID keys, signature validation, pure-JS EXIF/GPS stripping for JPEG/PNG/WebP). Swappable for S3-compatible storage via the `ObjectStorage` interface.
+```
+TypeScript · Hono (SSR JSX) · SQLite (node:sqlite, FTS5) · Argon2id · 166 tests
+```
 
-## Run
+## Features
+
+**Core mechanics**
+- Communities with three visibility types: **public** (anyone reads, members post), **restricted** (anyone reads, approved members post), **private** (approved members only — zero content leakage, enforced server-side everywhere: pages, feeds, search, profiles, OG tags, exports)
+- Three post types: **text** (sanitised Markdown), **link** (server-side OG preview fetch with SSRF guard + duplicate-URL warning), **image** (pre-signed upload flow, magic-byte validation, EXIF/GPS stripped before storage)
+- **Nested comments** to depth 8 (deeper replies flatten), materialized-path trees, permalinks with ancestor context, `[deleted]` placeholders that preserve thread structure
+- **Voting** — one vote per user per item (DB unique constraint), idempotent, flip/remove, no self-votes; scores denormalised transactionally
+- **Ranked feeds** — Reddit's hot formula with a configurable decay constant, New, Top (day/week/month/all), cursor-based pagination that stays stable while new content arrives
+- **Best comment sort** — Wilson score lower bound, the right algorithm for few-vote small communities
+- **Karma**, full-text **search** (FTS5, visibility-aware), in-app **notifications** (replies + mod actions, withdrawn if the reply is removed before you see it)
+
+**Safety and administration**
+- Reporting with community rules in the dialog, silent duplicate absorption, anonymous reporters, and an optional auto-hide-after-N-reports threshold
+- Moderation per community: remove (with karma reversal + author notification), timed/permanent bans that lift automatically, pin up to 2 posts, moderator appointment with oldest-moderator removal rules, immutable mod log
+- Site admin dashboard: suspend/unsuspend accounts, archive or soft-delete communities (typed confirmation, 30-day recovery window), registration policy (open / invite-only with expiring invite links / closed), community-creation policy, live-editable rate limits, JSON export per community with 24-hour download links
+- Rate limiting on posts, comments, votes, reports, registration, and login; account lockout after repeated failed logins
+- PDPA-minded: minimal collection (email + username), account self-deletion with anonymisation, privacy notice page, image metadata stripping
+
+## Quick start
+
+Requires **Node.js ≥ 22.5** (uses the built-in `node:sqlite`).
 
 ```bash
 npm install
-npm run seed   # demo communities/users (admin / seed-admin-pass-1, ...)
-npm run dev    # http://localhost:3000
+npm run seed   # demo communities + accounts (see below)
+npm run dev    # → http://localhost:3000
 ```
 
-The **first registered user becomes site admin**.
+The **first registered user becomes site admin**. Seeded demo logins:
+
+| Account | Password | Role |
+|---|---|---|
+| `admin` | `seed-admin-pass-1` | Site admin |
+| `ustazah_f` | `seed-mod-pass-1` | Community moderator |
+| `aisyah`, `rahim`, `nurul` | `seed-user-pass-{1,2,3}` | Members |
 
 ```bash
-npm test           # 157 tests: unit + full HTTP integration incl. US-044 access matrix
-npm run typecheck
+npm test           # 166 tests: unit + full HTTP integration
+npm run typecheck  # strict TypeScript, no emit
 ```
 
-## Feature map (PRD → code)
+## Architecture
 
-| PRD | Where |
-|---|---|
-| FR-1/2 Accounts, profiles, reset, deletion | `src/services/auth.ts`, `users.ts` |
-| FR-3/4 Communities, membership, approvals | `src/services/communities.ts` |
-| FR-5 Text/link/image posts, SSRF guard, EXIF strip | `src/services/posts.ts`, `linkpreview.ts`, `uploads.ts`, `src/lib/urlguard.ts`, `images.ts` |
-| FR-6 Nested comments (materialized path, depth cap 8) | `src/services/comments.ts` |
-| FR-7 Voting (unique constraint, idempotent, no self-vote) | `src/services/votes.ts` |
-| FR-8 Karma (computed, removal-reversing) | `src/services/users.ts` |
-| FR-9/10 Hot/New/Top feeds, Wilson comment sort, cursors | `src/services/feeds.ts`, `src/lib/ranking.ts`, `cursor.ts` |
-| FR-11 Search (FTS5, visibility-aware) | `src/services/search.ts` |
-| FR-12/13 Reports, moderation, mod log, bans, pins | `src/services/reports.ts`, `moderation.ts`, `modlog.ts` |
-| FR-14 Admin (suspend, archive/delete, policies, invites, export) | `src/services/admin.ts`, `src/routes/admin.tsx` |
-| FR-15 Notifications (replies, mod actions, withdrawal) | `src/services/notifications.ts` |
-| FR-16 Rate limiting (configurable, per-account + per-IP) | `src/lib/ratelimit.ts`, `src/services/settings.ts` |
-| FR-17 Account deletion, JSON export | `auth.ts#deleteAccount`, `admin.ts#exportCommunity` |
-| US-044 access matrix | enforced in `src/services/access.ts`, tested in `test/integration/access.test.ts` |
+One web application, server-rendered, with a thin vanilla-JS enhancement layer (optimistic voting, Markdown preview, local-storage drafts). No client framework, no build step for the frontend.
+
+```
+src/
+├── app.tsx            # Hono app assembly, session middleware, error pages
+├── server.ts          # entrypoint (static files, maintenance sweep)
+├── config.ts          # process config; runtime policies live in the DB
+├── db/                # schema (portable SQL), seed script
+├── lib/               # ranking math, markdown, rate limiter, cursors,
+│                      #   EXIF stripper, SSRF guard, passwords, mailer port
+├── services/          # all domain logic — auth, communities, posts,
+│                      #   comments, votes, feeds, reports, moderation,
+│                      #   admin, notifications, search, uploads, access
+├── routes/            # thin HTTP handlers per area (+ JSON API)
+├── views/             # JSX layout + components (mobile-first)
+└── i18n/en.ts         # all UI strings externalised (Malay-ready)
+```
+
+Design decisions worth knowing:
+
+- **SQLite via `node:sqlite`** — zero native dependencies, FTS5 included, ideal for the single-VPS target and hermetic tests. The schema uses plain SQL types and epoch-ms timestamps so it ports to PostgreSQL without redesign.
+- **Dependency-injected context** (`db`, `clock`, `mailer`, `storage`, `fetch`, rate limiter) — tests control time, mail, and the network; timed bans and token expiry are tested by advancing a fake clock.
+- **Authorisation is centralised** in `services/access.ts` and enforced in the service layer, never only in views. The test suite includes an access-matrix sweep: every role attempts every restricted action.
+- **Markdown is safe by construction** — raw HTML is disabled entirely (escaped, not sanitised after the fact); links get `rel="nofollow noopener"`; `javascript:`/`data:` URLs are neutralised.
+- **Vote counting** — individual vote rows retained (auditable), score denormalised in the same transaction. No queues; this platform will never see Reddit's write volume.
+- **Hot ranking decay is a site setting** (default 90 000 s vs Reddit's 45 000) so a small community's front page doesn't empty out on slow days.
+
+## Testing
+
+166 tests across 18 files, all runnable offline in ~2 s:
+
+- **Unit** — hot/Wilson ranking math, Markdown XSS safety, sliding-window rate limiter, cursor codec, JPEG/PNG/WebP metadata stripping, SSRF address classification
+- **Integration (through the real HTTP app)** — registration/login/lockout/reset/deletion, membership approval flows, all three post types (including multipart image upload with EXIF verification), comment nesting and depth-cap flattening, vote idempotency and flips, feed ordering and cursor stability, reporting/auto-hide/removal/bans/pins/mod-log, admin suspension/archival/purge/exports/invites, search visibility, notifications and withdrawal
+- **Hardening** — CSRF origin rejection, open-redirect guard, malformed cursor/sort resilience, archived-community lockdown, private-community zero-leakage checks
 
 ## Configuration
 
-Environment: `PORT`, `DB_PATH`, `UPLOAD_DIR`, `BASE_URL`. Runtime policies (registration mode open/invite/closed, community-creation policy, hot-decay constant, rate limits) are editable in the admin dashboard (`/admin?tab=settings`).
+| Knob | Where |
+|---|---|
+| `PORT`, `DB_PATH`, `UPLOAD_DIR`, `BASE_URL` | environment variables |
+| Registration mode, community-creation policy | Admin → Settings (live) |
+| Hot decay constant, all rate limits | Admin → Settings (live) |
+| Auto-hide threshold, hidden comment scores | per-community settings (moderators) |
 
 ## Production notes
 
-- Deploy behind Caddy (TLS, HSTS); set `NODE_ENV=production` for Secure cookies.
-- Wire a real mailer (Resend/Postmark/SES) by implementing the `Mailer` interface in `src/lib/mailer.ts`.
-- Point `ObjectStorage` at S3-compatible storage for images; serve via CDN.
-- Nightly `sqlite3 data/app.db ".backup ..."` (or move to Postgres) + off-server encrypted copies; test restores quarterly per the PRD.
+- Run behind **Caddy** (or any TLS-terminating proxy); set `NODE_ENV=production` to enable `Secure` cookies.
+- Implement the `Mailer` interface (`src/lib/mailer.ts`) with a real provider (Resend/Postmark/SES) for password resets.
+- Swap `LocalObjectStorage` for an S3-compatible implementation of the `ObjectStorage` interface and serve images via CDN.
+- Back up nightly (`sqlite3 data/app.db ".backup ..."`) to off-server encrypted storage, and test restores. Or host the schema on PostgreSQL — it ports cleanly.
+- Single-node by design: availability strategy is fast redeploy + backups, not HA.
+
+## License
+
+[MIT](LICENSE)
