@@ -1,0 +1,204 @@
+import type { Hono } from 'hono'
+import { openDatabase } from '../src/db'
+import { loadConfig } from '../src/config'
+import type { Ctx } from '../src/context'
+import { createApp } from '../src/app'
+import { MemoryMailer } from '../src/lib/mailer'
+import { RateLimiter } from '../src/lib/ratelimit'
+import { MemoryObjectStorage } from '../src/services/storage'
+import type { AppEnv } from '../src/routes/helpers'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+export interface TestWorld {
+  app: Hono<AppEnv>
+  ctx: Ctx
+  mailer: MemoryMailer
+  storage: MemoryObjectStorage
+  /** Advance the injected clock. */
+  tick(ms: number): void
+  setNow(ms: number): void
+}
+
+const BASE_TIME = Date.UTC(2026, 6, 1, 12, 0, 0) // fixed, deterministic
+
+export function createTestWorld(): TestWorld {
+  let currentTime = BASE_TIME
+  const now = () => currentTime
+  const mailer = new MemoryMailer()
+  const storage = new MemoryObjectStorage()
+  const config = {
+    ...loadConfig({}),
+    dbPath: ':memory:',
+    exportDir: mkdtempSync(join(tmpdir(), 'cp-exports-')),
+    baseUrl: 'http://localhost:3000',
+  }
+  const ctx: Ctx = {
+    db: openDatabase(':memory:'),
+    config,
+    mailer,
+    storage,
+    rateLimiter: new RateLimiter(now),
+    now,
+    fetchFn: (() => Promise.reject(new Error('network disabled in tests'))) as unknown as typeof fetch,
+  }
+  const app = createApp(ctx)
+  return {
+    app,
+    ctx,
+    mailer,
+    storage,
+    tick: (ms) => {
+      currentTime += ms
+    },
+    setNow: (ms) => {
+      currentTime = ms
+    },
+  }
+}
+
+/** HTTP agent with a cookie jar, driving the app like a browser would. */
+export class Agent {
+  private cookies = new Map<string, string>()
+
+  constructor(private app: Hono<AppEnv>) {}
+
+  cookieHeader(): string {
+    return [...this.cookies.entries()].map(([k, v]) => `${k}=${v}`).join('; ')
+  }
+
+  private storeCookies(res: Response): void {
+    for (const raw of res.headers.getSetCookie()) {
+      const [pair, ...attrs] = raw.split(';')
+      const eq = (pair as string).indexOf('=')
+      const name = (pair as string).slice(0, eq).trim()
+      const value = (pair as string).slice(eq + 1).trim()
+      const maxAgeAttr = attrs.map((a) => a.trim().toLowerCase()).find((a) => a.startsWith('max-age='))
+      if (value === '' || maxAgeAttr === 'max-age=0') this.cookies.delete(name)
+      else this.cookies.set(name, value)
+    }
+  }
+
+  async request(path: string, init: RequestInit = {}): Promise<Response> {
+    const headers = new Headers(init.headers)
+    if (this.cookies.size > 0) headers.set('cookie', this.cookieHeader())
+    const res = await this.app.request(path, { ...init, headers })
+    this.storeCookies(res)
+    return res
+  }
+
+  async get(path: string): Promise<Response> {
+    return this.request(path)
+  }
+
+  /** POST as an HTML form (application/x-www-form-urlencoded). */
+  async post(path: string, form: Record<string, string> = {}): Promise<Response> {
+    const body = new URLSearchParams(form).toString()
+    return this.request(path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body,
+    })
+  }
+
+  /** JSON API request. */
+  async json(path: string, body: unknown, method = 'POST'): Promise<Response> {
+    return this.request(path, {
+      method,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  }
+
+  loggedIn(): boolean {
+    return this.cookies.has('sid')
+  }
+}
+
+let userCounter = 0
+
+/** Register a fresh user and return their agent (logged in). */
+export async function registerUser(
+  world: TestWorld,
+  username?: string,
+  opts: { ip?: string; email?: string; password?: string } = {},
+): Promise<{ agent: Agent; username: string; email: string; password: string }> {
+  userCounter += 1
+  const name = username ?? `user${userCounter}`
+  const email = opts.email ?? `${name}@example.test`
+  const password = opts.password ?? 'password12345'
+  const agent = new Agent(world.app)
+  const res = await agent.request('/register', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+      'x-forwarded-for': opts.ip ?? `10.1.${(userCounter >> 8) & 255}.${userCounter & 255}`,
+    },
+    body: new URLSearchParams({ username: name, email, password }).toString(),
+  })
+  if (res.status !== 302) {
+    throw new Error(`registration of ${name} failed: ${res.status}`)
+  }
+  if (!agent.loggedIn()) throw new Error(`registration of ${name} did not create a session`)
+  return { agent, username: name, email, password }
+}
+
+/** First registered user is the site admin. */
+export async function registerAdmin(world: TestWorld): Promise<{ agent: Agent; username: string }> {
+  const count = (world.ctx.db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n
+  if (count > 0) throw new Error('registerAdmin must be called on a fresh world')
+  const { agent, username } = await registerUser(world, `admin${++userCounter}`)
+  return { agent, username }
+}
+
+export async function createCommunityVia(
+  agent: Agent,
+  name: string,
+  visibility: 'public' | 'restricted' | 'private' = 'public',
+): Promise<void> {
+  const res = await agent.post('/communities/new', {
+    name,
+    title: `Community ${name}`,
+    description: `About ${name}`,
+    visibility,
+  })
+  if (res.status !== 302 || !(res.headers.get('location') ?? '').includes(`/c/${name}`)) {
+    throw new Error(`community ${name} creation failed (${res.status} → ${res.headers.get('location')})`)
+  }
+}
+
+/** Create a text post via the form; returns the post id from the redirect. */
+export async function createPostVia(
+  agent: Agent,
+  community: string,
+  title: string,
+  body = '',
+): Promise<string> {
+  const res = await agent.post(`/c/${community}/submit?type=text`, { title, body })
+  const location = res.headers.get('location') ?? ''
+  const match = location.match(/comments\/([a-z0-9]+)/)
+  if (res.status !== 302 || !match) throw new Error(`post creation failed: ${res.status} → ${location}`)
+  return match[1] as string
+}
+
+/** Create a comment via the form; returns comment id from the redirect. */
+export async function createCommentVia(
+  agent: Agent,
+  community: string,
+  postId: string,
+  body: string,
+  parentId?: string,
+): Promise<string> {
+  const form: Record<string, string> = { body }
+  if (parentId) form.parentId = parentId
+  const res = await agent.post(`/c/${community}/comments/${postId}/comment`, form)
+  const location = res.headers.get('location') ?? ''
+  const match = location.match(/comment\/([a-z0-9]+)/)
+  if (res.status !== 302 || !match) throw new Error(`comment creation failed: ${res.status} → ${location}`)
+  return match[1] as string
+}
+
+export async function bodyText(res: Response): Promise<string> {
+  return await res.text()
+}
