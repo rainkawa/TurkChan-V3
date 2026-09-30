@@ -64,16 +64,3 @@ export function embedSrcFor(rawUrl: string | null | undefined): string | null {
   if (embed.provider === 'vimeo') return `https://player.vimeo.com/video/${encodeURIComponent(embed.id)}`
   return `https://platform.twitter.com/embed/Tweet.html?id=${encodeURIComponent(embed.id)}`
 }
-
-/** Kart üzerinde önizlenecek görselin adresi (yoksa undefined). */
-export function previewImageFor(input: {
-  type: 'text' | 'link' | 'image'
-  imageKey: string | null
-  url: string | null
-  linkPreviewImage: string | null
-}): string | null {
-  if (input.type === 'image' && input.imageKey) return `/media/${input.imageKey}`
-  if (input.linkPreviewImage) return input.linkPreviewImage
-  if (mediaKindForUrl(input.url) === 'image' && input.url) return input.url
-  return null
-}

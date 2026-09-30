@@ -11,10 +11,10 @@
  * `message_deletions` ise "sadece benden sil" (diğer kullanıcılar görmeye devam eder).
  */
 import type { Ctx } from '../context'
-import type { MessageRow, UserRow, Viewer } from '../types'
+import type { MessageRow, UserRow } from '../types'
 import { newId } from '../lib/ids'
 import { LIMITS } from '../lib/validation'
-import { badRequest, forbidden, notFound, rateLimited, unauthorized } from './errors'
+import { badRequest, forbidden, notFound, rateLimited } from './errors'
 import { isSuspended } from './access'
 import { getUserById } from './users'
 import { t } from '../i18n/tr'
@@ -24,11 +24,6 @@ const HOUR_MS = 60 * 60 * 1000
 /* -------------------------------------------------------------------------- */
 /* Yardımcılar                                                               */
 /* -------------------------------------------------------------------------- */
-
-function requireViewer(viewer: Viewer | null | undefined): UserRow {
-  if (!viewer) throw unauthorized(t.dm.errors.loginRequired)
-  return viewer
-}
 
 /** Kullanıcının üyesi olduğu sohbeti döndürür; üye değilse undefined. */
 function memberOf(ctx: Ctx, conversationId: string, userId: string) {

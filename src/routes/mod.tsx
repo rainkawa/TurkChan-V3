@@ -22,7 +22,7 @@ import { getComment } from '../services/comments'
 import { AppError, notFound } from '../services/errors'
 import { relativeTime, profilePath, modActionLabel, modDetailLabel, modTargetLabel } from '../views/helpers'
 import { UserByline } from '../views/rank'
-import { authorRanksFor, usersByIds } from '../services/users'
+import { usersByIds } from '../services/users'
 import { rankInfoFor } from '../services/ranks'
 import { type AppEnv, dmUnread, formData, loginRedirect, setFlash, takeFlash, unread } from './helpers'
 

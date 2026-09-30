@@ -6,7 +6,6 @@ import {
   ValidationError,
   LIMITS,
 } from '../lib/validation'
-import { getSettings } from './settings'
 import { badRequest, conflict, forbidden, notFound, unauthorized } from './errors'
 import {
   activeBan,

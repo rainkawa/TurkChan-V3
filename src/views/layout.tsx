@@ -254,7 +254,7 @@ export const Layout: FC<LayoutProps> = ({
           <a
             href="/messages"
             class={active === 'messages' ? 'active' : ''}
-            aria-current="page"
+            aria-current={active === 'messages' ? 'page' : undefined}
           >
             <span class="bottom-inbox">
               <NavIcon name="inbox" />

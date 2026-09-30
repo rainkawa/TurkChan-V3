@@ -150,7 +150,7 @@ describe('US-027 comment sorting', () => {
     world.tick(60 * 1000)
     const idB = await createCommentVia(mod, 'talk', postId, 'COMMENT-BBB') // 15 up, 8 down
     world.tick(60 * 1000)
-    const idC = await createCommentVia(mod, 'talk', postId, 'COMMENT-CCC') // no votes, newest
+    await createCommentVia(mod, 'talk', postId, 'COMMENT-CCC') // no votes, newest
 
     // Set up votes directly (voting through API would need 33 accounts).
     const setVotes = (id: string, up: number, down: number) =>

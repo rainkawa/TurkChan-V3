@@ -89,22 +89,6 @@ export function deleteFlair(ctx: Ctx, communityId: string, actor: UserRow, flair
   ctx.db.prepare('DELETE FROM board_flairs WHERE id = ?').run(flairId)
 }
 
-/** Gönderiye etiket atar (yazar veya moderatör). */
-export function assignFlair(
-  ctx: Ctx,
-  communityId: string,
-  postId: string,
-  actor: UserRow,
-  flairId: string | null,
-): void {
-  if (!flairId) {
-    ctx.db.prepare('UPDATE posts SET flair_id = NULL WHERE id = ? AND community_id = ?').run(postId, communityId)
-    return
-  }
-  if (!getFlair(ctx, communityId, flairId)) throw notFound('Etiket bulunamadı.')
-  ctx.db.prepare('UPDATE posts SET flair_id = ? WHERE id = ? AND community_id = ?').run(flairId, postId, communityId)
-}
-
 /** Bir board için etiket sayısı sınırı (çok etiketliğe karşı). */
 export const FLAIRS_PER_BOARD_MAX = 12
 

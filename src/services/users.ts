@@ -1,7 +1,7 @@
 import type { Ctx } from '../context'
 import type { CommentRow, PostRow, UserRow, Viewer } from '../types'
 import { validateBio, validateDisplayName, validateUsername, validatePassword } from '../lib/validation'
-import { conflict, forbidden, notFound, unauthorized } from './errors'
+import { conflict, forbidden, unauthorized } from './errors'
 import { hashPassword, verifyPassword } from '../lib/passwords'
 import { attachUpload } from './uploads'
 import { rankInfoFor, type UserRank } from './ranks'

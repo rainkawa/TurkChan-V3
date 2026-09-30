@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, test } from 'vitest'
 import {
-  Agent,
   createCommentVia,
   createCommunityVia,
   createPostVia,

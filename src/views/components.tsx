@@ -466,7 +466,7 @@ export const FeedFilterBar: FC<{
               <span class="feed-filter-label">{t.feed.filterFlair}</span>
               <div class="filter-chips">
                 <a class={`filter-chip${flairId ? '' : ' active'}`} href={link({ flair: null })}>
-                  {t.feed.allBoards}
+                  {t.feed.allFlairs}
                 </a>
                 {flairs.map((f) => (
                   <a class={`filter-chip${flairId === f.id ? ' active' : ''}`} href={link({ flair: f.id })}>
