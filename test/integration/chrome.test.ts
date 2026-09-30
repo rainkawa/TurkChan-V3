@@ -48,16 +48,31 @@ describe('başlık çubuğu', () => {
     expect(html.indexOf('app-header-brand')).toBeLessThan(html.indexOf('app-header-inner'))
   })
 
-  test('logo dosyası repoda mevcut ve geçerli SVG', () => {
+  test('logo dosyası ölçeklenebilir ve geçerli SVG', () => {
     // Test dünyası statik dosya servisi kurmaz (serveStatic yalnızca
     // server.ts'te bağlıdır), bu yüzden dosyanın kendisi doğrulanır.
     const svg = readFileSync(new URL('../../public/logo.svg', import.meta.url), 'utf8')
     expect(svg).toContain('<svg')
     expect(svg).toContain('viewBox')
-    expect(svg).toContain('TurkChan')
+    expect(svg).toContain('aria-label="TurkChan"')
+    // viewBox olmadan sabit width/height logoyu ölçekleyemez ve ortalamayı
+    // bozar; ikisinin biri olmalı, diğeri olmamalı.
+    const root = svg.match(/<svg[^>]*>/)?.[0] ?? ''
+    expect(root).toMatch(/viewBox="[\d.\s-]+"/)
+    expect(root).not.toMatch(/\bwidth="/)
+    expect(root).not.toMatch(/\bheight="/)
     // Açık/kapalı etiket dengesi.
     expect(svg.split('<svg').length).toBe(2)
     expect(svg.split('</svg>').length).toBe(2)
+    // Yeterince çizim var (logo boş değil).
+    expect(svg.split('<path').length - 1).toBeGreaterThan(100)
+  })
+
+  test('logo dosyası gereksiz büyük değil (mobil performans)', () => {
+    const bytes = readFileSync(new URL('../../public/logo.svg', import.meta.url)).length
+    // Header'da ~120px genişlikte gösterilen bir logo için 1,5 MB sınırı
+    // aşmamalı; VTracer çıktısı optimize edilmiştir.
+    expect(bytes, `logo ${Math.round(bytes / 1024)} KB`).toBeLessThan(1_500_000)
   })
 
   test('statik varlıklar sürüm parametreli sunulur (cache busting)', async () => {

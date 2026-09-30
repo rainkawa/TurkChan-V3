@@ -95,7 +95,7 @@ svg:not([width]):not([class]) { max-height: 2.5rem; }
    `padding-top` ile bu yüksekliğin altına kaydırılır (çakışma yok).
    ========================================================================== */
 :root {
-  --header-brand-h: 42px;
+  --header-brand-h: 48px;
   --header-h: 44px;
   /* Toplam sticky yükseklik: içerik boşluğu bununla hesaplanır. */
   --header-total-h: calc(var(--header-brand-h) + var(--header-h));
@@ -126,7 +126,10 @@ svg:not([width]):not([class]) { max-height: 2.5rem; }
 }
 .wordmark img {
   display: block;
-  width: auto; height: 100%; max-width: 100%;
+  /* Logo 2001×786 (geniş kelime logosu). Yükseklik sınırlayıcı, genişlik
+     orandan gelir; `max-width` dar ekranda taşmayı engeller. */
+  width: auto; height: 100%;
+  max-width: 100%; max-height: 100%;
   object-fit: contain;
 }
 .wordmark:hover { text-decoration: none; }
@@ -191,7 +194,7 @@ svg:not([width]):not([class]) { max-height: 2.5rem; }
   .icon-btn svg { width: 20px; height: 20px; }
   .app-search { height: 36px; padding: 0 6px; }
   .app-search input { font-size: 0.85rem; padding: 0 4px; }
-  .wordmark img { max-width: 128px; }
+  .wordmark img { max-width: 132px; }
 }
 
 .notif-badge {
