@@ -139,6 +139,38 @@ describe('rota duman testi', () => {
     expect(html).not.toContain('kendi topluluğunu oluştur')
   })
 
+  test('"En iyi" seçilince 3 ana + 4 zaman aralığı sekmesi eksiksiz render edilir', async () => {
+    const { agent } = await registerUser(world)
+    await createCommunityVia(agent, 'best')
+    await createPostVia(agent, 'best', 'BEST-PAGE-POST')
+
+    // Ana sayfa ve board sayfası aynı bileşeni kullanır; ikisini de denetle.
+    for (const path of ['/?sort=best&t=week', '/c/best?sort=best&t=week']) {
+      const res = await agent.get(path)
+      const html = await res.text()
+      const navStart = html.indexOf('class="sort-tabs"')
+      const nav = html.slice(navStart, html.indexOf('</nav>', navStart))
+
+      // 3 ana sıralama + 4 zaman aralığı = 7 bağlantı, hiçbiri eksik değil.
+      const links = [...nav.matchAll(/<a\s+href="([^"]+)"/g)].map((m) => m[1] as string)
+      expect(links.length, `${path} → ${links.length} bağlantı`).toBe(7)
+
+      for (const w of ['day', 'week', 'month', 'all']) {
+        expect(nav, `${path} → t=${w} eksik`).toContain(`t=${w}`)
+      }
+      // Zaman aralığı çipleri "Tüm zamanlar" dahil tam görünmeli.
+      expect(html).toContain('Tüm zamanlar')
+    }
+  })
+
+  test('sıralama çubuğu dar ekranda taşmaz (sarmalama + grid sıfırlama)', () => {
+    const css = readFileSync('public/style.css', 'utf8')
+    // Yatay kaydırma yerine sarmalama: hiçbir chip gizli kalmaz.
+    expect(css).toMatch(/@media \(max-width: 600px\)[\s\S]*?\.sort-tabs \{[^}]*flex-wrap: wrap/)
+    // Izgara çocukları taşmayı bırakmaz.
+    expect(css).toContain('.home-layout > *, .layout > * { min-width: 0; }')
+  })
+
   test('ziyaretçi ve girişsiz rotalar 5xx vermez', async () => {
     const owner = await registerUser(world)
     await createCommunityVia(owner.agent, 'open')

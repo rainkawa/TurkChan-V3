@@ -293,6 +293,10 @@ button { font-family: inherit; }
   -webkit-overflow-scrolling: touch; scrollbar-width: none;
 }
 .sort-tabs::-webkit-scrollbar { display: none; }
+/* Grid çocukları ölçü olarak `min-width: auto` kullanır. Sıralama çubuğu
+   kendi içinde kaydırılabilir olsa da, grid/sidebar varyantlarında uzun
+   başlıkların taşmasını önlemek için çocukları açıkça sıfırlıyoruz. */
+.home-layout > *, .layout > * { min-width: 0; }
 .sort-tabs a {
   flex: 0 0 auto;
   padding: 5px 12px; border-radius: var(--radius-pill);
@@ -1381,6 +1385,18 @@ body.is-chat .bottom-nav { display: none; }
    ========================================================================== */
 .feed-head { display: flex; align-items: center; gap: var(--space-3); }
 .feed-head .sort-tabs { flex: 1; min-width: 0; }
+
+/* Dar ekranda "En iyi" seçiliyken 3 ana + 4 zaman aralığı chip'i tek satıra
+   sığmaz. Sarmalayarak hepsini görünür tutuyoruz: kaydırma gerekmiyor,
+   kırpılan chip kalmıyor. */
+@media (max-width: 600px) {
+  .sort-tabs { flex-wrap: wrap; overflow-x: visible; row-gap: 6px; }
+  .feed-head { flex-wrap: wrap; }
+  .feed-head .sort-tabs { flex: 1 1 100%; }
+  .for-you-chip { order: -1; }
+  .sort-tabs a { padding: 6px 11px; }
+  .sort-tabs a.sort-sub { padding: 4px 10px; }
+}
 .for-you-chip {
   flex: 0 0 auto;
   padding: 4px 10px; border-radius: var(--radius-pill);
