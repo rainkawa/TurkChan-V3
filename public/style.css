@@ -78,6 +78,16 @@ button { font-family: inherit; }
 :focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 4px; }
 
 /* ==========================================================================
+   Satır içi SVG güvenlik ağı
+   --------------------------------------------------------------------------
+   Bir `<svg>` için ne `width`/`height` özniteliği ne de CSS kuralı varsa
+   tarayıcı onu 300×150 çizer; tek ikon sayfayı kaplar. Yeni eklenen her
+   ikon hem öznitelik hem CSS ile boyutlanır, bu kural ise son savunmadır.
+   ========================================================================== */
+svg:not([width]) { max-width: 100%; max-height: 3rem; }
+svg:not([width]):not([class]) { max-height: 2.5rem; }
+
+/* ==========================================================================
    2. Uygulama header'ı — iki satır: ortada logo, altında hamburger ·
       arama · bildirim
    --------------------------------------------------------------------------
@@ -85,7 +95,7 @@ button { font-family: inherit; }
    `padding-top` ile bu yüksekliğin altına kaydırılır (çakışma yok).
    ========================================================================== */
 :root {
-  --header-brand-h: 46px;
+  --header-brand-h: 42px;
   --header-h: 44px;
   /* Toplam sticky yükseklik: içerik boşluğu bununla hesaplanır. */
   --header-total-h: calc(var(--header-brand-h) + var(--header-h));
@@ -99,16 +109,20 @@ button { font-family: inherit; }
   padding-top: var(--safe-t);
 }
 
-/* Satır 1: kelime logosu tam ortada. */
+/* Satır 1: kelime logosu tam ortada.
+   `justify-content: center` + `margin-inline: auto` birlikte: eski bir
+   önbelleklenmiş stil sayfası yüklense bile sola yapışmasın diye logo
+   kapsayıcısı kendi satırında tam genişlik alır ve ortalar. */
 .app-header-brand {
   display: flex; align-items: center; justify-content: center;
+  width: 100%; max-width: 100%;
   height: var(--header-brand-h);
   padding: 0 12px;
   overflow: hidden;
 }
 .wordmark {
   display: inline-flex; align-items: center; justify-content: center;
-  min-width: 0; text-decoration: none;
+  min-width: 0; margin-inline: auto; text-decoration: none;
 }
 .wordmark img {
   display: block;

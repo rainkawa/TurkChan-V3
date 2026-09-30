@@ -208,38 +208,38 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
             */
           <details class="mod-tools">
             <summary class="mod-tools-summary">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
                 <path d="M12 3 4 6.5v5c0 4.5 3.2 8.2 8 9.5 4.8-1.3 8-5 8-9.5v-5L12 3Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
                 <path d="M9.2 12.2 11.2 14.2 15 10.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
               </svg>
               <span>{t.community.manage}</span>
-              <svg class="mod-tools-caret" viewBox="0 0 24 24" aria-hidden="true">
+              <svg class="mod-tools-caret" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
                 <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
               </svg>
             </summary>
             <div class="mod-tools-menu">
               <a href={`/c/${community.name}/mod/queue`}>
-                <svg viewBox="0 0 24 24" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
                   <path d="M5 21V4m0 0 7 4v13M5 4l13 7-3 3-10-7Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
                 </svg>
                 <span>{t.community.modQueue}</span>
               </a>
               <a href={`/c/${community.name}/mod/members`}>
-                <svg viewBox="0 0 24 24" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
                   <circle cx="9" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8" />
                   <path d="M3.5 19c0-3 2.4-5 5.5-5s5.5 2 5.5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
                 </svg>
                 <span>{t.community.approvals}</span>
               </a>
               <a href={`/c/${community.name}/mod/log`}>
-                <svg viewBox="0 0 24 24" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
                   <rect x="4" y="4" width="16" height="16" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8" />
                   <path d="M8 9h8M8 13h8M8 17h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
                 </svg>
                 <span>{t.community.modLog}</span>
               </a>
               <a href={`/c/${community.name}/settings`}>
-                <svg viewBox="0 0 24 24" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
                   <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8" />
                   <path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6 18 18M18 6l-1.4 1.4M7.4 16.6 6 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
                 </svg>
@@ -415,7 +415,7 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
             {type === 'link' && (
               <div class="field field-link">
                 <label for="url">
-                  <svg class="field-link-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <svg class="field-link-icon" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
                     <path d="M10.5 13.5a4 4 0 0 0 5.7 0l2.8-2.8a4 4 0 0 0-5.7-5.7l-1.3 1.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
                     <path d="M13.5 10.5a4 4 0 0 0-5.7 0l-2.8 2.8a4 4 0 0 0 5.7 5.7l1.3-1.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
                   </svg>
@@ -447,7 +447,7 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
                 />
                 <label class="media-drop" for="image" data-media-drop>
                   <span class="media-drop-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24">
+                    <svg viewBox="0 0 24 24" width="20" height="20">
                       <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
                       <path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
                     </svg>

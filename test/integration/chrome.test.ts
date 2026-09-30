@@ -60,6 +60,27 @@ describe('başlık çubuğu', () => {
     expect(svg.split('</svg>').length).toBe(2)
   })
 
+  test('statik varlıklar sürüm parametreli sunulur (cache busting)', async () => {
+    // max-age=3600 nedeniyle tarayıcı eski CSS/JS kullanıyordu; yeni sınıf
+    // kuralları uygulanmadığı için ikonlar 300×150 varsayılanına düşüyordu.
+    const { agent } = await registerUser(world)
+    const html = await (await agent.get('/')).text()
+    expect(html).toMatch(/href="\/static\/style\.css\?v=\d+"/)
+    expect(html).toMatch(/src="\/static\/app\.js\?v=\d+"/)
+    expect(html).toMatch(/src="\/static\/logo\.svg\?v=\d+"/)
+  })
+
+  test('logo ortalanmış kapsayıcıda', async () => {
+    const { agent } = await registerUser(world)
+    const html = await (await agent.get('/')).text()
+    expect(html).toContain('class="app-header-brand"')
+    expect(html).toContain('class="wordmark"')
+    const css = readFileSync(new URL('../../public/style.css', import.meta.url), 'utf8')
+    // Ortalamayı taşıyan kurallar gerçekten var mı.
+    expect(css).toMatch(/\.app-header-brand\s*\{[^}]*justify-content:\s*center/)
+    expect(css).toMatch(/\.wordmark\s*\{[^}]*margin-inline:\s*auto/)
+  })
+
   test('arama alanında eski marka işareti yok', async () => {
     const { agent } = await registerUser(world)
     const html = await (await agent.get('/')).text()
@@ -126,8 +147,7 @@ describe('medya seçici', () => {
  * Gönderi oluşturma sayfası taşması
  * ------------------------------------------------------------------------ */
 
-describe('gönderi oluşturma sayfası', () => {
-  test('taşmayı önleyen kapsayıcı sınıfı uygulanmış', async () => {
+describe('gönderi oluşturma sayfası', () => {  test('taşmayı önleyen kapsayıcı sınıfı uygulanmış', async () => {
     const { agent } = await registerUser(world)
     await createCommunityVia(agent, 'narrow')
     const html = await (await agent.get('/c/narrow/submit?type=text')).text()
@@ -146,5 +166,39 @@ describe('gönderi oluşturma sayfası', () => {
       // Başlık ayrıştırılabilir: board adı metin olarak mevcut.
       expect(html).toContain(`c/${long}`)
       expect(html).toContain('submit-card-board')
+  })
+})
+
+/* --------------------------------------------------------------------------
+ * İkon ölçüleri
+ * ------------------------------------------------------------------------ */
+
+describe('ikon ölçüleri', () => {
+  /**
+   * Boyutu ne öznitelikle ne CSS kuralı tanımlanmamış bir `<svg>`, tarayıcı
+   * varsayılanı olarak 300×150 çizilir ve tek ikon sayfayı kaplar. Yeni
+   * eklenen ikonların hepsi öznitelik taşımalı.
+   */
+  test('kullanıcıya görünen sayfalarda boyutsuz satır içi SVG kalmadı', async () => {
+    const { agent } = await registerUser(world)
+    await createCommunityVia(agent, 'icons')
+    const pages = [
+      '/',
+      '/c/icons',
+      '/c/icons/submit?type=image',
+      '/c/icons/submit?type=link',
+      '/notifications',
+      '/settings',
+    ]
+    for (const path of pages) {
+      const html = await (await agent.get(path)).text()
+      const unsized = [...html.matchAll(/<svg(?![^>]*\bwidth=)[^>]*>/g)].map((m) => m[0])
+      expect(unsized, `${path} sayfasında boyutsuz SVG var`).toEqual([])
+    }
+  })
+
+  test('CSS güvenlik ağı mevcut', () => {
+    const css = readFileSync(new URL('../../public/style.css', import.meta.url), 'utf8')
+    expect(css).toMatch(/svg:not\(\[width\]\)\s*\{[^}]*max-height/)
   })
 })

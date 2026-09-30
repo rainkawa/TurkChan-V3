@@ -21,7 +21,7 @@ const EmptyState: FC<{ title: string; body: string; ctaHref: string; ctaLabel: s
 }) => (
   <div class="empty-panel">
     <span class="empty-icon" aria-hidden="true">
-      <svg viewBox="0 0 24 24">
+      <svg viewBox="0 0 24 24" width="22" height="22">
         <rect x="3.5" y="4.5" width="17" height="15" rx="4" fill="none" stroke="currentColor" stroke-width="1.8" />
         <path d="M8 10h8M8 14h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
       </svg>
@@ -82,13 +82,13 @@ export const ProfileView_: FC<{
           <div class="profile-cover-scrim" aria-hidden="true" />
           <div class="profile-cover-actions">
             <a class="round-btn" href="/search" aria-label={t.nav.search}>
-              <svg viewBox="0 0 24 24" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">
                 <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2" />
                 <path d="m16 16 4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
               </svg>
             </a>
             <button class="round-btn" type="button" data-share={profilePath(user.username)} aria-label={t.profile.shareProfile}>
-              <svg viewBox="0 0 24 24" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">
                 <path d="M12 15V4m0 0L8 8m4-4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
                 <path d="M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
               </svg>

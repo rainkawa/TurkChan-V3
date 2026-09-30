@@ -109,7 +109,7 @@ const Section: FC<{
       {typeof count === 'number' && count > 0 && <span class="dm-section-count">{count}</span>}
       {collapsible && (
         <button class="dm-section-toggle" type="button" data-dm-toggle={variant} aria-expanded="true">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
             <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </button>
@@ -140,7 +140,7 @@ export const MessagesPage: FC<{
     <header class="dm-page-head">
       <h1 class="dm-title">{t.dm.title}</h1>
       <button class="icon-btn dm-search-open" type="button" data-dm-search-toggle aria-expanded={query ? 'true' : 'false'}>
-        <svg viewBox="0 0 24 24" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
           <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2" />
           <path d="m16 16 4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
         </svg>
@@ -268,10 +268,10 @@ const MessageBubble: FC<{ message: ThreadMessage; peer: UserRow }> = ({ message,
           <TimeOfDay ms={message.createdAt} />
           {message.mine && !message.deleted && (
             <span class={`dm-bubble-read${message.readByPeer ? ' is-read' : ''}`} data-dm-read={message.readByPeer ? '1' : '0'}>
-              <svg viewBox="0 0 20 20" aria-hidden="true" class="dm-tick dm-tick-single">
+              <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true" class="dm-tick dm-tick-single">
                 <path d="m4 10.5 4 4 8-9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
               </svg>
-              <svg viewBox="0 0 24 20" aria-hidden="true" class="dm-tick dm-tick-double">
+              <svg viewBox="0 0 24 20" width="14" height="14" aria-hidden="true" class="dm-tick dm-tick-double">
                 <path d="m1 10.5 4 4 8-9M9 10.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
               </svg>
               <span class="visually-hidden">{message.readByPeer ? t.dm.read : t.dm.sent}</span>
@@ -340,7 +340,7 @@ export const ChatPage: FC<{
   <div class="dm-chat" data-dm-chat data-conversation={conversationId}>
     <header class="dm-chat-head">
       <a class="icon-btn" href="/messages" aria-label={t.dm.title}>
-        <svg viewBox="0 0 24 24" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
           <path d="m14 6-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
       </a>
@@ -379,7 +379,7 @@ export const ChatPage: FC<{
         <input type="hidden" name="replyTo" value={replyTo.id} form="dm-composer" />
         <button class="icon-btn" type="button" data-dm-cancel-reply>
           <span class="visually-hidden">{t.dm.cancelReply}</span>
-          <svg viewBox="0 0 24 24" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
             <path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
           </svg>
         </button>

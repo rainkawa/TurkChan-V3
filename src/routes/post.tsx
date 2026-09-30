@@ -238,7 +238,7 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
             <div class="social-card-head-actions">
               <details class="overflow-menu">
                 <summary aria-label={t.card.more} title={t.card.more}>
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
                     <circle cx="5" cy="12" r="2" fill="currentColor" />
                     <circle cx="12" cy="12" r="2" fill="currentColor" />
                     <circle cx="19" cy="12" r="2" fill="currentColor" />
@@ -412,13 +412,13 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
               layout="horizontal"
             />
             <a class="action-btn" href="#comments">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
                 <path d="M20 12a7.5 7.5 0 0 1-11 6.6L4 20l1.4-4.6A7.5 7.5 0 1 1 20 12Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
               </svg>
               <span>{post.comment_count} {t.feed.comments}</span>
             </a>
             <button class="action-btn" type="button" data-share={`/c/${community.name}/comments/${post.id}`}>
-              <svg viewBox="0 0 24 24" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
                 <path d="M12 15V4m0 0L8 8m4-4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
                 <path d="M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
               </svg>
@@ -427,7 +427,7 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
             {contentHidden === null && (
               <button class="action-btn" type="button" data-save-post={post.id} data-save-title={post.title}
                 data-save-href={`/c/${community.name}/comments/${post.id}`} data-save-community={community.name}>
-                <svg viewBox="0 0 24 24" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
                   <path d="M7 4h10v16l-5-4-5 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
                 </svg>
                 <span data-save-label>{t.card.save}</span>

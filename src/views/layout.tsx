@@ -1,8 +1,31 @@
 import type { FC, Child } from 'hono/jsx'
+import { statSync } from 'node:fs'
 import { t } from '../i18n/tr'
 import { profilePath } from './helpers'
 import { isAdminPower } from '../services/ranks'
 import type { UserRow } from '../types'
+
+/**
+ * Statik varlık sürümü (cache busting).
+ *
+ * `serveStatic` `max-age=3600` gönderiyor; tarayıcı bir saat boyunca eski
+ * `style.css` / `app.js` kullanıyordu. Yeni bir sınıf eklendiğinde kural
+ * uygulanmadığı için sayfa kırık görünüyordu (ör. satır içi SVG'ler 300×150
+ * varsayılanına düşüyordu).
+ *
+ * Dosyanın değişiklik zamanı URL'ye eklenerek tarayıcı dosya değiştiği anda
+ * yeni sürümü ister. Değişmezse sürüm sabit kalır.
+ */
+function assetVersion(file: string): string {
+  try {
+    return String(Math.trunc(statSync(file).mtimeMs))
+  } catch {
+    return '0'
+  }
+}
+const CSS_VERSION = assetVersion('public/style.css')
+const JS_VERSION = assetVersion('public/app.js')
+const LOGO_VERSION = assetVersion('public/logo.svg')
 
 export interface OgTags {
   title: string
@@ -49,7 +72,7 @@ const BrandMark: FC<{ size?: number; class?: string }> = ({ size = 26, class: cl
 const NavIcon: FC<{ name: 'home' | 'communities' | 'create' | 'inbox' | 'me' }> = ({ name }) => {
   if (name === 'home') {
     return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
         <path d="M3 10.5 12 3l9 7.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
         <path d="M5.5 9.5V20h13V9.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
       </svg>
@@ -57,7 +80,7 @@ const NavIcon: FC<{ name: 'home' | 'communities' | 'create' | 'inbox' | 'me' }> 
   }
   if (name === 'communities') {
     return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
         <circle cx="9" cy="8" r="3" fill="none" stroke="currentColor" stroke-width="2" />
         <path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
         <path d="M16 6.5a3 3 0 0 1 0 5.5M18 19c0-2.2-.8-3.8-2-4.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
@@ -66,21 +89,21 @@ const NavIcon: FC<{ name: 'home' | 'communities' | 'create' | 'inbox' | 'me' }> 
   }
   if (name === 'create') {
     return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
         <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
       </svg>
     )
   }
   if (name === 'inbox') {
     return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
         <path d="M3 13h5l1.5 3h5L16 13h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
         <path d="M5 5h14l2 8v6H3v-6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
       </svg>
     )
   }
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
       <circle cx="12" cy="8.5" r="3.5" fill="none" stroke="currentColor" stroke-width="2" />
       <path d="M4.5 20c0-3.6 3.4-6 7.5-6s7.5 2.4 7.5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
     </svg>
@@ -112,7 +135,7 @@ export const Layout: FC<LayoutProps> = ({
         <meta name="theme-color" content="#ffffff" />
         <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
         <link rel="apple-touch-icon" href="/static/favicon.svg" />
-        <link rel="stylesheet" href="/static/style.css" />
+        <link rel="stylesheet" href={`/static/style.css?v=${CSS_VERSION}`} />
         {og && (
           <>
             <meta property="og:title" content={og.title} />
@@ -142,7 +165,7 @@ export const Layout: FC<LayoutProps> = ({
           */}
           <div class="app-header-brand">
             <a class="wordmark" href="/" aria-label={t.siteName}>
-              <img src="/static/logo.svg" alt={t.siteName} width="150" height="40" />
+              <img src={`/static/logo.svg?v=${LOGO_VERSION}`} alt={t.siteName} width="150" height="40" />
             </a>
           </div>
 
@@ -155,13 +178,13 @@ export const Layout: FC<LayoutProps> = ({
               aria-controls="site-drawer"
               aria-expanded="false"
             >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
                 <path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
               </svg>
             </button>
 
             <form class="app-search" action="/search" method="get" role="search">
-              <svg class="app-search-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <svg class="app-search-icon" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
                 <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2" />
                 <path d="m16 16 4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
               </svg>
@@ -180,7 +203,7 @@ export const Layout: FC<LayoutProps> = ({
               aria-label={t.nav.notifications}
               data-notification-badge={String(totalBadge)}
             >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
                 <path d="M6 9a6 6 0 1 1 12 0c0 4 1.5 5.5 1.5 5.5h-15S6 13 6 9Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
                 <path d="M10 18a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
               </svg>
@@ -198,7 +221,7 @@ export const Layout: FC<LayoutProps> = ({
                 <span>{t.siteName}</span>
               </a>
               <button class="icon-btn" type="button" data-drawer-close aria-label={t.nav.closeMenu}>
-                <svg viewBox="0 0 24 24" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
                   <path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
                 </svg>
               </button>
@@ -288,7 +311,7 @@ export const Layout: FC<LayoutProps> = ({
           </>
         )}
 
-        <script src="/static/app.js" defer></script>
+        <script src={`/static/app.js?v=${JS_VERSION}`} defer></script>
       </body>
     </html>
   )

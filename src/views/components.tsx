@@ -368,7 +368,7 @@ export const SocialCard: FC<{
           {showCommunity && viewer && !isOwn && <JoinButton community={item.community_name} state={membership} compact />}
           <details class="overflow-menu">
             <summary aria-label={t.card.more} title={t.card.more}>
-              <svg viewBox="0 0 24 24" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
                 <circle cx="5" cy="12" r="2" fill="currentColor" />
                 <circle cx="12" cy="12" r="2" fill="currentColor" />
                 <circle cx="19" cy="12" r="2" fill="currentColor" />
@@ -415,7 +415,7 @@ export const SocialCard: FC<{
             {item.type === 'link' && item.url && (
               <a class="social-card-link" href={item.url} rel="nofollow noopener" target="_blank">
                 <span class="social-card-link-badge">
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
                     <path d="M10.5 13.5a4 4 0 0 0 5.7 0l2.8-2.8a4 4 0 0 0-5.7-5.7l-1.3 1.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
                     <path d="M13.5 10.5a4 4 0 0 0-5.7 0l-2.8 2.8a4 4 0 0 0 5.7 5.7l1.3-1.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
                   </svg>
@@ -437,7 +437,7 @@ export const SocialCard: FC<{
           {item.type === 'link' && item.url && (
             <a class="social-card-link" href={item.url} rel="nofollow noopener" target="_blank">
               <span class="social-card-link-badge">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
                   <path d="M10.5 13.5a4 4 0 0 0 5.7 0l2.8-2.8a4 4 0 0 0-5.7-5.7l-1.3 1.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
                   <path d="M13.5 10.5a4 4 0 0 0-5.7 0l-2.8 2.8a4 4 0 0 0 5.7 5.7l1.3-1.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
                 </svg>
@@ -484,13 +484,13 @@ export const SocialCard: FC<{
           layout="horizontal"
         />
         <a class="action-btn" href={href}>
-          <svg viewBox="0 0 24 24" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
             <path d="M20 12a7.5 7.5 0 0 1-11 6.6L4 20l1.4-4.6A7.5 7.5 0 1 1 20 12Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
           </svg>
           <span>{item.comment_count} {t.feed.comments}</span>
         </a>
         <button class="action-btn" type="button" data-share={href}>
-          <svg viewBox="0 0 24 24" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
             <path d="M12 15V4m0 0L8 8m4-4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
             <path d="M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
           </svg>
@@ -504,7 +504,7 @@ export const SocialCard: FC<{
           data-save-href={href}
           data-save-community={item.community_name}
         >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
             <path d="M7 4h10v16l-5-4-5 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
           </svg>
           <span data-save-label>{t.card.save}</span>
@@ -540,7 +540,7 @@ export const FeedFilterBar: FC<{
     <div class="feed-filters" data-feed-filters>
       <details class="feed-filter-details">
         <summary class="feed-filter-summary">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
             <path d="M4 6h16M7 12h10M10 18h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
           </svg>
           <span>{t.feed.filterLabel}</span>
