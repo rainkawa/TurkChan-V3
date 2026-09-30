@@ -219,30 +219,31 @@ export function rankBadgeLabel(info: UserRank): string {
  * Kullanıcı adının yanında gösterilen tek rozet görselinin kaynağı.
  *
  * Görseller `public/assets/ranks/` altında durur ve `npm run rank:assets`
- * (scripts/generate-rank-assets.mjs) ile üretilir. Hepsi SVG’dir: ikon + rütbe
- * yazısı taşıyan tek tip bir çip, Angel/Legend/God ve yönetim yetkileri kendi
- * animasyonunu SVG içinde çalıştırır (her DPI’da net, ~2 KB).
+ * (scripts/generate-rank-assets.mjs) ile üretilir. Hepsi gerçek GIF'tir:
+ * ikon + rütbe yazısı taşıyan yatay forum rank bannerı, üst rütbeler ve
+ * yönetim yetkileri sonsuz döngüde ışık huzmesiyle canlanır. SVG veya CSS
+ * animasyonu yoktur; dosyalar normal `<img>` olarak çalışır.
  */
 export const RANK_ASSET_DIR = '/static/assets/ranks'
 
 const RANK_ASSET_FILES: Record<RankId, string> = {
-  new_user: 'new-user.svg',
-  active_user: 'active-user.svg',
-  super_user: 'super-user.svg',
-  angel: 'angel.svg',
-  legend: 'legend.svg',
-  god: 'god.svg',
+  new_user: 'new-user.gif',
+  active_user: 'active-user.gif',
+  super_user: 'super-user.gif',
+  angel: 'angel.gif',
+  legend: 'legend.gif',
+  god: 'god.gif',
 }
 
 const STAFF_ROLE_ASSET_FILES: Record<StaffRole, string> = {
-  moderator: 'moderator.svg',
-  super_moderator: 'super-moderator.svg',
-  co_admin: 'co-admin.svg',
-  admin: 'admin.svg',
+  moderator: 'moderator.gif',
+  super_moderator: 'super-moderator.gif',
+  co_admin: 'co-admin.gif',
+  admin: 'admin.gif',
 }
 
-/** Kısıtlama rozeti: koyu gri, statik. */
-export const BANNED_ASSET = `${RANK_ASSET_DIR}/banned.svg`
+/** Kısıtlama rozeti: koyu gri statik banner. */
+export const BANNED_ASSET = `${RANK_ASSET_DIR}/banned.gif`
 
 export function rankAsset(id: RankId): string {
   return `${RANK_ASSET_DIR}/${RANK_ASSET_FILES[id]}`

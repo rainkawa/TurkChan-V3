@@ -20,9 +20,11 @@
     "markdown-it": "^14.1.0"
   },
   "devDependencies": {
+    "@napi-rs/canvas": "^1.0.9",
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^22.13.0",
     "lucide-static": "^1.49.0",
+    "omggif": "^1.0.10",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"

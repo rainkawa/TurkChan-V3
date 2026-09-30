@@ -44,12 +44,12 @@ describe('rank rozetleri arayüzde', () => {
 
     const profile = await (await new Agent(world.app).get(`/tc/${username}`)).text()
     expect(profile).toContain('rank-legend')
-    expect(profile).toContain('/static/assets/ranks/legend.svg')
+    expect(profile).toContain('/static/assets/ranks/legend.gif')
     expect(profile).toContain('Legend')
 
     const post = await (await new Agent(world.app).get(`/c/plaza/comments/${postId}`)).text()
     expect(post).toContain('rank-legend')
-    expect(post).toContain('/static/assets/ranks/legend.svg')
+    expect(post).toContain('/static/assets/ranks/legend.gif')
     expect(post).toContain('Legend')
 
     const home = await (await new Agent(world.app).get('/')).text()
@@ -61,7 +61,7 @@ describe('rank rozetleri arayüzde', () => {
     const { postId } = await setupAuthor()
     const post = await (await new Agent(world.app).get(`/c/plaza/comments/${postId}`)).text()
     expect(post).toContain('rank-new_user')
-    expect(post).toContain('/static/assets/ranks/new-user.svg')
+    expect(post).toContain('/static/assets/ranks/new-user.gif')
     expect(post).toContain('New User')
   })
 
@@ -74,7 +74,7 @@ describe('rank rozetleri arayüzde', () => {
 
     const search = await (await new Agent(world.app).get('/search?q=Rank')).text()
     expect(search).toContain('/tc/' + username)
-    expect(search).toContain('/static/assets/ranks/super-user.svg')
+    expect(search).toContain('/static/assets/ranks/super-user.gif')
     expect(search).toContain('Super User')
 
     // Başka bir kullanıcı gönderiye yorum yazınca bildirim satırında rozet görünür.
@@ -89,7 +89,7 @@ describe('rank rozetleri arayüzde', () => {
     const notifications = await (await author.get('/notifications')).text()
     expect(notifications).toContain('/tc/' + replierName)
     expect(notifications).toContain('rank-legend')
-    expect(notifications).toContain('/static/assets/ranks/legend.svg')
+    expect(notifications).toContain('/static/assets/ranks/legend.gif')
   })
 })
 
@@ -111,7 +111,7 @@ describe('kısıtlama (ban) rütbesi', () => {
 
     const during = await (await guest.get(`/tc/${username}`)).text()
     expect(during).toContain('rank-banned')
-    expect(during).toContain('/static/assets/ranks/banned.svg')
+    expect(during).toContain('/static/assets/ranks/banned.gif')
     expect(during).toContain('Yasaklı')
     expect(during).not.toContain('rank-legend')
 
@@ -131,7 +131,7 @@ describe('kısıtlama (ban) rütbesi', () => {
     world.tick(365 * 24 * 60 * 60 * 1000)
     const page = await (await new Agent(world.app).get(`/tc/${username}`)).text()
     expect(page).toContain('rank-banned')
-    expect(page).toContain('/static/assets/ranks/banned.svg')
+    expect(page).toContain('/static/assets/ranks/banned.gif')
   })
 })
 
@@ -150,10 +150,10 @@ describe('yönetim yetkileri', () => {
 
     const profile = await (await new Agent(world.app).get(`/tc/${username}`)).text()
     expect(profile).toContain('role-moderator')
-    expect(profile).toContain('/static/assets/ranks/moderator.svg')
+    expect(profile).toContain('/static/assets/ranks/moderator.gif')
     expect(profile).toContain('Moderator')
     // Yetki varken karma rütbesi rozeti gösterilmez (tek rozet kuralı).
-    expect(profile).not.toContain('/static/assets/ranks/new-user.svg')
+    expect(profile).not.toContain('/static/assets/ranks/new-user.gif')
     expect(profile).not.toContain('rank-new_user')
 
     const allowed = await author.get('/c/plaza/mod/queue')
@@ -170,22 +170,22 @@ describe('yönetim yetkileri', () => {
     await admin.post(`/admin/users/${userId}`, { username, displayName: '', bio: '', rankMode: 'auto', staffRole: 'admin' })
 
     const profile = await (await new Agent(world.app).get(`/tc/${username}`)).text()
-    expect(profile).toContain('/static/assets/ranks/admin.svg')
+    expect(profile).toContain('/static/assets/ranks/admin.gif')
     expect(profile).toContain('rank-admin')
-    expect(profile).not.toContain('/static/assets/ranks/god.svg')
+    expect(profile).not.toContain('/static/assets/ranks/god.gif')
     expect(profile).not.toContain('rank-god')
     // Profildeki her rozet aynı yetki görseli (başka bir rütbe görseli yok).
     const images = [...profile.matchAll(/<img class="rank-img" src="([^"]+)"/g)].map((m) => m[1])
     expect(images.length).toBeGreaterThan(0)
-    expect([...new Set(images)]).toEqual(['/static/assets/ranks/admin.svg'])
+    expect([...new Set(images)]).toEqual(['/static/assets/ranks/admin.gif'])
   })
 
   test('süper moderatör, yardımcı yönetici ve yönetici rozetleri ayrı görsellerle görünür', async () => {
     const { admin } = await setupAuthor()
     const roles: Array<[string, string, string]> = [
-      ['super_moderator', 'role-super_moderator', '/static/assets/ranks/super-moderator.svg'],
-      ['co_admin', 'role-co_admin', '/static/assets/ranks/co-admin.svg'],
-      ['admin', 'role-admin', '/static/assets/ranks/admin.svg'],
+      ['super_moderator', 'role-super_moderator', '/static/assets/ranks/super-moderator.gif'],
+      ['co_admin', 'role-co_admin', '/static/assets/ranks/co-admin.gif'],
+      ['admin', 'role-admin', '/static/assets/ranks/admin.gif'],
     ]
     for (const [role, className, asset] of roles) {
       const { agent, username } = await registerUser(world, `u_${role}`)
@@ -221,7 +221,7 @@ describe('yönetim panelinden rütbe ve profil yönetimi', () => {
     await admin.post(`/admin/users/${userId}`, { username, displayName: 'Mert', bio: 'Selam', rankMode: 'manual', rank: 'god' })
     const manual = await (await guest.get(`/tc/${username}`)).text()
     expect(manual).toContain('rank-god')
-    expect(manual).toContain('/static/assets/ranks/god.svg')
+    expect(manual).toContain('/static/assets/ranks/god.gif')
     expect(manual).toContain('God')
 
     const detail = await (await admin.get(`/admin?tab=users&edit=${userId}`)).text()

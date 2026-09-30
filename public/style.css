@@ -847,13 +847,13 @@ table.data th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0
 .type-tabs a.active { background: var(--ink); color: #fff; }
 
 /* ==========================================================================
-   11. Rütbe ve yönetim yetkisi rozetleri (görsel)
+   11. Rütbe ve yönetim yetkisi rozetleri (GIF rank bannerı)
    ========================================================================== */
 /*
- * Rozetler artık metin değil görsel asset: kullanıcı adının hemen yanında tek
- * bir rozet gösterilir (kısıtlama > yönetim yetkisi > karma rütbesi). Statik
- * olanlar PNG, animasyonlu olanlar GIF'tir; hepsi 64x64 üretilir ve
- * `object-fit: contain` ile en-boy oranı bozulmadan ölçeklenir.
+ * Rozetler metin değil, gerçek GIF rank bannerıdır: kullanıcı adının hemen
+ * yanında tek bir rozet gösterilir (kısıtlama > yönetim yetkisi > karma rütbesi).
+ * Bannerlar 30px mantıksal yükseklikte, 2x çözünürlükte üretilir; burada yalnızca
+ * yükseklik verilip genişlik SVG/GIF'in kendi en-boy oranından bırakılır.
  */
 .rank-badges {
   display: inline-flex; align-items: center; gap: 4px;
@@ -866,8 +866,8 @@ table.data th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0
 }
 .rank-img {
   display: block;
-  height: 22px;   /* akış/yorum satırları 18–26px aralığında */
-  width: auto;    /* SVG'nin kendi en-boy oranı: ikon + yazı yerleşimi bozulmaz */
+  height: 26px;   /* akış/yorum satırları: yazı okunaklı kalsın */
+  width: auto;    /* banner kendi en-boy oranını bildirir */
   max-width: 100%;
   object-fit: contain;
   flex: none;
@@ -892,8 +892,8 @@ table.data th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0
 
 .user-byline { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px; }
 .user-byline > a { font-weight: 700; }
-/* Profil sayfasında rozet daha büyük gösterilir. */
-.profile-handle .rank-img { height: 30px; }
+/* Profil sayfasında banner biraz daha büyük gösterilir. */
+.profile-handle .rank-img { height: 34px; }
 .profile-handle .rank-badges { margin-left: 8px; }
 .profile-handle .rank-badge-text { font-size: 0.68rem; padding: 2px 9px; }
 
