@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { beforeEach, describe, expect, test } from 'vitest'
 import {
   Agent,
@@ -18,27 +19,51 @@ beforeEach(() => {
  * ------------------------------------------------------------------------ */
 
 describe('başlık çubuğu', () => {
-  test('hamburger yerine marka alanı var, çizgi menü düğmesi duruyor', async () => {
+  test('logo ayrı satırda ortalanmış, altında hamburger arama bildirim var', async () => {
     const { agent } = await registerUser(world)
     const html = await (await agent.get('/')).text()
 
-    // Marka: monogram + site adı, ana sayfaya bağlı.
-    expect(html).toContain('home-brand')
-    expect(html).toContain('home-brand-name')
-    expect(html).toContain('>TurkChan<')
-    expect(html).toMatch(/<a class="brand home-brand" href="\/"/)
+    // Satır 1: kelime logosu, ortalanmış.
+    expect(html).toContain('app-header-brand')
+    expect(html).toContain('class="wordmark"')
+    expect(html).toContain('/static/logo.svg')
+    // Küçük favicon/monogram marka alanı kaldırıldı.
+    expect(html).not.toContain('home-brand-name')
+    expect(html).not.toContain('class="brand home-brand"')
 
-    // Menü düğmesi hâlâ var (gezinme çekmecesi erişimi kaybolmaz) ama
-    // markanın sağında, ikincil sınıfla.
-    expect(html).toContain('data-drawer-toggle')
-    expect(html).toContain('drawer-toggle')
+    // Satır 2: hamburger · arama · bildirim, bu sırada.
+    const inner = html.slice(html.indexOf('app-header-inner'))
+    const at = (needle: string): number => {
+      const idx = inner.indexOf(needle)
+      expect(idx, `${needle} bulunamadı`).toBeGreaterThan(-1)
+      return idx
+    }
+    const menu = at('data-drawer-toggle')
+    const search = at('app-search')
+    const bell = at('header-bell')
+    expect(menu).toBeLessThan(search)
+    expect(search).toBeLessThan(bell)
+
+    // Logo satırı ikinci satırdan önce gelir.
+    expect(html.indexOf('app-header-brand')).toBeLessThan(html.indexOf('app-header-inner'))
   })
 
-  test('arama alanındaki eski marka işareti kaldırıldı', async () => {
+  test('logo dosyası repoda mevcut ve geçerli SVG', () => {
+    // Test dünyası statik dosya servisi kurmaz (serveStatic yalnızca
+    // server.ts'te bağlıdır), bu yüzden dosyanın kendisi doğrulanır.
+    const svg = readFileSync(new URL('../../public/logo.svg', import.meta.url), 'utf8')
+    expect(svg).toContain('<svg')
+    expect(svg).toContain('viewBox')
+    expect(svg).toContain('TurkChan')
+    // Açık/kapalı etiket dengesi.
+    expect(svg.split('<svg').length).toBe(2)
+    expect(svg.split('</svg>').length).toBe(2)
+  })
+
+  test('arama alanında eski marka işareti yok', async () => {
     const { agent } = await registerUser(world)
     const html = await (await agent.get('/')).text()
     expect(html).not.toContain('app-search-mark')
-    // Arama alanı ve bildirim düğmesi yerinde.
     expect(html).toContain('app-search')
     expect(html).toContain('header-bell')
   })
@@ -71,19 +96,20 @@ describe('medya seçici', () => {
       await createCommunityVia(agent, 'media')
       const html = await (await agent.get('/c/media/submit?type=' + type)).text()
 
-      // Varsayılan dosya kutusu gizlenir, onun yerine özel alan gelir.
+      // Alan gerçek bir <label for="image">: dosya seçiciyi JS olmadan açar.
+      expect(html).toMatch(/<label class="media-drop" for="image"/)
       expect(html).toContain('data-media-input')
-      expect(html).toContain('visually-hidden')
       expect(html).toContain('data-media-drop')
       expect(html).toContain('data-media-preview')
       expect(html).toContain('media-drop-cta')
-      // Doğrulama sunucuda kalır: gizli input hâlâ required ve accept'li.
+      // Gizli input: odaklanamayan required alan "erişim gerekli" uyarısı
+      // veriyordu, bu yüzden required KALDIRILDI. Zorunluluk sunucuda var.
       const input = html.match(/<input[^>]*data-media-input="true"[^>]*>/)
       expect(input, 'medya inputu bulunamadı').not.toBeNull()
-      expect(input![0]).toContain('required')
       expect(input![0]).toContain('accept="')
       expect(input![0]).toContain('type="file"')
-      // Form multipart kalmalı.
+      expect(input![0]).not.toContain('required')
+      // Form multipart kalmalı; doğrulama sunucuda.
       expect(html).toContain('multipart/form-data')
     })
   }

@@ -200,24 +200,68 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
         </div>
         {community.archived === 1 && <div class="banner">{t.community.archived}</div>}
         {state.isMod && (
-          <nav class="mod-tools">
-            <a class="btn secondary small" href={`/c/${community.name}/mod/queue`}>{t.community.modQueue}</a>
-            <a class="btn secondary small" href={`/c/${community.name}/mod/members`}>{t.community.approvals}</a>
-            <a class="btn secondary small" href={`/c/${community.name}/mod/log`}>{t.community.modLog}</a>
-            <a class="btn secondary small" href={`/c/${community.name}/settings`}>{t.community.settings}</a>
-          </nav>
+          /*
+            * Tek, toplu yönetim alanı. Eskiden dört ayrı buton yatay dizi
+            * hâlinde dağılıyordu; mobilde gereksiz boşluk bırakıyordu.
+            * Yetki kontrolü aynı kalır: yalnızca `state.isMod` doğruysa
+            * render edilir, her bağlantı sunucu tarafında da korunur.
+            */
+          <details class="mod-tools">
+            <summary class="mod-tools-summary">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3 4 6.5v5c0 4.5 3.2 8.2 8 9.5 4.8-1.3 8-5 8-9.5v-5L12 3Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+                <path d="M9.2 12.2 11.2 14.2 15 10.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <span>{t.community.manage}</span>
+              <svg class="mod-tools-caret" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </summary>
+            <div class="mod-tools-menu">
+              <a href={`/c/${community.name}/mod/queue`}>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M5 21V4m0 0 7 4v13M5 4l13 7-3 3-10-7Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+                </svg>
+                <span>{t.community.modQueue}</span>
+              </a>
+              <a href={`/c/${community.name}/mod/members`}>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="9" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8" />
+                  <path d="M3.5 19c0-3 2.4-5 5.5-5s5.5 2 5.5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                </svg>
+                <span>{t.community.approvals}</span>
+              </a>
+              <a href={`/c/${community.name}/mod/log`}>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="4" y="4" width="16" height="16" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8" />
+                  <path d="M8 9h8M8 13h8M8 17h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                </svg>
+                <span>{t.community.modLog}</span>
+              </a>
+              <a href={`/c/${community.name}/settings`}>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8" />
+                  <path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6 18 18M18 6l-1.4 1.4M7.4 16.6 6 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                </svg>
+                <span>{t.community.settings}</span>
+              </a>
+            </div>
+          </details>
         )}
         <div class="layout with-sidebar">
           <section>
-            <SortTabs basePath={`/c/${community.name}`} sort={sort} window={window} extraQuery={extraQuery} />
-            <FeedFilterBar
-              basePath={`/c/${community.name}`}
-              sort={sort}
-              window={window}
-              flairId={flairId}
-              communityId={null}
-              flairs={flairCounts}
-            />
+            {/* Sıralama sekmeleri + Filtre aynı satırda. */}
+            <div class="feed-head">
+              <SortTabs basePath={`/c/${community.name}`} sort={sort} window={window} extraQuery={extraQuery} />
+              <FeedFilterBar
+                basePath={`/c/${community.name}`}
+                sort={sort}
+                window={window}
+                flairId={flairId}
+                communityId={null}
+                flairs={flairCounts}
+              />
+            </div>
 
             {/* Boardda sabitlenmiş gönderiler akışın başında ayrı gösterilir. */}
             {page.pinned.length > 0 && (
@@ -369,38 +413,53 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
               <input id="title" name="title" type="text" required maxlength={300} />
             </div>
             {type === 'link' && (
-              <div class="field">
-                <label for="url">{t.post.url}</label>
+              <div class="field field-link">
+                <label for="url">
+                  <svg class="field-link-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M10.5 13.5a4 4 0 0 0 5.7 0l2.8-2.8a4 4 0 0 0-5.7-5.7l-1.3 1.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                    <path d="M13.5 10.5a4 4 0 0 0-5.7 0l-2.8 2.8a4 4 0 0 0 5.7 5.7l1.3-1.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                  </svg>
+                  <span>{t.post.url}</span>
+                </label>
                 <input id="url" name="url" type="url" required placeholder="https://" />
+                <div class="hint">{t.post.urlHint}</div>
               </div>
             )}
             {isMedia && (
               <div class="field">
-                {/* Gizli input + etiket: varsayılan dosya kutusunun yerini alır. */}
+                {/*
+                  Dosya girdisi `display:none` ile gizlenir ve `required`
+                  KALDIRILIR: görünmez ama odaklanamayan bir required alan,
+                  tarayıcının yerel doğrulamasını takılıp formu göndermeden
+                  "erişim gerekli" uyarısı üretiyordu.
+                  Alan gerçek bir <label for> ile tıklanabilir; dosya seçiciyi
+                  JavaScript OLMADAN da açar. Zorunluluk sunucuda zaten var
+                  (dosya yoksa 400).
+                */}
                 <input
-                  class="visually-hidden"
+                  class="media-input"
                   id="image"
                   name="image"
                   type="file"
                   accept={POST_TYPE_ACCEPT[type]}
                   multiple={type === 'image'}
-                  required
                   data-media-input
                 />
-                <div class="media-drop" data-media-drop tabindex={0} role="button"
-                     aria-label={t.post.addMedia} aria-describedby="media-hint">
-                  <div class="media-drop-icon" aria-hidden="true">
+                <label class="media-drop" for="image" data-media-drop>
+                  <span class="media-drop-icon" aria-hidden="true">
                     <svg viewBox="0 0 24 24">
                       <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
                       <path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
                     </svg>
-                  </div>
-                  <p class="media-drop-title">{t.post.addMedia}</p>
-                  <p class="media-drop-hint" id="media-hint">
-                    {type === 'video' ? t.post.videoHint : type === 'gif' ? t.post.gifHint : t.post.imageHint}
-                  </p>
+                  </span>
+                  <span class="media-drop-text">
+                    <span class="media-drop-title">{t.post.addMedia}</span>
+                    <span class="media-drop-hint" id="media-hint">
+                      {type === 'video' ? t.post.videoHint : type === 'gif' ? t.post.gifHint : t.post.imageHint}
+                    </span>
+                  </span>
                   <span class="media-drop-cta" data-media-cta>{t.post.chooseFile}</span>
-                </div>
+                </label>
                 {/* Seçilen dosyaların önizlemesi; JS ile doldurulur. */}
                 <div class="media-preview" data-media-preview hidden></div>
               </div>

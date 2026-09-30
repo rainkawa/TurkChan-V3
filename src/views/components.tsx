@@ -414,7 +414,14 @@ export const SocialCard: FC<{
             {preview && <CardBodyPreview item={item} refs={refs} />}
             {item.type === 'link' && item.url && (
               <a class="social-card-link" href={item.url} rel="nofollow noopener" target="_blank">
-                {item.link_preview_title ?? item.url}
+                <span class="social-card-link-badge">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M10.5 13.5a4 4 0 0 0 5.7 0l2.8-2.8a4 4 0 0 0-5.7-5.7l-1.3 1.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                    <path d="M13.5 10.5a4 4 0 0 0-5.7 0l-2.8 2.8a4 4 0 0 0 5.7 5.7l1.3-1.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                  </svg>
+                  <span>{t.card.linkPost}</span>
+                </span>
+                <span class="social-card-link-title">{item.link_preview_title ?? item.url}</span>
                 <span class="social-card-link-host">{safeHost(item.url)}</span>
               </a>
             )}
@@ -429,7 +436,14 @@ export const SocialCard: FC<{
 
           {item.type === 'link' && item.url && (
             <a class="social-card-link" href={item.url} rel="nofollow noopener" target="_blank">
-              {item.link_preview_title ?? item.url}
+              <span class="social-card-link-badge">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M10.5 13.5a4 4 0 0 0 5.7 0l2.8-2.8a4 4 0 0 0-5.7-5.7l-1.3 1.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                  <path d="M13.5 10.5a4 4 0 0 0-5.7 0l-2.8 2.8a4 4 0 0 0 5.7 5.7l1.3-1.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                </svg>
+                <span>{t.card.linkPost}</span>
+              </span>
+              <span class="social-card-link-title">{item.link_preview_title ?? item.url}</span>
               <span class="social-card-link-host">{safeHost(item.url)}</span>
             </a>
           )}

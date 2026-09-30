@@ -134,16 +134,19 @@ export const Layout: FC<LayoutProps> = ({
           <>
 
         <header class="app-header">
-          <div class="app-header-inner">
-            {/*
-              Marka alanı. Hamburger yerine: ad + monogram, ve mobilde
-              gezinme çekmecesi bu düğmeye bağlı kalır (menü ikonu başka
-              bir yerde değil, dokunma hedefi aynı).
-            */}
-            <a class="brand home-brand" href="/" aria-label={t.siteName}>
-              <BrandMark size={26} />
-              <span class="home-brand-name">{t.siteName}</span>
+          {/*
+            İki satırlı üst bölüm:
+              1) Logo — tam ortada, tek satırda.
+              2) hamburger · arama · bildirim
+            Küçük favicon ikonu kaldırıldı; marka artık kelime logosu.
+          */}
+          <div class="app-header-brand">
+            <a class="wordmark" href="/" aria-label={t.siteName}>
+              <img src="/static/logo.svg" alt={t.siteName} width="150" height="40" />
             </a>
+          </div>
+
+          <div class="app-header-inner">
             <button
               class="icon-btn drawer-toggle"
               type="button"
@@ -158,6 +161,10 @@ export const Layout: FC<LayoutProps> = ({
             </button>
 
             <form class="app-search" action="/search" method="get" role="search">
+              <svg class="app-search-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2" />
+                <path d="m16 16 4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+              </svg>
               <input
                 type="search"
                 name="q"
@@ -165,10 +172,6 @@ export const Layout: FC<LayoutProps> = ({
                 aria-label={t.nav.searchPlaceholder}
                 autocomplete="off"
               />
-              <svg class="app-search-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2" />
-                <path d="m16 16 4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-              </svg>
             </form>
 
             <a

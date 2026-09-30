@@ -158,7 +158,7 @@
       }
 
       var cta = drop.querySelector('[data-media-cta]')
-      if (cta) cta.textContent = files.length + ' dosya seçildi'
+      if (cta) cta.textContent = files.length > 1 ? files.length + ' dosya' : 'Değiştir'
 
       files.forEach(function (file, index) {
         // İstemci tarafı erken uyarı; sunucu yine de imzadan doğrular.
@@ -218,7 +218,9 @@
         remove.className = 'media-preview-remove'
         remove.setAttribute('aria-label', 'Kaldır')
         remove.textContent = '×'
-        remove.addEventListener('click', function () {
+        remove.addEventListener('click', function (event) {
+          event.preventDefault()
+          event.stopPropagation()
           var remaining = Array.prototype.slice.call(input.files || []).filter(function (f, i) {
             return i !== index
           })
@@ -232,24 +234,23 @@
       preview.hidden = false
     }
 
-    drop.addEventListener('click', function () { input.click() })
-    drop.addEventListener('keydown', function (event) {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault()
-        input.click()
-      }
-    })
+    // `drop` bir <label for="image">: tıklama dosya seçiciyi JS olmadan da
+    // açar. Buradaki yedek handler yalnızca sürükle-bırak ve yeniden
+    // seçim kısayolları içindir; çift açmayı önlemek için gerekmez çünkü
+    // label tıklaması zaten input'a yönlendirilir.
     input.addEventListener('change', render)
 
     ;['dragenter', 'dragover'].forEach(function (type) {
       drop.addEventListener(type, function (event) {
         event.preventDefault()
+        event.stopPropagation()
         drop.classList.add('is-dragging')
       })
     })
     ;['dragleave', 'drop'].forEach(function (type) {
       drop.addEventListener(type, function (event) {
         event.preventDefault()
+        event.stopPropagation()
         drop.classList.remove('is-dragging')
       })
     })
@@ -257,6 +258,13 @@
       if (event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files.length) {
         setFiles(event.dataTransfer.files)
       }
+    })
+    // Alan artık <label>; "Değiştir" düğmesi de aynı seçiciyi açar.
+    drop.querySelectorAll('[data-media-open]').forEach(function (btn) {
+      btn.addEventListener('click', function (event) {
+        event.preventDefault()
+        input.click()
+      })
     })
   })
 
