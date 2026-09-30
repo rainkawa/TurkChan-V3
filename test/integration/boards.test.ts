@@ -143,15 +143,20 @@ describe('sıralama: Popüler / Yeni / En iyi', () => {
 /* -------------------------------------------------------------------------- */
 
 describe('kişiselleştirilmiş ana sayfa akışı', () => {
-  test('"Sana özel" rozeti giriş yapmış kullanıcıya görünür, ziyaretçiye görünmez', async () => {
+  test('ana sayfada "Sana özel" yazısı gösterilmez, sıralama ve filtre hizalıdır', async () => {
     const { agent } = await registerUser(world)
     await createCommunityVia(agent, 'personal')
     await createPostVia(agent, 'personal', 'PERSONAL-POST')
 
     const home = await agent.get('/')
     const text = await home.text()
-    expect(text).toContain('Sana özel')
-    expect(text).toContain('for-you-chip')
+    // Rozet kaldırıldı: akış başlığı artık yalnızca sıralama + filtre.
+    expect(text).not.toContain('for-you-chip')
+    expect(text).not.toContain('Sana özel')
+    // Sıralama sekmeleri ve filtre düğmesi aynı başlık satırında.
+    expect(text).toContain('feed-head')
+    expect(text).toContain('sort-tabs')
+    expect(text).toContain('data-feed-filters')
 
     const guest = new Agent(world.app)
     const guestRes = await guest.get('/login')

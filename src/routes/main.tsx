@@ -157,23 +157,19 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
       <Layout viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)} flash={takeFlash(c)} active="home" og={{ title: t.siteTitle, description: t.ogDescription }}>
         <div class="home-layout">
           <div class="home-main">
+            {/* Sıralama sekmeleri ve Filtre aynı satırda, aynı yükseklikte. */}
             <div class="feed-head">
               <SortTabs basePath="/" sort={sort} window={window} extraQuery={extraQuery} />
-              {viewer && (
-                <span class="for-you-chip" title={t.feed.forYouHint}>
-                  ✨ {t.feed.forYou}
-                </span>
-              )}
+              <FeedFilterBar
+                basePath="/"
+                sort={sort}
+                window={window}
+                flairId={flairId}
+                communityId={communityName}
+                flairs={filterFlairs}
+                boards={viewer ? listDirectory(ctx, viewer).map((e: { name: string; title: string }) => ({ name: e.name, title: e.title })) : []}
+              />
             </div>
-            <FeedFilterBar
-              basePath="/"
-              sort={sort}
-              window={window}
-              flairId={flairId}
-              communityId={communityName}
-              flairs={filterFlairs}
-              boards={viewer ? listDirectory(ctx, viewer).map((e: { name: string; title: string }) => ({ name: e.name, title: e.title })) : []}
-            />
             <div class="social-feed" id="home-feed" data-feed data-next-cursor={page.nextCursor ?? ''} data-feed-url={`/?sort=${sort}&t=${window}${extraQuery}`}>
               {all.length === 0 && (
                 <div class="card empty-state">

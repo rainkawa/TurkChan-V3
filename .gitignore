@@ -13,12 +13,3 @@ dist/
 .env
 .env.local
 .DS_Store
-
-# Android derleme artıkları ve imza anahtarı asla depoya girmez.
-android/local.properties
-android/.gradle/
-android/build/
-android/app/build/
-android/keystore/
-*.jks
-*.keystore

@@ -135,8 +135,17 @@ export const Layout: FC<LayoutProps> = ({
 
         <header class="app-header">
           <div class="app-header-inner">
+            {/*
+              Marka alanı. Hamburger yerine: ad + monogram, ve mobilde
+              gezinme çekmecesi bu düğmeye bağlı kalır (menü ikonu başka
+              bir yerde değil, dokunma hedefi aynı).
+            */}
+            <a class="brand home-brand" href="/" aria-label={t.siteName}>
+              <BrandMark size={26} />
+              <span class="home-brand-name">{t.siteName}</span>
+            </a>
             <button
-              class="icon-btn"
+              class="icon-btn drawer-toggle"
               type="button"
               data-drawer-toggle
               aria-label={t.nav.openMenu}
@@ -149,9 +158,6 @@ export const Layout: FC<LayoutProps> = ({
             </button>
 
             <form class="app-search" action="/search" method="get" role="search">
-              <span class="app-search-mark" aria-hidden="true">
-                <BrandMark size={18} />
-              </span>
               <input
                 type="search"
                 name="q"

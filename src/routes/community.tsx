@@ -355,8 +355,8 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
     const anonDefault = viewer.anon_by_default === 1
     return c.html(
       <Layout title={t.post.submit} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)} flash={takeFlash(c)}>
-        <div class="card">
-          <h2>{t.post.submit} — c/{community.name}</h2>
+        <div class="card submit-card">
+          <h2 class="submit-card-title">{t.post.submit} <span class="submit-card-board">c/{community.name}</span></h2>
           <PostTypeTabs name={community.name} active={type} />
           <form
             method="post"
@@ -376,16 +376,33 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
             )}
             {isMedia && (
               <div class="field">
-                <label for="image">{POST_TYPE_LABEL[type]}</label>
+                {/* Gizli input + etiket: varsayılan dosya kutusunun yerini alır. */}
                 <input
+                  class="visually-hidden"
                   id="image"
                   name="image"
                   type="file"
                   accept={POST_TYPE_ACCEPT[type]}
                   multiple={type === 'image'}
                   required
+                  data-media-input
                 />
-                <div class="hint">{type === 'video' ? t.post.videoHint : type === 'gif' ? t.post.gifHint : t.post.imageHint}</div>
+                <div class="media-drop" data-media-drop tabindex={0} role="button"
+                     aria-label={t.post.addMedia} aria-describedby="media-hint">
+                  <div class="media-drop-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24">
+                      <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                      <path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                    </svg>
+                  </div>
+                  <p class="media-drop-title">{t.post.addMedia}</p>
+                  <p class="media-drop-hint" id="media-hint">
+                    {type === 'video' ? t.post.videoHint : type === 'gif' ? t.post.gifHint : t.post.imageHint}
+                  </p>
+                  <span class="media-drop-cta" data-media-cta>{t.post.chooseFile}</span>
+                </div>
+                {/* Seçilen dosyaların önizlemesi; JS ile doldurulur. */}
+                <div class="media-preview" data-media-preview hidden></div>
               </div>
             )}
             <div class="field">

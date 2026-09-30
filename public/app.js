@@ -103,6 +103,169 @@
     })
   })
 
+  // --- Media picker: modern drop area + client-side preview -------------
+  //
+  // Varsayılan dosya kutusunun yerini alır ve seçilen dosyaları önizler.
+  // Sunucu doğrulaması DEĞİŞTİRİLMEDİT: burada yalnızca erken geri bildirim
+  // verilir, yükleme yine multipart/form-data ile sunucuya gider.
+  var MEDIA_LIMITS = { image: 10 * 1024 * 1024, gif: 15 * 1024 * 1024, video: 60 * 1024 * 1024 }
+  var MAX_MEDIA_FILES = 10
+
+  document.querySelectorAll('[data-media-input]').forEach(function (input) {
+    var drop = input.form && input.form.querySelector('[data-media-drop]')
+    var preview = input.form && input.form.querySelector('[data-media-preview]')
+    if (!drop || !preview) return
+
+    var urls = []
+
+    // Sürükle-bırak: input'a dosya bırakmak tarayıcının varsayılanıyla da
+    // çalışsa da, alanı görsel olarak belirgin gösteriyoruz.
+    var setFiles = function (files) {
+      var list = Array.prototype.slice.call(files || [])
+      if (list.length > MAX_MEDIA_FILES) {
+        showToast('En fazla ' + MAX_MEDIA_FILES + ' dosya eklenebilir.')
+        list = list.slice(0, MAX_MEDIA_FILES)
+      }
+      // DataTransfer yalnızca modern tarayıcılarda var; yoksa ilk dosyayı at.
+      if (typeof DataTransfer === 'function') {
+        var dt = new DataTransfer()
+        list.forEach(function (f) { dt.items.add(f) })
+        input.files = dt.files
+      } else if (list.length) {
+        try {
+          var transfer = new ClipboardEvent('').clipboardData
+          transfer.items.add(list[0])
+          input.files = transfer.files
+        } catch (e) { /* input değişemezse kullanıcı kendi seçer */ }
+      }
+      render()
+    }
+
+    var acceptList = (input.getAttribute('accept') || '').split(',')
+      .map(function (m) { return m.trim() }).filter(Boolean)
+
+    var render = function () {
+      // Önceki blob URL'lerini serbest bırak (bellek sızıntısı olmasın).
+      urls.forEach(function (u) { URL.revokeObjectURL(u) })
+      urls = []
+      preview.innerHTML = ''
+      var files = Array.prototype.slice.call(input.files || [])
+      drop.classList.toggle('has-files', files.length > 0)
+
+      if (files.length === 0) {
+        preview.hidden = true
+        return
+      }
+
+      var cta = drop.querySelector('[data-media-cta]')
+      if (cta) cta.textContent = files.length + ' dosya seçildi'
+
+      files.forEach(function (file, index) {
+        // İstemci tarafı erken uyarı; sunucu yine de imzadan doğrular.
+        if (acceptList.length && !acceptList.some(function (type) {
+          return file.type === type || (type.indexOf('image/') === 0 && file.type.indexOf('image/') === 0)
+        })) {
+          showToast(file.name + ': bu dosya türü desteklenmiyor.')
+        }
+        var kind = file.type.indexOf('video/') === 0 ? 'video'
+          : file.type === 'image/gif' ? 'gif'
+            : file.type.indexOf('image/') === 0 ? 'image' : 'file'
+        var limit = MEDIA_LIMITS[kind]
+        if (limit && file.size > limit) {
+          showToast(file.name + ': dosya çok büyük.')
+        }
+
+        var item = document.createElement('div')
+        item.className = 'media-preview-item is-' + kind
+
+        var url = URL.createObjectURL(file)
+        urls.push(url)
+        if (kind === 'video') {
+          var video = document.createElement('video')
+          video.src = url
+          video.muted = true
+          video.playsInline = true
+          video.setAttribute('controls', '')
+          item.appendChild(video)
+        } else if (kind === 'image' || kind === 'gif') {
+          var img = document.createElement('img')
+          img.src = url
+          img.alt = file.name
+          // GIF'ler canlı oynatılır; diğerleri sabit kare.
+          if (kind === 'image') img.loading = 'lazy'
+          item.appendChild(img)
+        } else {
+          var box = document.createElement('div')
+          box.className = 'media-preview-file'
+          box.textContent = file.name
+          item.appendChild(box)
+        }
+
+        var meta = document.createElement('div')
+        meta.className = 'media-preview-meta'
+        var name = document.createElement('span')
+        name.className = 'media-preview-name'
+        name.textContent = file.name
+        name.title = file.name
+        var size = document.createElement('span')
+        size.className = 'media-preview-size'
+        size.textContent = formatBytes(file.size)
+        meta.appendChild(name)
+        meta.appendChild(size)
+
+        var remove = document.createElement('button')
+        remove.type = 'button'
+        remove.className = 'media-preview-remove'
+        remove.setAttribute('aria-label', 'Kaldır')
+        remove.textContent = '×'
+        remove.addEventListener('click', function () {
+          var remaining = Array.prototype.slice.call(input.files || []).filter(function (f, i) {
+            return i !== index
+          })
+          setFiles(remaining)
+        })
+
+        item.appendChild(meta)
+        item.appendChild(remove)
+        preview.appendChild(item)
+      })
+      preview.hidden = false
+    }
+
+    drop.addEventListener('click', function () { input.click() })
+    drop.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        input.click()
+      }
+    })
+    input.addEventListener('change', render)
+
+    ;['dragenter', 'dragover'].forEach(function (type) {
+      drop.addEventListener(type, function (event) {
+        event.preventDefault()
+        drop.classList.add('is-dragging')
+      })
+    })
+    ;['dragleave', 'drop'].forEach(function (type) {
+      drop.addEventListener(type, function (event) {
+        event.preventDefault()
+        drop.classList.remove('is-dragging')
+      })
+    })
+    drop.addEventListener('drop', function (event) {
+      if (event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files.length) {
+        setFiles(event.dataTransfer.files)
+      }
+    })
+  })
+
+  function formatBytes(bytes) {
+    if (bytes < 1024) return bytes + ' B'
+    if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB'
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+  }
+
   // --- Draft preservation in localStorage (US: posting form) ---
   document.querySelectorAll('form[data-draft-key]').forEach(function (form) {
     var key = 'draft:' + form.dataset.draftKey

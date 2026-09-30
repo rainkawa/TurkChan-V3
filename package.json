@@ -10,9 +10,6 @@
     "seed": "tsx src/db/seed.ts",
     "backup": "tsx src/scripts/backup.ts",
     "rank:assets": "node scripts/generate-rank-assets.mjs",
-    "android:assets": "node scripts/generate-android-assets.mjs",
-    "android:apk": "cd android && ./gradlew :app:assembleRelease",
-    "android:link": "sh ./scripts/android-dev-link.sh",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
