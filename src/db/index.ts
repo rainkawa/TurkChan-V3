@@ -40,6 +40,18 @@ function migrate(db: DatabaseSync): void {
   if (!notificationColumns.has('actor_id')) {
     db.exec('ALTER TABLE notifications ADD COLUMN actor_id TEXT')
   }
+
+  // Board etiketleri ve medya/spoiler alanları sonraki sürümlerde eklendi.
+  const postColumns = new Set(
+    (db.prepare('PRAGMA table_info(posts)').all() as unknown as Array<{ name: string }>).map((c) => c.name),
+  )
+  for (const [column, ddl] of [
+    ['media_kind', "ALTER TABLE posts ADD COLUMN media_kind TEXT NOT NULL DEFAULT 'none'"],
+    ['spoiler', 'ALTER TABLE posts ADD COLUMN spoiler INTEGER NOT NULL DEFAULT 0'],
+    ['flair_id', 'ALTER TABLE posts ADD COLUMN flair_id TEXT'],
+  ] as const) {
+    if (!postColumns.has(column)) db.exec(ddl)
+  }
 }
 
 function registerFunctions(db: DatabaseSync) {

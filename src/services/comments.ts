@@ -7,6 +7,7 @@ import { getSettings } from './settings'
 import { badRequest, forbidden, notFound, rateLimited } from './errors'
 import { getCommunityById, requireParticipant } from './access'
 import { getPost, getPostForViewer } from './posts'
+import { AFFINITY_STEP, bumpAffinity } from './feeds'
 import { notify, withdrawForComment } from './notifications'
 import { transaction } from '../db'
 
@@ -54,7 +55,8 @@ export function createComment(
   const id = newId()
   const depth = parent ? Math.min(parent.depth + 1, MAX_COMMENT_DEPTH) : 1
   const path = parent ? `${parent.path}/${id}` : id
-
+  // Kişiselleştirilmiş akış: yorum yazmak boarda ilgiyi artırır.
+  bumpAffinity(ctx, user.id, community.id, AFFINITY_STEP.comment)
   transaction(ctx.db, () => {
     ctx.db
       .prepare(
@@ -128,6 +130,17 @@ export function deleteComment(ctx: Ctx, viewer: Viewer, commentId: string): { pl
 
 export type CommentSort = 'best' | 'new' | 'top'
 
+/**
+ * Yorum sıralaması: `best` Wilson alt sınırı (güvenilirlik), `top` ham puan
+ * (popüler), `new` kronolojik. Arayüzde "En iyi / Popüler / Yeni" olarak
+ * gösterilir.
+ */
+export function parseCommentSort(raw: string | undefined): CommentSort {
+  if (raw === 'new') return 'new'
+  if (raw === 'top' || raw === 'hot' || raw === 'popular') return 'top'
+  return 'best'
+}
+
 export interface CommentNode {
   comment: CommentRow
   authorUsername: string | null
@@ -190,9 +203,10 @@ function comparatorFor(sort: CommentSort): (a: CommentNode, b: CommentNode) => n
     return (a, b) => b.comment.created_at - a.comment.created_at || (a.comment.id < b.comment.id ? 1 : -1)
   }
   if (sort === 'top') {
+    // Popüler: ham puan, eşitlikte yeni olan öne geçer.
     return (a, b) => b.comment.score - a.comment.score || b.comment.created_at - a.comment.created_at
   }
-  // Best: Wilson lower bound of upvote ratio (US-027).
+  // En iyi: Wilson alt sınırı — az oyla gelen yorumlar tırmanmaya karşı geri kalır.
   return (a, b) => {
     const wa = wilsonLowerBound(a.comment.upvotes, a.comment.downvotes)
     const wb = wilsonLowerBound(b.comment.upvotes, b.comment.downvotes)

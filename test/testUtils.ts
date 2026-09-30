@@ -6,6 +6,8 @@ import { createApp } from '../src/app'
 import { MemoryMailer } from '../src/lib/mailer'
 import { RateLimiter } from '../src/lib/ratelimit'
 import { MemoryObjectStorage } from '../src/services/storage'
+import { insertCommunity } from '../src/services/communities'
+import { sha256 } from '../src/lib/ids'
 import type { AppEnv } from '../src/routes/helpers'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -22,6 +24,9 @@ export interface TestWorld {
 }
 
 const BASE_TIME = Date.UTC(2026, 6, 1, 12, 0, 0) // fixed, deterministic
+
+/** Son oluşturulan dünya; test yardımcılarının veritabanına ulaşması için. */
+let activeWorld: TestWorld | null = null
 
 export function createTestWorld(): TestWorld {
   let currentTime = BASE_TIME
@@ -44,7 +49,7 @@ export function createTestWorld(): TestWorld {
     fetchFn: (() => Promise.reject(new Error('network disabled in tests'))) as unknown as typeof fetch,
   }
   const app = createApp(ctx)
-  return {
+  const world: TestWorld = {
     app,
     ctx,
     mailer,
@@ -56,6 +61,8 @@ export function createTestWorld(): TestWorld {
       currentTime = ms
     },
   }
+  activeWorld = world
+  return world
 }
 
 /** HTTP agent with a cookie jar, driving the app like a browser would. */
@@ -152,20 +159,34 @@ export async function registerAdmin(world: TestWorld): Promise<{ agent: Agent; u
   return { agent, username }
 }
 
+/**
+ * Board kurar. Board açmak artık yalnızca site yöneticilerine açık olduğu
+ * için testler doğrudan servisi çağırır; yetki denetiminin kendisi
+ * `boards.test.ts` içinde HTTP üzerinden sınanır.
+ */
 export async function createCommunityVia(
   agent: Agent,
   name: string,
   visibility: 'public' | 'restricted' | 'private' = 'public',
 ): Promise<void> {
-  const res = await agent.post('/communities/new', {
+  if (!activeWorld) throw new Error('createTestWorld() must run before createCommunityVia()')
+  insertCommunity(activeWorld.ctx, agentUserId(agent, activeWorld), {
     name,
-    title: `Community ${name}`,
+    title: `Board ${name}`,
     description: `About ${name}`,
     visibility,
   })
-  if (res.status !== 302 || !(res.headers.get('location') ?? '').includes(`/c/${name}`)) {
-    throw new Error(`community ${name} creation failed (${res.status} → ${res.headers.get('location')})`)
-  }
+}
+
+/** Ajanın oturumundaki kullanıcı kimliği. */
+function agentUserId(agent: Agent, world: TestWorld): string {
+  const sid = agent.cookieHeader().match(/sid=([^;]+)/)?.[1]
+  if (!sid) throw new Error('agent is not logged in')
+  const row = world.ctx.db
+    .prepare('SELECT user_id FROM sessions WHERE token_hash = ?')
+    .get(sha256(sid)) as { user_id: string } | undefined
+  if (!row) throw new Error('session not found for agent')
+  return row.user_id
 }
 
 /** Create a text post via the form; returns the post id from the redirect. */

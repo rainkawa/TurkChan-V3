@@ -177,6 +177,8 @@ export const ProfileView_: FC<{
                       community_title: p.community_name,
                       author_username: user.username,
                       hot: 0,
+                      rank: p.created_at,
+                      affinity: 1,
                     }}
                     now={now}
                     myVote={myVotes.get(p.id) ?? 0}

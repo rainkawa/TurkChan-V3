@@ -63,7 +63,7 @@ describe('US-028 search', () => {
   test('empty results prompt posting the question', async () => {
     const { agent } = await registerUser(world)
     const res = await agent.get('/search?q=zzzunfindable')
-    expect(await res.text()).toContain('ilgili bir toplulukta sorunuzu paylaşın')
+    expect(await res.text()).toContain('ilgili bir boardda sorunuzu paylaşın')
   })
 
   test('search is safe against FTS syntax injection', async () => {

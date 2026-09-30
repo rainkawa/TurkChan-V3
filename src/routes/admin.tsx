@@ -19,6 +19,7 @@ import {
   getAdminUser,
   updateAdminUser,
 } from '../services/admin'
+import { createCommunity } from '../services/communities'
 import { reportQueue } from '../services/reports'
 import { siteAdminLog } from '../services/modlog'
 import { getSettings, updateSettings, type SiteSettings } from '../services/settings'
@@ -245,7 +246,36 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
     } else if (tab === 'communities') {
       const communities = listAllCommunities(ctx, viewer)
       content = (
-        <div class="card">
+        <>
+          <div class="card">
+            <h2>{t.admin.boardCreate}</h2>
+            <p class="hint">{t.admin.boardCreateOnly}</p>
+            <form method="post" action="/admin/boards" class="admin-board-form">
+              <div class="field">
+                <label for="board-name">{t.community.name}</label>
+                <input id="board-name" name="name" type="text" required minlength={3} maxlength={24} pattern="[a-z0-9_]+" />
+                <div class="hint">{t.community.nameHint}</div>
+              </div>
+              <div class="field">
+                <label for="board-title">{t.community.title}</label>
+                <input id="board-title" name="title" type="text" maxlength={100} />
+              </div>
+              <div class="field">
+                <label for="board-description">{t.community.description}</label>
+                <textarea id="board-description" name="description" maxlength={1000}></textarea>
+              </div>
+              <div class="field">
+                <label for="board-visibility">{t.community.visibility}</label>
+                <select id="board-visibility" name="visibility">
+                  <option value="public">{t.community.publicShort}</option>
+                  <option value="restricted">{t.community.restrictedShort}</option>
+                  <option value="private">{t.community.privateShort}</option>
+                </select>
+              </div>
+              <button class="btn" type="submit">{t.admin.boardCreate}</button>
+            </form>
+          </div>
+          <div class="card">
           <div class="table-wrap">
             <table class="data">
               <thead>
@@ -298,6 +328,7 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
             </table>
           </div>
         </div>
+        </>
       )
     } else if (tab === 'settings') {
       content = (
@@ -535,6 +566,27 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
     requireAdmin(viewer)
     unsuspendUser(ctx, viewer, c.req.param('id'))
     return c.redirect('/admin?tab=users')
+  })
+
+  /** Board oluşturma — tek ve yegane oluşturma yolu. */
+  app.post('/admin/boards', async (c) => {
+    const viewer = c.get('viewer')
+    requireAdmin(viewer)
+    const body = await formData(c)
+    try {
+      const community = createCommunity(ctx, viewer, {
+        name: body.name ?? '',
+        title: body.title ?? '',
+        description: body.description ?? '',
+        visibility: body.visibility ?? 'public',
+      })
+      setFlash(c, 'ok', t.admin.boardCreated)
+      return c.redirect(`/c/${community.name}`)
+    } catch (err) {
+      if (err instanceof AppError || err instanceof ValidationError) setFlash(c, 'error', err.message)
+      else throw err
+    }
+    return c.redirect('/admin?tab=communities')
   })
 
   app.post('/admin/communities/:id/:action', async (c) => {

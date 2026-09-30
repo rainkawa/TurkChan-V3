@@ -3,6 +3,7 @@ import type { CommentRow, PostRow, UserRow, Viewer } from '../types'
 import { getSettings } from './settings'
 import { badRequest, forbidden, notFound, rateLimited, unauthorized } from './errors'
 import { activeBan, getCommunityById, isSuspended } from './access'
+import { AFFINITY_STEP, bumpAffinity } from './feeds'
 import { isAdminPower } from './ranks'
 import { transaction } from '../db'
 
@@ -81,6 +82,11 @@ export function castVote(
           `UPDATE ${table} SET upvotes = upvotes + ?, downvotes = downvotes + ?, score = score + ? WHERE id = ?`,
         )
         .run(upDelta, downDelta, upDelta - downDelta, targetId)
+
+      // Kişiselleştirilmiş akış: oy vermek boarda ilgiyi de değiştirir
+      // (beğeni artırır, karşı oy azaltır).
+      const interestDelta = value === 1 ? AFFINITY_STEP.vote : value === -1 ? -AFFINITY_STEP.downVote : 0
+      if (interestDelta !== 0) bumpAffinity(ctx, viewer.id, community.id, interestDelta)
     }
 
     const table = targetType === 'post' ? 'posts' : 'comments'

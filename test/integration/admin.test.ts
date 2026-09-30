@@ -190,7 +190,7 @@ describe('US-039 community export', () => {
 
     // Admin-logged; link expires after 24h.
     const log = await admin.get('/admin?tab=log')
-    expect(await log.text()).toContain('Topluluk dışa aktarıldı')
+    expect(await log.text()).toContain('Board dışa aktarıldı')
     world.tick(25 * 60 * 60 * 1000)
     expect((await admin.get(`/exports/${token}`)).status).toBe(404)
   })

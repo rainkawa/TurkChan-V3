@@ -252,6 +252,130 @@
     }
   })
 
+  /* ======================================================================
+     Akış: sonsuz kaydırma, aşağı çekerek yenileme, spoiler
+     ====================================================================== */
+
+  // --- Spoiler: içerik "Göster" düğmesine kadar gizli ---
+  document.addEventListener('click', function (event) {
+    var toggle = event.target.closest('[data-spoiler-toggle]')
+    if (!toggle) return
+    var wrap = toggle.closest('[data-spoiler]')
+    if (!wrap) return
+    var body = wrap.querySelector('.spoiler-body')
+    if (!body) return
+    var revealed = toggle.getAttribute('aria-expanded') === 'true'
+    toggle.setAttribute('aria-expanded', revealed ? 'false' : 'true')
+    body.hidden = revealed
+    wrap.classList.toggle('is-revealed', !revealed)
+    var cta = toggle.querySelector('.spoiler-cta')
+    if (cta) cta.textContent = revealed ? 'Göster' : 'Gizle'
+  })
+
+  // --- Sonsuz kaydırma ---
+  var feed = document.querySelector('[data-feed]')
+  if (feed) {
+    var status = document.querySelector('[data-feed-status]')
+    var nextCursor = feed.dataset.nextCursor || ''
+    var feedUrl = feed.dataset.feedUrl || window.location.pathname + window.location.search
+    var loading = false
+
+    function feedStatus(message) {
+      if (!status) return
+      var text = status.querySelector('.feed-status-text')
+      if (text) text.textContent = message
+    }
+
+    function loadMore() {
+      if (loading || !nextCursor) return
+      loading = true
+      feedStatus('Yükleniyor…')
+      var sep = feedUrl.indexOf('?') === -1 ? '?' : '&'
+      var url = feedUrl + sep + 'partial=1&after=' + encodeURIComponent(nextCursor)
+      fetch(url, { headers: { Accept: 'text/html' } })
+        .then(function (res) { return res.ok ? res.text() : Promise.reject(new Error('yüklenemedi')) })
+        .then(function (html) {
+          var holder = document.createElement('div')
+          holder.innerHTML = html
+          var page = holder.querySelector('[data-feed-page]')
+          if (!page) return
+          var cards = page.children
+          if (cards.length === 0) return
+          var fragment = document.createDocumentFragment()
+          while (page.firstChild) fragment.appendChild(page.firstChild)
+          feed.appendChild(fragment)
+          nextCursor = page.dataset.nextCursor || ''
+          feed.dataset.nextCursor = nextCursor
+          if (!nextCursor) {
+            feedStatus('Hepsi bu kadar.')
+            if (status) status.classList.add('is-done')
+          }
+        })
+        .catch(function () { feedStatus('Yüklenemedi. Tekrar denemek için kaydırın.') })
+        .then(function () { loading = false })
+    }
+
+    if ('IntersectionObserver' in window && status) {
+      var sentinel = new IntersectionObserver(function (entries) {
+        if (entries[0].isIntersecting) loadMore()
+      }, { rootMargin: '600px 0px' })
+      sentinel.observe(status)
+    } else {
+      // Observer yoksa "daha fazla" bağlantısı çalışmaya devam eder.
+      window.addEventListener('scroll', function () {
+        if (nextCursor && window.innerHeight + window.scrollY >= document.body.scrollHeight - 800) loadMore()
+      })
+    }
+  }
+
+  // --- Aşağı çekerek yenileme (pull to refresh) ---
+  (function pullToRefresh() {
+    if (!document.body || !window.fetch) return
+    var THRESHOLD = 72
+    var startY = 0
+    var pulling = false
+    var indicator = document.createElement('div')
+    indicator.className = 'pull-indicator'
+    indicator.setAttribute('aria-hidden', 'true')
+    indicator.innerHTML = '<span class="pull-spinner"></span>'
+    document.body.appendChild(indicator)
+
+    function atTop() {
+      return window.scrollY <= 0
+    }
+
+    document.addEventListener('touchstart', function (event) {
+      if (!atTop() || event.touches.length !== 1) return
+      startY = event.touches[0].clientY
+      pulling = true
+    }, { passive: true })
+
+    document.addEventListener('touchmove', function (event) {
+      if (!pulling || event.touches.length !== 1) return
+      var dy = event.touches[0].clientY - startY
+      if (dy <= 0) {
+        indicator.style.transform = 'translateY(-100%)'
+        return
+      }
+      var shift = Math.min(90, dy * 0.5)
+      indicator.style.transform = 'translateY(' + (shift - 40) + 'px)'
+      indicator.classList.toggle('is-ready', dy >= THRESHOLD)
+    }, { passive: true })
+
+    document.addEventListener('touchend', function () {
+      if (!pulling) return
+      var ready = indicator.classList.contains('is-ready')
+      pulling = false
+      if (ready) {
+        indicator.classList.add('is-loading')
+        window.location.reload()
+        return
+      }
+      indicator.classList.remove('is-ready', 'is-loading')
+      indicator.style.transform = 'translateY(-100%)'
+    }, { passive: true })
+  })()
+
   // --- Close open overflow menus on outside tap ---
   document.addEventListener('click', function (event) {
     document.querySelectorAll('details.overflow-menu[open]').forEach(function (menu) {

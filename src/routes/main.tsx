@@ -3,10 +3,14 @@ import type { Ctx } from '../context'
 import { t } from '../i18n/tr'
 import type { UserRow } from '../types'
 import { Layout } from '../views/layout'
-import { PostCard, SortTabs, SocialCard } from '../views/components'
+import { AffinityPanel, FeedFilterBar, PostCard, SortTabs, SocialCard } from '../views/components'
 import { ProfileView_, type ProfileTab } from '../views/profile'
-import { homeFeed, type FeedSort, type TopWindow } from '../services/feeds'
+import { homeFeed, parseFeedSort, type FeedSort, type TopWindow } from '../services/feeds'
+import { dismissAffinity, flairFilterOptions } from '../services/feeds'
+import { flairMap, listFlairs } from '../services/flairs'
+import type { FeedItem } from '../services/feeds'
 import { listDirectory, createCommunity, membershipStates } from '../services/communities'
+import { getCommunityByName } from '../services/access'
 import { search } from '../services/search'
 import {
   getProfile,
@@ -33,13 +37,54 @@ import { AppError } from '../services/errors'
 import { ValidationError } from '../lib/validation'
 import { relativeTime, formatDate, communityColor, communityInitials, profilePath } from '../views/helpers'
 import { visibilityLabel } from '../i18n/tr'
-import { type AppEnv, dmUnread, formData, setFlash, takeFlash, unread } from './helpers'
+import { type AppEnv, dmUnread, formData, safeNext, setFlash, takeFlash, unread } from './helpers'
 
 export function parseSort(raw: string | undefined): FeedSort {
-  return raw === 'new' || raw === 'top' ? raw : 'hot'
+  return parseFeedSort(raw)
 }
 export function parseWindow(raw: string | undefined): TopWindow {
   return raw === 'day' || raw === 'month' || raw === 'all' ? raw : 'week'
+}
+
+/** Sorgu dizesi yardımcısı: boş değerler atlanır. */
+function buildQuery(values: Record<string, string | null | undefined>): string {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(values)) {
+    if (value) params.set(key, value)
+  }
+  const query = params.toString()
+  return query ? `&${query}` : ''
+}
+
+/** Kullanıcının görebildiği board kimlikleri (filtre menüsü için). */
+function readableBoardIds(ctx: Ctx, viewer: UserRow): string[] {
+  return (
+    ctx.db
+      .prepare(
+        `SELECT c.id FROM communities c
+          WHERE c.deleted_at IS NULL AND c.visibility != 'private'
+             OR c.id IN (SELECT community_id FROM memberships WHERE user_id = ? AND status = 'approved')`,
+      )
+      .all(viewer.id) as unknown as Array<{ id: string }>
+  ).map((r) => r.id)
+}
+
+/** Kullanıcının en çok ilgilendiği boardlar (kişiselleştirme paneli). */
+function topAffinityBoards(ctx: Ctx, viewer: UserRow, limit = 5) {
+  return (
+    ctx.db
+      .prepare(
+        `SELECT c.name, c.title,
+                COALESCE(ca.affinity, CASE WHEN m.status = 'approved' THEN 1.4 ELSE 1 END) AS affinity
+           FROM community_affinity ca
+           JOIN communities c ON c.id = ca.community_id
+           LEFT JOIN memberships m ON m.community_id = c.id AND m.user_id = ca.user_id
+          WHERE ca.user_id = ? AND c.deleted_at IS NULL
+          ORDER BY affinity DESC, c.name ASC
+          LIMIT ?`,
+      )
+      .all(viewer.id, limit) as unknown as Array<{ name: string; title: string; affinity: number }>
+  )
 }
 
 export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
@@ -50,77 +95,138 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
     const sort = parseSort(c.req.query('sort'))
     const window = parseWindow(c.req.query('t'))
     const cursor = decodeCursor(c.req.query('after'))
-    const page = homeFeed(ctx, viewer, sort, window, cursor)
-    const myVotes = getMyVotes(ctx, viewer, 'post', page.items.map((i) => i.id))
+    const flairId = c.req.query('flair') ?? null
+    const communityName = c.req.query('c') ?? null
+    // Akış sorgusu board kimliğiyle filtreler; ?c= ise board adıdır.
+    const communityFilter = communityName ? getCommunityByName(ctx, communityName)?.id ?? null : null
     const now = ctx.now()
+
+    const page = homeFeed(ctx, viewer, sort, window, cursor, 25, {
+      flairId,
+      communityId: communityFilter,
+    })
+    const myVotes = getMyVotes(ctx, viewer, 'post', page.items.map((i) => i.id))
     const all = [...page.pinned, ...page.items]
     const membership = membershipStates(ctx, viewer, all.map((i) => i.community_id))
     const authorRanks = authorRanksFor(ctx, all.map((i) => i.author_id))
+    const flairs = flairMap(ctx, all.map((i) => i.community_id))
+    const cards = (items: FeedItem[], pinned = false) =>
+      items.map((item) => (
+        <SocialCard
+          item={item}
+          now={now}
+          viewer={viewer}
+          myVote={myVotes.get(item.id) ?? 0}
+          membership={membership.get(item.community_id)}
+          authorRanks={authorRanks}
+          flair={item.flair_id ? flairs.get(item.flair_id) ?? null : null}
+          pinned={pinned}
+        />
+      ))
+
+    // Sonsuz kaydırma: JS yalnızca kart listesinin devamını ister.
+    if (c.req.query('partial') === '1' && cursor) {
+      const container = c.get('viewer') !== null ? 'home-feed' : 'home-feed'
+      return c.html(
+        <div data-feed-page={container} data-next-cursor={page.nextCursor ?? ''}>
+          {cards(all)}
+        </div>,
+      )
+    }
+
+    // Filtre menüsü: kullanıcının görebildiği boardlardaki etiketler.
+    const filterFlairs = viewer ? flairFilterOptions(ctx, readableBoardIds(ctx, viewer)) : []
+
+    const extraQuery = buildQuery({ flair: flairId, c: communityName })
+
     return c.html(
       <Layout viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)} flash={takeFlash(c)} active="home" og={{ title: t.siteTitle, description: t.ogDescription }}>
         <div class="home-layout">
           <div class="home-main">
-            <SortTabs basePath="/" sort={sort} window={window} />
-            <div class="social-feed">
+            <div class="feed-head">
+              <SortTabs basePath="/" sort={sort} window={window} extraQuery={extraQuery} />
+              {viewer && (
+                <span class="for-you-chip" title={t.feed.forYouHint}>
+                  ✨ {t.feed.forYou}
+                </span>
+              )}
+            </div>
+            <FeedFilterBar
+              basePath="/"
+              sort={sort}
+              window={window}
+              flairId={flairId}
+              communityId={communityName}
+              flairs={filterFlairs}
+              boards={viewer ? listDirectory(ctx, viewer).map((e: { name: string; title: string }) => ({ name: e.name, title: e.title })) : []}
+            />
+            <div class="social-feed" id="home-feed" data-feed data-next-cursor={page.nextCursor ?? ''} data-feed-url={`/?sort=${sort}&t=${window}${extraQuery}`}>
               {all.length === 0 && (
                 <div class="card empty-state">
-                  <div class="big">{t.feed.emptyHome}</div>
+                  <div class="big">{flairId || communityName ? t.feed.emptyFilters : t.feed.emptyHome}</div>
                   <a class="btn" href="/communities">{t.feed.browseCommunities}</a>
                 </div>
               )}
-              {page.pinned.map((item) => (
-                <SocialCard
-                  item={item}
-                  now={now}
-                  viewer={viewer}
-                  myVote={myVotes.get(item.id) ?? 0}
-                  membership={membership.get(item.community_id)}
-                  authorRanks={authorRanks}
-                  pinned
-                />
-              ))}
-              {page.items.map((item) => (
-                <SocialCard
-                  item={item}
-                  now={now}
-                  viewer={viewer}
-                  myVote={myVotes.get(item.id) ?? 0}
-                  membership={membership.get(item.community_id)}
-                  authorRanks={authorRanks}
-                />
-              ))}
+              {cards(page.pinned, true)}
+              {cards(page.items)}
             </div>
-            {page.nextCursor && (
-              <p class="load-more">
-                <a class="btn secondary" href={`/?sort=${sort}&t=${window}&after=${page.nextCursor}`}>{t.feed.loadMore}</a>
-              </p>
-            )}
+            <div class="feed-status" data-feed-status>
+              {page.nextCursor ? (
+                <>
+                  <span class="feed-spinner" aria-hidden="true" />
+                  <span class="feed-status-text">{t.feed.loading}</span>
+                  <a class="btn secondary small" href={`/?sort=${sort}&t=${window}${extraQuery}&after=${page.nextCursor}`}>
+                    {t.feed.loadMore}
+                  </a>
+                </>
+              ) : (
+                all.length > 0 && <span class="feed-status-text">{t.feed.allLoaded}</span>
+              )}
+            </div>
           </div>
           <aside class="sidebar home-side">
             <div class="card">
               <h3>{t.siteName}</h3>
               <p>{t.tagline}</p>
+              {viewer && <p class="hint">{t.feed.forYouHint}</p>}
               {viewer && !page.usedJoinedCommunities && <p>{t.feed.joinPrompt}</p>}
               <a class="btn secondary" href="/communities">{t.feed.browseCommunities}</a>
             </div>
+            <AffinityPanel viewer={viewer} sort={sort} window={window} boards={viewer ? topAffinityBoards(ctx, viewer) : []} />
           </aside>
         </div>
       </Layout>,
     )
   })
 
+  /** "Bu boardu daha az gör" — ana sayfa akışındaki ilgi puanını düşürür. */
+  app.post('/feed/dismiss', async (c) => {
+    const viewer = c.get('viewer')
+    if (!viewer) return c.redirect('/login')
+    const body = await formData(c)
+    const boardName = (body.board ?? '').trim()
+    const board = getCommunityByName(ctx, boardName)
+    if (!board) {
+      setFlash(c, 'error', t.errors.genericBody)
+      return c.redirect('/')
+    }
+    dismissAffinity(ctx, viewer.id, board.id)
+    setFlash(c, 'ok', t.feed.interestUpdated)
+    return c.redirect(body.next ? safeNext(body.next) : '/')
+  })
+
   app.get('/communities', (c) => {
     const viewer = c.get('viewer')
     const entries = listDirectory(ctx, viewer)
-    const settings = getSettings(ctx)
-    const canCreate = viewer && (settings.communityCreation === 'member' || isAdminPower(viewer))
+    // Board oluşturma yalnızca yönetim panelinde; burada bağlantı yöneticilere gösterilir.
+    const canCreate = viewer !== null && isAdminPower(viewer)
     return c.html(
       <Layout title={t.nav.communities} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)} flash={takeFlash(c)} active="communities">
         <div class="card">
           <h2>{t.nav.communities}</h2>
           {canCreate && (
             <p>
-              <a class="btn" href="/communities/new">{t.community.create}</a>
+              <a class="btn" href="/admin?tab=communities">{t.community.create}</a>
             </p>
           )}
           {entries.map((e) => (
@@ -183,6 +289,11 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
   app.get('/communities/new', (c) => {
     const viewer = c.get('viewer')
     if (!viewer) return c.redirect(`/login?next=${encodeURIComponent('/communities/new')}`)
+    // Board açmak yalnızca yönetim panelinden yapılır.
+    if (!isAdminPower(viewer)) {
+      setFlash(c, 'error', t.admin.boardCreateOnly)
+      return c.redirect('/communities')
+    }
     return c.html(
       <Layout title={t.community.create} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)} flash={takeFlash(c)}>
         <div class="card form-narrow">
@@ -218,6 +329,12 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
 
   app.post('/communities/new', async (c) => {
     const viewer = c.get('viewer')
+    if (!viewer) return c.redirect('/login')
+    // Yetki denetimi sunucu tarafında yapılır; formu doğrudan gönselen de engellenir.
+    if (!isAdminPower(viewer)) {
+      setFlash(c, 'error', t.admin.boardCreateOnly)
+      return c.redirect('/communities')
+    }
     const body = await formData(c)
     try {
       const community = createCommunity(ctx, viewer, {

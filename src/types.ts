@@ -59,6 +59,18 @@ export interface BanRow {
   created_at: number
 }
 
+/** Gönderi önizlemesinin nasıl gösterileceği. */
+export type MediaKind = 'none' | 'image' | 'gif' | 'video' | 'embed'
+
+export interface FlairRow {
+  id: string
+  community_id: string
+  name: string
+  color: string
+  position: number
+  created_at: number
+}
+
 export interface PostRow {
   id: string
   community_id: string
@@ -70,6 +82,9 @@ export interface PostRow {
   link_preview_title: string | null
   link_preview_image: string | null
   image_key: string | null
+  media_kind: MediaKind
+  spoiler: number
+  flair_id: string | null
   score: number
   upvotes: number
   downvotes: number

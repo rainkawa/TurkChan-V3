@@ -3,6 +3,7 @@ import {
   Agent,
   createCommunityVia,
   createTestWorld,
+  registerAdmin,
   registerUser,
   type TestWorld,
 } from '../testUtils'
@@ -13,14 +14,22 @@ beforeEach(() => {
   world = createTestWorld()
 })
 
-describe('US-008 community creation', () => {
-  test('creates community; creator is first moderator and member', async () => {
-    const { agent } = await registerUser(world, 'founder')
-    await createCommunityVia(agent, 'parents_2026')
-    const page = await agent.get('/c/parents_2026')
+describe('US-008 board creation (admin only)', () => {
+  test('board oluşturur; kurucu ilk moderatör ve üye olur', async () => {
+    const { agent: admin } = await registerAdmin(world)
+    const res = await admin.post('/admin/boards', {
+      name: 'parents_2026',
+      title: 'Board parents_2026',
+      description: 'About parents_2026',
+      visibility: 'public',
+    })
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe('/c/parents_2026')
+
+    const page = await admin.get('/c/parents_2026')
     const text = await page.text()
-    expect(text).toContain('Community parents_2026')
-    expect(text).toContain('/tc/founder') // listed as moderator
+    expect(text).toContain('Board parents_2026')
+    expect(text).toContain('/tc/admin1') // moderatör olarak listelenir
     expect(text).toContain('1 üye')
 
     const membership = world.ctx.db
@@ -29,26 +38,50 @@ describe('US-008 community creation', () => {
     expect(membership).toEqual(expect.objectContaining({ role: 'moderator', status: 'approved' }))
   })
 
-  test('name validation and uniqueness; immutable slug', async () => {
-    const { agent } = await registerUser(world)
-    await createCommunityVia(agent, 'unique_one')
-    const dup = await agent.post('/communities/new', { name: 'UNIQUE_ONE', title: '', description: '', visibility: 'public' })
-    expect(dup.headers.get('location')).toBe('/communities/new') // rejected → back to form
-    const bad = await agent.post('/communities/new', { name: 'x', title: '', description: '', visibility: 'public' })
-    expect(bad.headers.get('location')).toBe('/communities/new')
+  test('hiçbir kullanıcı board oluşturamaz', async () => {
+    await registerAdmin(world) // ilk kullanıcı site yöneticisi olur
+    const { agent } = await registerUser(world, 'founder')
+    // Düz bağlantı reddedilir.
+    const getRes = await agent.get('/communities/new')
+    expect(getRes.status).toBe(302)
+    expect(getRes.headers.get('location')).toBe('/communities')
+    // Form doğrudan gönderilse bile reddedilir.
+    const postRes = await agent.post('/communities/new', {
+      name: 'sneaky_board',
+      title: '',
+      description: '',
+      visibility: 'public',
+    })
+    expect(postRes.status).toBe(302)
+    expect(postRes.headers.get('location')).toBe('/communities')
+    const row = world.ctx.db.prepare("SELECT 1 FROM communities WHERE name = 'sneaky_board'").get()
+    expect(row).toBeUndefined()
+    // Yönetim paneli de erişilemez.
+    expect((await agent.get('/admin')).status).toBe(403)
   })
 
-  test('community creation policy: admin-only blocks members', async () => {
+  test('ad doğrulaması ve benzersizlik', async () => {
+    const { agent: admin } = await registerAdmin(world)
+    await createCommunityVia(admin, 'unique_one')
+    const dup = await admin.post('/admin/boards', { name: 'UNIQUE_ONE', title: '', description: '', visibility: 'public' })
+    expect(dup.headers.get('location')).toBe('/admin?tab=communities')
+    const bad = await admin.post('/admin/boards', { name: 'x', title: '', description: '', visibility: 'public' })
+    expect(bad.headers.get('location')).toBe('/admin?tab=communities')
+  })
+
+  test('board oluşturma her zaman yalnızca yöneticilere açık', async () => {
     const { agent: admin } = await registerUser(world, 'siteadmin')
-    await admin.post('/admin/settings', { communityCreation: 'admin' })
+    // Ayar "member" olsa bile üye board açamaz.
+    await admin.post('/admin/settings', { communityCreation: 'member' })
     const { agent: member } = await registerUser(world, 'pleb')
     const res = await member.post('/communities/new', { name: 'blocked', title: '', description: '', visibility: 'public' })
     await res.text()
     expect(world.ctx.db.prepare("SELECT COUNT(*) AS n FROM communities WHERE name = 'blocked'").get()).toEqual(
       expect.objectContaining({ n: 0 }),
     )
-    // Admin still can.
-    await createCommunityVia(admin, 'allowed')
+    // Yönetici panel üzerinden açabilir.
+    const ok = await admin.post('/admin/boards', { name: 'allowed', title: '', description: '', visibility: 'public' })
+    expect(ok.headers.get('location')).toBe('/c/allowed')
   })
 })
 
@@ -173,7 +206,7 @@ describe('US-012 community settings and rules', () => {
 
     const log = await mod.get('/c/ruled/mod/log')
     const logText = await log.text()
-    expect(logText).toContain('Topluluk ayarları güncellendi')
+    expect(logText).toContain('Board ayarları güncellendi')
     expect(logText).toContain('Kurallar güncellendi')
   })
 

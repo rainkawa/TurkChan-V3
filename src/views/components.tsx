@@ -7,7 +7,8 @@ import type { CommentNode } from '../services/comments'
 import type { UserRank } from '../services/ranks'
 import { RankBadges } from './rank'
 import { renderMarkdown } from '../lib/markdown'
-import type { UserRow } from '../types'
+import type { UserRow, FlairRow } from '../types'
+import { embedSrcFor, mediaKindForUrl } from '../lib/media'
 
 export const VoteRail: FC<{
   targetType: 'post' | 'comment'
@@ -57,7 +58,9 @@ export const PostCard: FC<{
   pinned?: boolean
   /** Yazarın rütbesi / yetkisi (author_id ile eşleşir). */
   authorRanks?: Map<string, UserRank>
-}> = ({ item, now, myVote, viewer, showCommunity = true, pinned = false, authorRanks }) => {
+  /** Gönderinin board etiketi. */
+  flair?: FlairRow | null
+}> = ({ item, now, myVote, viewer, showCommunity = true, pinned = false, authorRanks, flair }) => {
   const isOwn = viewer?.id === item.author_id
   const authorRank = authorRanks?.get(item.author_id) ?? null
   const thumb =
@@ -66,11 +69,44 @@ export const PostCard: FC<{
       : item.type === 'link'
         ? item.link_preview_image
         : null
+  // Board kartında doğrudan medya bağlantıları da oynatılır.
+  const cardKind = item.media_kind && item.media_kind !== 'none' ? item.media_kind : item.type === 'link' ? mediaKindForUrl(item.url) : 'none'
+  const cardSrc = (cardKind === 'video' || cardKind === 'gif') && !thumb && item.type === 'link' ? item.url : thumb
   return (
     <article class={`post-card${pinned ? ' pinned' : ''}`}>
       <VoteRail targetType="post" targetId={item.id} score={item.score} myVote={myVote} guest={!viewer} disabled={isOwn} />
-      <div>
-        {pinned && <span class="pin-tag">📌 {t.feed.pinned}</span>}
+      <div>      {pinned && <span class="pin-tag">📌 {t.feed.pinned}</span>}
+
+        {flair && (
+          <a
+            class={`post-flair${flair.color ? ' has-color' : ''}`}
+            href={`/c/${item.community_name}?flair=${encodeURIComponent(flair.id)}`}
+            style={flair.color ? `--flair-bg:${flair.color}` : undefined}
+          >
+            {flair.name}
+          </a>
+        )}
+
+        {item.spoiler === 1 && (
+          <div class="social-card-spoiler" data-spoiler="1">
+            <button class="spoiler-reveal" type="button" data-spoiler-toggle aria-expanded="false">
+              <span class="spoiler-hint">{t.feed.spoilerHidden}</span>
+              <span class="spoiler-cta">{t.feed.spoilerReveal}</span>
+            </button>
+            <div class="spoiler-body" hidden>
+              <p class="social-card-preview">{previewText(item.body)}</p>
+            <MediaPreview
+              kind={cardKind}
+              src={cardSrc}
+              embed={embedSrcFor(item.url)}
+                poster={item.link_preview_image}
+                title={item.title}
+                href={`/c/${item.community_name}/comments/${item.id}`}
+              />
+            </div>
+          </div>
+        )}
+
         <div class="meta">
           {showCommunity && <a href={`/c/${item.community_name}`}>c/{item.community_name}</a>}
           <span class="user-byline">
@@ -92,15 +128,20 @@ export const PostCard: FC<{
             <>
               {' '}
               <a href={item.url} rel="nofollow noopener" style="font-size:0.75rem;font-weight:400">
-                ({new URL(item.url).hostname})
+                ({safeHost(item.url)})
               </a>
             </>
           )}
         </h3>
-        {thumb && (
-          <a href={`/c/${item.community_name}/comments/${item.id}`}>
-            <img class="post-thumb" src={thumb} alt="" loading="lazy" />
-          </a>
+        {item.spoiler !== 1 && (
+          <MediaPreview
+            kind={cardKind}
+            src={cardSrc}
+            embed={embedSrcFor(item.url)}
+            poster={item.link_preview_image}
+            title={item.title}
+            href={`/c/${item.community_name}/comments/${item.id}`}
+          />
         )}
         <div class="post-actions">
           <a href={`/c/${item.community_name}/comments/${item.id}`}>
@@ -139,6 +180,65 @@ const JoinButton: FC<{ community: string; state: CommunityMembershipState; compa
   )
 }
 
+/** Kırık/şüpheli bağlantılarda kartın patlamaması için güvenli alan adı. */
+function safeHost(raw: string): string {
+  try {
+    return new URL(raw).hostname
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Gönderi önizlemesi: görsel, GIF, doğrudan video ve gömülü video
+ * (YouTube/Vimeo/X) ayrı ayrı çizilir. Hiçbir medya yoksa hiçbir şey
+ * basılmaz.
+ */
+const MediaPreview: FC<{
+  kind: 'none' | 'image' | 'gif' | 'video' | 'embed'
+  src: string | null
+  embed: string | null
+  poster: string | null
+  title: string
+  href: string
+}> = ({ kind, src, embed, poster, title, href }) => {
+  if (kind === 'embed' && embed) {
+    return (
+      <div class="social-card-media is-embed">
+        <iframe
+          src={embed}
+          title={title}
+          loading="lazy"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; picture-in-picture"
+          allowfullscreen
+          referrerpolicy="strict-origin-when-cross-origin"
+        />
+      </div>
+    )
+  }
+  if (kind === 'video' && src) {
+    return (
+      <div class="social-card-media is-video">
+        <video src={src} poster={poster ?? undefined} controls preload="none" playsinline>
+          Tarayıcınız video etiketini desteklemiyor.
+        </video>
+        <a class="media-fallback" href={href}>
+          {t.feed.previewVideo}
+        </a>
+      </div>
+    )
+  }
+  if (src) {
+    return (
+      <a class={`social-card-media${kind === 'gif' ? ' is-gif' : ''}`} href={href}>
+        <img src={src} alt={title} loading="lazy" />
+        {kind === 'gif' && <span class="media-badge">{t.feed.previewGif}</span>}
+      </a>
+    )
+  }
+  return null
+}
+
 /**
  * Mobil öncelikli sosyal gönderi kartı. Gerçek veriyi gösterir; kaydetme ve
  * paylaşma tarayıcı tarafında çalışır (public/app.js).
@@ -153,17 +253,29 @@ export const SocialCard: FC<{
   pinned?: boolean
   /** Yazarın rütbesi / yetkisi (author_id ile eşleşir). */
   authorRanks?: Map<string, UserRank>
-}> = ({ item, now, myVote, viewer, membership = 'none', showCommunity = true, pinned = false, authorRanks }) => {
+  /** Gönderinin board etiketi. */
+  flair?: FlairRow | null
+}> = ({ item, now, myVote, viewer, membership = 'none', showCommunity = true, pinned = false, authorRanks, flair }) => {
   const isOwn = viewer?.id === item.author_id
   const authorRank = authorRanks?.get(item.author_id) ?? null
   const href = `/c/${item.community_name}/comments/${item.id}`
   const preview = previewText(item.body)
-  const media =
+  const spoiler = item.spoiler === 1
+  const mediaSrc =
     item.type === 'image' && item.image_key
       ? `/media/${item.image_key}`
       : item.type === 'link'
         ? item.link_preview_image
         : null
+  // Link gönderilerinde bağlantının türüne göre GIF / video / gömülü oynatıcı
+  // gösterilir; görsel gönderilerde yüklenen dosya doğrudan oynatılır.
+  const linkKind = item.type === 'link' ? mediaKindForUrl(item.url) : 'none'
+  const kind = item.media_kind && item.media_kind !== 'none' ? item.media_kind : linkKind
+  const embedSrc = spoiler ? null : embedSrcFor(item.url)
+  // Doğrudan video/GIF bağlantılarında önizleme görseli yoktur; dosyanın
+  // kendisi oynatıcıya kaynak olur.
+  const playableSrc =
+    (kind === 'video' || kind === 'gif') && !mediaSrc && item.type === 'link' ? item.url : mediaSrc
 
   return (
     <article class={`social-card${pinned ? ' pinned' : ''}`} data-post-id={item.id}>
@@ -207,19 +319,47 @@ export const SocialCard: FC<{
         <a href={href}>{item.title}</a>
       </h3>
 
-      {preview && <p class="social-card-preview">{preview}</p>}
-
-      {item.type === 'link' && item.url && (
-        <a class="social-card-link" href={item.url} rel="nofollow noopener" target="_blank">
-          {item.link_preview_title ?? item.url}
-          <span class="social-card-link-host">{new URL(item.url).hostname}</span>
+      {/* Etiket (flair) rozeti */}
+      {flair && (
+        <a
+          class={`post-flair${flair.color ? ' has-color' : ''}`}
+          href={`/c/${item.community_name}?flair=${encodeURIComponent(flair.id)}`}
+          style={flair.color ? `--flair-bg:${flair.color}` : undefined}
+        >
+          {flair.name}
         </a>
       )}
 
-      {media && (
-        <a class="social-card-media" href={href}>
-          <img src={media} alt={item.title} loading="lazy" />
-        </a>
+      {spoiler ? (
+        <div class="social-card-spoiler" data-spoiler="1">
+          <button class="spoiler-reveal" type="button" data-spoiler-toggle aria-expanded="false">
+            <span class="spoiler-hint">{t.feed.spoilerHidden}</span>
+            <span class="spoiler-cta">{t.feed.spoilerReveal}</span>
+          </button>
+          <div class="spoiler-body" hidden>
+            {preview && <p class="social-card-preview">{preview}</p>}
+            {item.type === 'link' && item.url && (
+              <a class="social-card-link" href={item.url} rel="nofollow noopener" target="_blank">
+                {item.link_preview_title ?? item.url}
+                <span class="social-card-link-host">{safeHost(item.url)}</span>
+              </a>
+            )}
+            <MediaPreview kind={kind} src={playableSrc} embed={embedSrc} poster={mediaSrc} title={item.title} href={href} />
+          </div>
+        </div>
+      ) : (
+        <>
+          {preview && <p class="social-card-preview">{preview}</p>}
+
+          {item.type === 'link' && item.url && (
+            <a class="social-card-link" href={item.url} rel="nofollow noopener" target="_blank">
+              {item.link_preview_title ?? item.url}
+              <span class="social-card-link-host">{safeHost(item.url)}</span>
+            </a>
+          )}
+
+          <MediaPreview kind={kind} src={playableSrc} embed={embedSrc} poster={mediaSrc} title={item.title} href={href} />
+        </>
       )}
 
       <div class="social-card-author">
@@ -275,6 +415,113 @@ export const SocialCard: FC<{
   )
 }
 
+/**
+ * Akış filtre çubuğu: board ve etiket seçimi, sıralamayı koruyarak
+ * bağlantı olarak sunar (JS gerekmez).
+ */
+export const FeedFilterBar: FC<{
+  basePath: string
+  sort: string
+  window: string
+  flairId: string | null
+  communityId: string | null
+  flairs: Array<{ id: string; name: string; count: number }>
+  boards?: Array<{ name: string; title: string }>
+}> = ({ basePath, sort, window: topWindow, flairId, communityId, flairs, boards = [] }) => {
+  const link = (patch: { flair?: string | null; c?: string | null }) => {
+    const params = new URLSearchParams({ sort, t: topWindow })
+    const nextFlair = patch.flair === undefined ? flairId : patch.flair
+    const nextBoard = patch.c === undefined ? communityId : patch.c
+    if (nextFlair) params.set('flair', nextFlair)
+    if (nextBoard) params.set('c', nextBoard)
+    return `${basePath}?${params.toString()}`
+  }
+  const active = Boolean(flairId || communityId)
+  return (
+    <div class="feed-filters" data-feed-filters>
+      <details class="feed-filter-details">
+        <summary class="feed-filter-summary">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 6h16M7 12h10M10 18h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+          <span>{t.feed.filterLabel}</span>
+          {active && <span class="filter-dot" aria-hidden="true" />}
+        </summary>
+        <div class="feed-filter-panel">
+          <div class="feed-filter-group">
+            <span class="feed-filter-label">{t.feed.filterBoard}</span>
+            <div class="filter-chips">
+              <a class={`filter-chip${communityId ? '' : ' active'}`} href={link({ c: null })}>
+                {t.feed.allBoards}
+              </a>
+              {boards.map((b) => (
+                <a class={`filter-chip${communityId === b.name ? ' active' : ''}`} href={link({ c: b.name })}>
+                  b/{b.name}
+                </a>
+              ))}
+            </div>
+          </div>
+          {flairs.length > 0 && (
+            <div class="feed-filter-group">
+              <span class="feed-filter-label">{t.feed.filterFlair}</span>
+              <div class="filter-chips">
+                <a class={`filter-chip${flairId ? '' : ' active'}`} href={link({ flair: null })}>
+                  {t.feed.allBoards}
+                </a>
+                {flairs.map((f) => (
+                  <a class={`filter-chip${flairId === f.id ? ' active' : ''}`} href={link({ flair: f.id })}>
+                    {f.name} <span class="chip-count">{f.count}</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+          {active && (
+            <a class="btn secondary small" href={`${basePath}?sort=${sort}&t=${topWindow}`}>
+              {t.feed.clearFilters}
+            </a>
+          )}
+        </div>
+      </details>
+    </div>
+  )
+}
+
+/** Kişiselleştirilmiş akışta "ilgimi azalt" kontrolleri. */
+export const AffinityPanel: FC<{
+  viewer: UserRow | null
+  sort: string
+  window: string
+  boards: Array<{ name: string; title: string; affinity: number }>
+}> = ({ viewer, sort, window: topWindow, boards }) => {
+  if (!viewer || boards.length === 0) return null
+  return (
+    <div class="card">
+      <h3>{t.feed.customize}</h3>
+      <p class="hint">{t.feed.forYouHint}</p>
+      <ul class="affinity-list">
+        {boards.map((b) => (
+          <li class="affinity-item">
+            <a class="affinity-name" href={`/c/${b.name}`}>
+              b/{b.name}
+            </a>
+            <span class="affinity-score" title={t.feed.forYouHint}>
+              {'▮'.repeat(Math.max(1, Math.min(5, Math.round(b.affinity * 2))))}
+            </span>
+            <form method="post" action="/feed/dismiss">
+              <input type="hidden" name="board" value={b.name} />
+              <input type="hidden" name="next" value={`/?sort=${sort}&t=${topWindow}`} />
+              <button class="btn ghost small" type="submit" title={t.feed.dismissTitle}>
+                {t.feed.notInterested}
+              </button>
+            </form>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 export const SortTabs: FC<{ basePath: string; sort: string; window?: string; extraQuery?: string }> = ({
   basePath,
   sort,
@@ -282,15 +529,15 @@ export const SortTabs: FC<{ basePath: string; sort: string; window?: string; ext
   extraQuery = '',
 }) => (
   <nav class="sort-tabs" aria-label={t.feed.sortLabel}>
-    {(['hot', 'new', 'top'] as const).map((s) => (
+    {(['hot', 'new', 'best'] as const).map((s) => (
       <a href={`${basePath}?sort=${s}${extraQuery}`} class={sort === s ? 'active' : ''}>
         {t.feed[s]}
       </a>
     ))}
-    {sort === 'top' &&
+    {sort === 'best' &&
       (['day', 'week', 'month', 'all'] as const).map((w) => (
         <a
-          href={`${basePath}?sort=top&t=${w}${extraQuery}`}
+          href={`${basePath}?sort=best&t=${w}${extraQuery}`}
           class={`sort-sub${topWindow === w ? ' active' : ''}`}
         >
           {t.feed[w]}

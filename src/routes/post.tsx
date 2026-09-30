@@ -4,13 +4,15 @@ import type { Ctx } from '../context'
 import { t } from '../i18n/tr'
 import { Layout } from '../views/layout'
 import { CommentTreeView, Markdown, VoteRail, CommunityAvatar } from '../views/components'
-import { getPostForViewer, editPostBody, deletePost, getPost } from '../services/posts'
+import { getPostForViewer, editPostBody, deletePost, getPost, updatePostMeta } from '../services/posts'
+import { listFlairs } from '../services/flairs'
 import {
   createComment,
   editComment,
   deleteComment,
   getComment,
   getCommentTree,
+  parseCommentSort as parseCommentSortRaw,
   type CommentNode,
   type CommentSort,
 } from '../services/comments'
@@ -21,13 +23,23 @@ import { isModerator, getCommunityById, canReadCommunity } from '../services/acc
 import { AppError, notFound } from '../services/errors'
 import { ValidationError } from '../lib/validation'
 import { relativeTime } from '../views/helpers'
+import { embedSrcFor } from '../lib/media'
+
+/** Kırık bağlantılarda detay sayfasının patlamaması için güvenli alan adı. */
+function safeHost(raw: string): string {
+  try {
+    return new URL(raw).hostname
+  } catch {
+    return ''
+  }
+}
 import { UserByline } from '../views/rank'
 import { authorRanksFor } from '../services/users'
 import { isAdminPower } from '../services/ranks'
-import { type AppEnv, dmUnread, formData, loginRedirect, setFlash, takeFlash, unread } from './helpers'
+import { type AppEnv, dmUnread, formData, loginRedirect, safeNext, setFlash, takeFlash, unread } from './helpers'
 
 function parseCommentSort(raw: string | undefined): CommentSort {
-  return raw === 'new' || raw === 'top' ? raw : 'best'
+  return parseCommentSortRaw(raw)
 }
 
 function collectIds(nodes: CommentNode[], out: string[] = []): string[] {
@@ -65,6 +77,8 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
     const { post, community, authorUsername, contentHidden } = view
     const authorRank = authorRanks.get(post.author_id) ?? null
     const isMod = isModerator(ctx, viewer, community.id)
+    const postFlairs = listFlairs(ctx, community.id)
+    const postFlair = post.flair_id ? postFlairs.find((f) => f.id === post.flair_id) ?? null : null
     const isOwn = viewer?.id === post.author_id
     const canReply = Boolean(viewer) && !community.archived && contentHidden === null
     const hideMinutes = community.hide_comment_scores_minutes
@@ -82,11 +96,57 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
       ) : post.type === 'link' && post.url ? (
         <a class="link-preview" href={post.url} rel="nofollow noopener">
           {post.link_preview_title ?? post.url}
-          <div class="hint">{new URL(post.url).hostname}</div>
+          <div class="hint">{safeHost(post.url)}</div>
         </a>
       ) : post.type === 'image' && post.image_key ? (
         <img src={`/media/${post.image_key}`} alt={post.title} loading="eager" />
       ) : null
+
+    // Spoiler gönderilerde içerik "Göster" düğmesine kadar gizlenir.
+    const renderedBody =
+      post.spoiler === 1 && contentHidden === null ? (
+        <div class="post-spoiler" data-spoiler="1">
+          <button class="spoiler-reveal" type="button" data-spoiler-toggle aria-expanded="false">
+            <span class="spoiler-hint">{t.feed.spoilerHidden}</span>
+            <span class="spoiler-cta">{t.feed.spoilerReveal}</span>
+          </button>
+          <div class="spoiler-body" hidden>
+            {bodyBlock}
+            {post.type === 'link' && post.url && (
+              <div class="social-card-media is-embed">
+                {embedSrcFor(post.url) ? (
+                  <iframe
+                    src={embedSrcFor(post.url) as string}
+                    title={post.title}
+                    loading="lazy"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; picture-in-picture"
+                    allowfullscreen
+                    referrerpolicy="strict-origin-when-cross-origin"
+                  />
+                ) : post.url.endsWith('.mp4') || post.url.endsWith('.webm') ? (
+                  <video src={post.url} controls preload="none" playsinline />
+                ) : null}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <>
+          {bodyBlock}
+          {post.type === 'link' && post.url && embedSrcFor(post.url) && (
+            <div class="social-card-media is-embed">
+              <iframe
+                src={embedSrcFor(post.url) as string}
+                title={post.title}
+                loading="lazy"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; picture-in-picture"
+                allowfullscreen
+                referrerpolicy="strict-origin-when-cross-origin"
+              />
+            </div>
+          )}
+        </>
+      )
 
     return c.html(
       <Layout
@@ -179,6 +239,35 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
 
           {post.pinned_at !== null && <span class="pin-tag">📌 {t.feed.pinned}</span>}
 
+          {postFlair && contentHidden === null && (
+            <a
+              class={`post-flair${postFlair.color ? ' has-color' : ''}`}
+              href={`/c/${community.name}?flair=${encodeURIComponent(postFlair.id)}`}
+              style={postFlair.color ? `--flair-bg:${postFlair.color}` : undefined}
+            >
+              {postFlair.name}
+            </a>
+          )}
+
+          {(isOwn || isMod) && contentHidden === null && (
+            <form method="post" action={`/posts/${post.id}/meta`} class="post-meta-form">
+              <input type="hidden" name="back" value={`/c/${community.name}/comments/${post.id}`} />
+              <label class="checkbox">
+                <input type="checkbox" name="spoiler" value="1" checked={post.spoiler === 1} />
+                <span>{t.feed.spoilerHidden}</span>
+              </label>
+              {postFlairs.length > 0 && (
+                <select name="flairId" aria-label={t.feed.flairPick}>
+                  <option value="">{t.feed.flairNone}</option>
+                  {postFlairs.map((f) => (
+                    <option value={f.id} selected={post.flair_id === f.id}>{f.name}</option>
+                  ))}
+                </select>
+              )}
+              <button class="btn secondary small" type="submit">{t.post.save}</button>
+            </form>
+          )}
+
           <h1 class="post-detail-title">
             {contentHidden === 'removed'
               ? t.post.removedBody
@@ -187,7 +276,7 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
                 : post.title}
           </h1>
 
-          <div class="post-detail-body">{bodyBlock}</div>
+          <div class="post-detail-body">{renderedBody}</div>
 
           {/* Aksiyonlar: oy, yorum, paylaş, kaydet — dikey öncelikli düzen */}
           <div class="social-card-actions post-detail-actions">
@@ -227,9 +316,9 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
 
         <div class="comments-block" id="comments">
           <div class="sort-tabs">
-            {(['best', 'new', 'top'] as const).map((s) => (
+            {(['best', 'top', 'new'] as const).map((s) => (
               <a href={`/c/${community.name}/comments/${post.id}?sort=${s}`} class={sort === s ? 'active' : ''}>
-                {s === 'best' ? t.feed.best : s === 'new' ? t.feed.new : t.feed.top}
+                {s === 'best' ? t.feed.best : s === 'new' ? t.feed.new : t.feed.hot}
               </a>
             ))}
           </div>
@@ -341,6 +430,24 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
       }
       throw err
     }
+  })
+
+  /** Gönderinin spoiler/etiket bilgisini günceller (yazar veya moderatör). */
+  app.post('/posts/:id/meta', async (c) => {
+    const viewer = c.get('viewer')
+    if (!viewer) return loginRedirect(c)
+    const body = await formData(c)
+    try {
+      updatePostMeta(ctx, viewer, c.req.param('id'), {
+        spoiler: body.spoiler === '1',
+        flairId: (body.flairId ?? '') === '' ? null : body.flairId ?? null,
+      })
+      setFlash(c, 'ok', t.feed.flairSaved)
+    } catch (err) {
+      if (err instanceof AppError || err instanceof ValidationError) setFlash(c, 'error', err.message)
+      else throw err
+    }
+    return c.redirect(body.back ? safeNext(body.back) : '/')
   })
 
   app.post('/posts/:id/delete', (c) => {

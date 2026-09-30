@@ -127,6 +127,8 @@ export function purgeExpiredCommunities(ctx: Ctx): number {
       ctx.db.prepare('DELETE FROM reports WHERE community_id = ?').run(id)
       ctx.db.prepare('DELETE FROM posts WHERE community_id = ?').run(id)
       ctx.db.prepare('DELETE FROM community_rules WHERE community_id = ?').run(id)
+      ctx.db.prepare('DELETE FROM board_flairs WHERE community_id = ?').run(id)
+      ctx.db.prepare('DELETE FROM community_affinity WHERE community_id = ?').run(id)
       ctx.db.prepare('DELETE FROM memberships WHERE community_id = ?').run(id)
       ctx.db.prepare('DELETE FROM bans WHERE community_id = ?').run(id)
       ctx.db.prepare('DELETE FROM exports WHERE community_id = ?').run(id)

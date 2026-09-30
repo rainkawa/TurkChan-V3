@@ -116,6 +116,9 @@ CREATE TABLE IF NOT EXISTS posts (
   link_preview_title TEXT,
   link_preview_image TEXT,
   image_key TEXT,                   -- image posts
+  media_kind TEXT NOT NULL DEFAULT 'none',  -- none | image | gif | video | embed
+  spoiler INTEGER NOT NULL DEFAULT 0,       -- 1 = içerik "Göster"e kadar gizli
+  flair_id TEXT REFERENCES board_flairs(id),
   score INTEGER NOT NULL DEFAULT 0,
   upvotes INTEGER NOT NULL DEFAULT 0,
   downvotes INTEGER NOT NULL DEFAULT 0,
@@ -130,6 +133,28 @@ CREATE TABLE IF NOT EXISTS posts (
 CREATE INDEX IF NOT EXISTS idx_posts_community ON posts(community_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_author ON posts(author_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_url ON posts(community_id, url);
+
+-- Board etiketleri (flair): her board kendi etiket kümesini yönetir.
+CREATE TABLE IF NOT EXISTS board_flairs (
+  id TEXT PRIMARY KEY,
+  community_id TEXT NOT NULL REFERENCES communities(id),
+  name TEXT NOT NULL,
+  color TEXT NOT NULL DEFAULT '',     -- boşsa temaya uygun otomatik renk
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_flairs_community ON board_flairs(community_id, position);
+
+-- Kullanıcının bir boarda olan ilgisi (kişiselleştirilmiş ana sayfa feed'i).
+-- Keşif yapan üye burada sayacı artırır; geri bildirim butonu azaltır.
+CREATE TABLE IF NOT EXISTS community_affinity (
+  user_id TEXT NOT NULL REFERENCES users(id),
+  community_id TEXT NOT NULL REFERENCES communities(id),
+  affinity REAL NOT NULL DEFAULT 1,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, community_id)
+);
+CREATE INDEX IF NOT EXISTS idx_affinity_user ON community_affinity(user_id, affinity DESC);
 
 CREATE TABLE IF NOT EXISTS comments (
   id TEXT PRIMARY KEY,

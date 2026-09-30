@@ -20,6 +20,10 @@ import { isAdminPower } from './ranks'
 import { transaction } from '../db'
 import { notify } from './notifications'
 
+/**
+ * Board oluşturma. Boardlar yalnızca site yöneticileri tarafından açılabilir;
+ * herhangi bir üye kendi boardunu açamaz.
+ */
 export function createCommunity(
   ctx: Ctx,
   viewer: Viewer,
@@ -27,11 +31,21 @@ export function createCommunity(
 ): CommunityRow {
   if (!viewer) throw unauthorized()
   if (isSuspended(ctx, viewer)) throw forbidden('Hesabınız askıya alınmış.')
-  const settings = getSettings(ctx)
-  if (settings.communityCreation === 'admin' && !isAdminPower(viewer)) {
-    throw forbidden('Şu anda yalnızca site yöneticileri topluluk oluşturabilir.')
+  if (!isAdminPower(viewer)) {
+    throw forbidden('Board oluşturma yalnızca site yöneticilerine açıktır.')
   }
+  return insertCommunity(ctx, viewer.id, input)
+}
 
+/**
+ * Doğrulama + yazma. Yetki denetimi çağıran katmanın sorumluluğundadır; test
+ * yardımcıları da bu yolu kullanarak board kurabilir.
+ */
+export function insertCommunity(
+  ctx: Ctx,
+  creatorId: string,
+  input: { name: string; title: string; description: string; visibility: string },
+): CommunityRow {
   const name = validateCommunityName(input.name)
   const title = input.title.trim() || name
   if (title.length > LIMITS.communityTitleMax) {
@@ -50,14 +64,14 @@ export function createCommunity(
         `INSERT INTO communities (id, name, title, description, visibility, creator_id, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, name, title, description, input.visibility, viewer.id, ctx.now())
+      .run(id, name, title, description, input.visibility, creatorId, ctx.now())
     // Creator becomes first moderator and a member (US-008).
     ctx.db
       .prepare(
         `INSERT INTO memberships (user_id, community_id, role, status, mod_since, created_at)
          VALUES (?, ?, 'moderator', 'approved', ?, ?)`,
       )
-      .run(viewer.id, id, ctx.now(), ctx.now())
+      .run(creatorId, id, ctx.now(), ctx.now())
     syncCommunityFts(ctx, id)
   })
   return getCommunityByName(ctx, name) as CommunityRow

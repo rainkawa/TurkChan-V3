@@ -28,6 +28,9 @@ import { decodeCursor } from '../lib/cursor'
 import { AppError } from '../services/errors'
 import { ValidationError } from '../lib/validation'
 import { parseSort, parseWindow } from './main'
+import { FeedFilterBar } from '../views/components'
+import { listFlairs, createFlair, deleteFlair, assertFlairCount } from '../services/flairs'
+import { flairFilterOptions } from '../services/feeds'
 import { profilePath } from '../views/helpers'
 import { type AppEnv, dmUnread, formData, loginRedirect, setFlash, takeFlash, unread } from './helpers'
 import type { CommunityRow, UserRow } from '../types'
@@ -89,7 +92,8 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
     const sort = parseSort(c.req.query('sort'))
     const window = parseWindow(c.req.query('t'))
     const cursor = decodeCursor(c.req.query('after'))
-    const page = communityFeed(ctx, viewer, community, sort, window, cursor)
+    const flairId = c.req.query('flair') ?? null
+    const page = communityFeed(ctx, viewer, community, sort, window, cursor, 25, flairId)
     const allIds = [...page.pinned, ...page.items].map((i) => i.id)
     const myVotes = getMyVotes(ctx, viewer, 'post', allIds)
     const rules = listRules(ctx, community.id)
@@ -97,6 +101,29 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
     const members = memberCount(ctx, community.id)
     const now = ctx.now()
     const authorRanks = authorRanksFor(ctx, [...page.pinned, ...page.items].map((i) => i.author_id))
+    const flairs = listFlairs(ctx, community.id)
+    const flairById = new Map(flairs.map((f) => [f.id, f]))
+    const flairCounts = flairFilterOptions(ctx, [community.id])
+    const extraQuery = flairId ? `&flair=${encodeURIComponent(flairId)}` : ''
+
+    // Sonsuz kaydırma için kart listesinin devamı.
+    if (c.req.query('partial') === '1' && cursor) {
+      return c.html(
+        <div data-feed-page="board-feed">
+          {page.items.map((item) => (
+            <PostCard
+              item={item}
+              now={now}
+              viewer={viewer}
+              myVote={myVotes.get(item.id) ?? 0}
+              showCommunity={false}
+              authorRanks={authorRanks}
+              flair={item.flair_id ? flairById.get(item.flair_id) ?? null : null}
+            />
+          ))}
+        </div>,
+      )
+    }
 
     return c.html(
       <Layout
@@ -143,23 +170,75 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
         )}
         <div class="layout with-sidebar">
           <section>
-            <SortTabs basePath={`/c/${community.name}`} sort={sort} window={window} />
-            <div class="feed">
-              {page.pinned.map((item) => (
-                <PostCard item={item} now={now} viewer={viewer} myVote={myVotes.get(item.id) ?? 0} showCommunity={false} authorRanks={authorRanks} pinned />
-              ))}
+            <SortTabs basePath={`/c/${community.name}`} sort={sort} window={window} extraQuery={extraQuery} />
+            <FeedFilterBar
+              basePath={`/c/${community.name}`}
+              sort={sort}
+              window={window}
+              flairId={flairId}
+              communityId={null}
+              flairs={flairCounts}
+            />
+
+            {/* Boardda sabitlenmiş gönderiler akışın başında ayrı gösterilir. */}
+            {page.pinned.length > 0 && (
+              <section class="pinned-section" aria-label={t.feed.pinnedInBoard}>
+                <h2 class="pinned-title">📌 {t.feed.pinnedInBoard}</h2>
+                <div class="feed">
+                  {page.pinned.map((item) => (
+                    <PostCard
+                      item={item}
+                      now={now}
+                      viewer={viewer}
+                      myVote={myVotes.get(item.id) ?? 0}
+                      showCommunity={false}
+                      authorRanks={authorRanks}
+                      flair={item.flair_id ? flairById.get(item.flair_id) ?? null : null}
+                      pinned
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+
+            <div
+              class="feed"
+              id="board-feed"
+              data-feed
+              data-next-cursor={page.nextCursor ?? ''}
+              data-feed-url={`/c/${community.name}?sort=${sort}&t=${window}${extraQuery}`}
+            >
               {page.items.length === 0 && page.pinned.length === 0 && (
-                <div class="card empty-state"><div class="big">{t.feed.emptyCommunity}</div></div>
+                <div class="card empty-state"><div class="big">{flairId ? t.feed.emptyFilters : t.feed.emptyCommunity}</div></div>
               )}
               {page.items.map((item) => (
-                <PostCard item={item} now={now} viewer={viewer} myVote={myVotes.get(item.id) ?? 0} showCommunity={false} authorRanks={authorRanks} />
+                <PostCard
+                  item={item}
+                  now={now}
+                  viewer={viewer}
+                  myVote={myVotes.get(item.id) ?? 0}
+                  showCommunity={false}
+                  authorRanks={authorRanks}
+                  flair={item.flair_id ? flairById.get(item.flair_id) ?? null : null}
+                />
               ))}
             </div>
-            {page.nextCursor && (
-              <p style="text-align:center;margin-top:1rem">
-                <a class="btn secondary" href={`/c/${community.name}?sort=${sort}&t=${window}&after=${page.nextCursor}`}>{t.feed.loadMore}</a>
-              </p>
-            )}
+            <div class="feed-status" data-feed-status>
+              {page.nextCursor ? (
+                <>
+                  <span class="feed-spinner" aria-hidden="true" />
+                  <span class="feed-status-text">{t.feed.loading}</span>
+                  <a
+                    class="btn secondary small"
+                    href={`/c/${community.name}?sort=${sort}&t=${window}${extraQuery}&after=${page.nextCursor}`}
+                  >
+                    {t.feed.loadMore}
+                  </a>
+                </>
+              ) : (
+                page.items.length + page.pinned.length > 0 && <span class="feed-status-text">{t.feed.allLoaded}</span>
+              )}
+            </div>
           </section>
           <aside class="sidebar">
             <div class="card">
@@ -230,6 +309,7 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
     if (!viewer) return loginRedirect(c)
     if (!canReadCommunity(ctx, viewer, community)) return c.redirect(`/c/${community.name}`)
     const type = ['text', 'link', 'image'].includes(c.req.query('type') ?? '') ? (c.req.query('type') as string) : 'text'
+    const flairs = listFlairs(ctx, community.id)
     return c.html(
       <Layout title={t.post.submit} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)} flash={takeFlash(c)}>
         <div class="card">
@@ -267,6 +347,23 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
                 <input id="image" name="image" type="file" accept="image/jpeg,image/png,image/webp" required />
               </div>
             )}
+            <div class="field post-extra-fields">
+              <label class="checkbox">
+                <input type="checkbox" name="spoiler" value="1" />
+                <span>{t.feed.spoilerHidden}</span>
+              </label>
+              {flairs.length > 0 && (
+                <div class="field">
+                  <label for="flair">{t.feed.flairPick}</label>
+                  <select id="flair" name="flairId">
+                    <option value="">{t.feed.flairNone}</option>
+                    {flairs.map((f) => (
+                      <option value={f.id}>{f.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
             <button class="btn" type="submit">{t.post.postCta}</button>
           </form>
         </div>
@@ -284,7 +381,12 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
         const body = await formData(c)
         const url = (body.url ?? '').trim()
         const duplicate = findDuplicateLinkPost(ctx, community, url)
-        const { post } = await createLinkPost(ctx, viewer, community, { title: body.title ?? '', url })
+        const { post } = await createLinkPost(ctx, viewer, community, {
+          title: body.title ?? '',
+          url,
+          spoiler: body.spoiler === '1',
+          flairId: body.flairId ?? null,
+        })
         if (duplicate) {
           // Non-blocking duplicate warning (US-014).
           setFlash(c, 'warn', `${t.post.duplicateWarning} /c/${community.name}/comments/${duplicate.id}`)
@@ -299,11 +401,21 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
         const slot = requestUpload(ctx, viewer)
         await receiveUpload(ctx, slot.key, slot.token, bytes)
         const title = typeof parsed.title === 'string' ? parsed.title : ''
-        const post = createImagePost(ctx, viewer, community, { title, imageKey: slot.key })
+        const post = createImagePost(ctx, viewer, community, {
+          title,
+          imageKey: slot.key,
+          spoiler: parsed.spoiler === '1',
+          flairId: typeof parsed.flairId === 'string' ? parsed.flairId : null,
+        })
         return c.redirect(`/c/${community.name}/comments/${post.id}`)
       }
       const body = await formData(c)
-      const post = createTextPost(ctx, viewer, community, { title: body.title ?? '', body: body.body ?? '' })
+      const post = createTextPost(ctx, viewer, community, {
+        title: body.title ?? '',
+        body: body.body ?? '',
+        spoiler: body.spoiler === '1',
+        flairId: body.flairId ?? null,
+      })
       return c.redirect(`/c/${community.name}/comments/${post.id}`)
     } catch (err) {
       if (err instanceof AppError || err instanceof ValidationError) {
@@ -320,6 +432,7 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
     if (!isModerator(ctx, viewer, community.id)) return c.redirect(`/c/${community.name}`)
     const rules = listRules(ctx, community.id)
     const rulesText = rules.map((r) => (r.detail ? `${r.title} | ${r.detail}` : r.title)).join('\n')
+    const flairs = listFlairs(ctx, community.id)
     return c.html(
       <Layout title={t.community.settings} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)} flash={takeFlash(c)}>
         <div class="card form-narrow">
@@ -356,8 +469,70 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
             <button class="btn" type="submit">{t.post.save}</button>
           </form>
         </div>
+
+        <div class="card">
+          <h2>{t.feed.flairManage} — c/{community.name}</h2>
+          <p class="hint">{t.feed.flairLimit}</p>
+          <ul class="flair-admin-list">
+            {flairs.map((f) => (
+              <li class="flair-admin-item">
+                <span
+                  class={`post-flair${f.color ? ' has-color' : ''}`}
+                  style={f.color ? `--flair-bg:${f.color}` : undefined}
+                >
+                  {f.name}
+                </span>
+                <form method="post" action={`/c/${community.name}/flairs/${f.id}/delete`} style="display:inline">
+                  <button class="btn danger small" type="submit">{t.common.delete}</button>
+                </form>
+              </li>
+            ))}
+            {flairs.length === 0 && <p class="placeholder">{t.feed.flairNone}</p>}
+          </ul>
+          <form method="post" action={`/c/${community.name}/flairs`} class="flair-create-form">
+            <div class="field">
+              <label for="flair-name">{t.feed.flairName}</label>
+              <input id="flair-name" name="name" type="text" required maxlength={24} />
+            </div>
+            <div class="field">
+              <label for="flair-color">{t.feed.flairColor}</label>
+              <input id="flair-color" name="color" type="text" placeholder="#0f6b62" pattern="#[0-9a-fA-F]{6}" />
+            </div>
+            <button class="btn" type="submit">{t.feed.flairCreated}</button>
+          </form>
+        </div>
       </Layout>,
     )
+  })
+
+  /** Board etiketi oluştur (yalnızca moderatörler). */
+  app.post('/c/:name/flairs', async (c) => {
+    const viewer = c.get('viewer')
+    if (!viewer) return loginRedirect(c)
+    const community = requireVisibleCommunity(ctx, viewer, c.req.param('name'))
+    const body = await formData(c)
+    try {
+      assertFlairCount(ctx, community.id)
+      createFlair(ctx, community.id, viewer, { name: body.name ?? '', color: body.color ?? '' })
+      setFlash(c, 'ok', t.feed.flairCreated)
+    } catch (err) {
+      if (err instanceof AppError || err instanceof ValidationError) setFlash(c, 'error', err.message)
+      else throw err
+    }
+    return c.redirect(`/c/${community.name}/settings`)
+  })
+
+  app.post('/c/:name/flairs/:flairId/delete', (c) => {
+    const viewer = c.get('viewer')
+    if (!viewer) return loginRedirect(c)
+    const community = requireVisibleCommunity(ctx, viewer, c.req.param('name'))
+    try {
+      deleteFlair(ctx, community.id, viewer, c.req.param('flairId'))
+      setFlash(c, 'ok', t.feed.flairDeleted)
+    } catch (err) {
+      if (err instanceof AppError) setFlash(c, 'error', err.message)
+    }
+    return c.redirect(`/c/${community.name}/settings`)
   })
 
   app.post('/c/:name/settings', async (c) => {
