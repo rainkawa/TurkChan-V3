@@ -847,7 +847,66 @@ table.data th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0
 .type-tabs a.active { background: var(--ink); color: #fff; }
 
 /* ==========================================================================
-   11. Gönderi detayı — dikey öncelikli mobil düzen
+   11. Rütbe ve yönetim yetkisi rozetleri
+   ========================================================================== */
+/*
+ * Renkler CSS değişkenleriyle yönetilir. Her rozet kendi zemin + kenarlık +
+ * yazı rengini taşır; böylece hem açık hem koyu zeminde okunur kalır.
+ */
+.rank-badges {
+  display: inline-flex; align-items: center; gap: 4px;
+  flex-wrap: wrap; vertical-align: middle;
+  margin-left: 5px;
+}
+.rank-badge {
+  display: inline-flex; align-items: center;
+  padding: 1px 7px;
+  border: 1px solid var(--rank-border, var(--line));
+  border-radius: var(--radius-pill);
+  background: var(--rank-bg, var(--surface-sunken));
+  color: var(--rank-fg, var(--ink-soft));
+  font-size: 0.63rem; font-weight: 800; line-height: 1.5;
+  letter-spacing: 0.02em; text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Karma rütbeleri */
+.rank-new_user    { --rank-bg: #f4f1e8; --rank-fg: #4f4a3b; --rank-border: #ddd5c2; }
+.rank-active_user { --rank-bg: #efeade; --rank-fg: #494536; --rank-border: #d6cdb6; }
+.rank-super_user  { --rank-bg: #ebe3cf; --rank-fg: #443f2c; --rank-border: #cfc4a5; }
+.rank-angel       { --rank-bg: #ffffff; --rank-fg: #33302a; --rank-border: #d5d5d5; }
+.rank-legend      { --rank-bg: #dceafd; --rank-fg: #12448f; --rank-border: #a9c9f3; }
+.rank-god         { --rank-bg: #ecdefc; --rank-fg: #5b21b6; --rank-border: #c9aef6; }
+/* Kısıtlama: koyu gri rozet, kalıcı kısıtlamada belirgin çerçeve. */
+.rank-banned      { --rank-bg: #43484f; --rank-fg: #f4f5f6; --rank-border: #7c828b; }
+
+/* Yönetim yetkileri — renkler birbirinden ayırt edilir. */
+.role-moderator       { --rank-bg: #cfe4d8; --rank-fg: #14532d; --rank-border: #94c3aa; }
+.role-super_moderator { --rank-bg: #d7f7e4; --rank-fg: #166534; --rank-border: #7fd8a4; }
+.role-co_admin        { --rank-bg: #f6dde1; --rank-fg: #7b1d2c; --rank-border: #dda9b4; }
+.role-admin           { --rank-bg: #fbdedc; --rank-fg: #991b1b; --rank-border: #f0aaa5; }
+
+.user-byline { display: inline-flex; align-items: center; flex-wrap: wrap; }
+.user-byline > a { font-weight: 700; }
+/* Profildeki koyu alanda rozetler biraz daha büyük ve net. */
+.profile-handle .rank-badge { font-size: 0.68rem; padding: 2px 9px; }
+/* Profil koyu zeminde olduğu için rozetler koyu zemine uyum sağlar. */
+.profile-handle .rank-new_user,
+.profile-handle .rank-active_user,
+.profile-handle .rank-super_user,
+.profile-handle .rank-angel,
+.profile-handle .rank-legend,
+.profile-handle .rank-god,
+.profile-handle .rank-banned,
+.profile-handle .role-moderator,
+.profile-handle .role-super_moderator,
+.profile-handle .role-co_admin,
+.profile-handle .role-admin {
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.12);
+}
+
+/* ==========================================================================
+   12. Gönderi detayı — dikey öncelikli mobil düzen
    ========================================================================== */
 .post-detail { padding: 9px 12px 2px; }
 .post-detail .social-card-head { margin-bottom: 6px; }
@@ -910,7 +969,7 @@ table.data th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0
 .comment-actions { gap: 0.85rem; }
 
 /* ==========================================================================
-   12. Ayarlar sayfası
+   13. Ayarlar sayfası
    ========================================================================== */
 .visually-hidden {
   position: absolute !important; width: 1px; height: 1px;
@@ -973,6 +1032,41 @@ table.data th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0
 .settings-media-actions { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
 .settings-danger { margin: 0; text-align: center; font-size: 0.82rem; }
 .settings-danger a { color: var(--danger); font-weight: 700; }
+
+/* ==========================================================================
+   14. Şikayet formu, yönetim paneli ve yardımcılar
+   ========================================================================== */
+.report-reasons {
+  border: 0; margin: 0 0 var(--space-4); padding: 0;
+  display: flex; flex-direction: column; gap: 7px;
+}
+.report-reasons-legend { font-weight: 700; font-size: 0.85rem; padding: 0; margin-bottom: 6px; }
+.report-reason {
+  display: flex; align-items: flex-start; gap: 8px;
+  font-weight: 400; font-size: 0.92rem; line-height: 1.4;
+}
+.report-reason input { width: auto; margin-top: 0.25rem; }
+
+.dir-item.is-read { opacity: 0.6; }
+.inline-form { display: inline; }
+.mini-select { width: auto; padding: 0.2rem; }
+.mini-input { width: 8rem; padding: 0.2rem; }
+
+.admin-user-form {
+  margin: var(--space-4) 0;
+  padding: var(--space-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+.admin-user-form h2 { margin: 0 0 4px; font-family: var(--font-display); font-size: 1.05rem; }
+.admin-user-head { margin: 0 0 var(--space-4); font-weight: 700; }
+.admin-media-row { display: flex; flex-wrap: wrap; gap: var(--space-5); margin-bottom: var(--space-4); }
+.admin-user-meta {
+  display: flex; flex-wrap: wrap; gap: var(--space-4);
+  margin-bottom: var(--space-3); color: var(--ink-faint); font-size: 0.8rem;
+}
+.settings-avatar.empty-avatar { background: var(--surface-raised); color: var(--ink-faint); border: 1px dashed var(--line-strong); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

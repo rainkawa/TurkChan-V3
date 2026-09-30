@@ -110,7 +110,7 @@ describe('US-030/US-031 queue and removal', () => {
 
     // Mod log records it (US-035).
     const log = await mod.get('/c/watch/mod/log')
-    expect(await log.text()).toContain('remove_post')
+    expect(await log.text()).toContain('Gönderi kaldırıldı')
   })
 
   test('site admin can reverse any removal', async () => {
@@ -215,7 +215,7 @@ describe('US-032 bans', () => {
     // Mod log records the ban with duration.
     const log = await mod.get('/c/watch/mod/log')
     const logText = await log.text()
-    expect(logText).toContain('ban_user')
+    expect(logText).toContain('Kullanıcı yasaklandı')
     expect(logText).toContain('7 gün')
 
     // Timed ban lifts automatically.
@@ -255,8 +255,8 @@ describe('US-033 pins', () => {
 
     const log = await mod.get('/c/watch/mod/log')
     const logText = await log.text()
-    expect(logText).toContain('pin_post')
-    expect(logText).toContain('unpin_post')
+    expect(logText).toContain('Gönderi sabitlendi')
+    expect(logText).toContain('Sabitleme kaldırıldı')
   })
 })
 
@@ -300,8 +300,8 @@ describe('US-034 moderator management', () => {
     // Mod changes are logged.
     const log = await mod.get('/c/watch/mod/log')
     const logText = await log.text()
-    expect(logText).toContain('moderator_appoint')
-    expect(logText).toContain('moderator_remove')
+    expect(logText).toContain('Moderatör atandı')
+    expect(logText).toContain('Moderatör kaldırıldı')
   })
 
   test('newer moderator cannot remove the oldest-standing moderator', async () => {

@@ -17,6 +17,9 @@ CREATE TABLE IF NOT EXISTS users (
   bio TEXT,
   avatar_key TEXT,                    -- profile picture (uploads key)
   cover_key TEXT,                     -- profile cover image (uploads key)
+  rank_mode TEXT NOT NULL DEFAULT 'auto' CHECK (rank_mode IN ('auto','manual')),
+  rank_override TEXT,                 -- manual rank id; NULL = follow karma
+  staff_role TEXT NOT NULL DEFAULT '' CHECK (staff_role IN ('','moderator','super_moderator','co_admin','admin')),
   is_admin INTEGER NOT NULL DEFAULT 0,
   deleted INTEGER NOT NULL DEFAULT 0,
   suspended_until INTEGER,          -- epoch ms; NULL = not suspended (unless indefinite)
@@ -191,6 +194,7 @@ CREATE INDEX IF NOT EXISTS idx_mod_actions_community ON mod_actions(community_id
 CREATE TABLE IF NOT EXISTS notifications (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id),
+  actor_id TEXT,                      -- bildirimi tetikleyen kullanıcı (rozet gösterimi için)
   type TEXT NOT NULL CHECK (type IN ('reply','mod_removal','mod_ban','membership')),
   actor_hidden INTEGER NOT NULL DEFAULT 0,
   title TEXT NOT NULL,

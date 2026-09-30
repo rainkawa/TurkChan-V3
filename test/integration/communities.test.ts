@@ -172,8 +172,8 @@ describe('US-012 community settings and rules', () => {
 
     const log = await mod.get('/c/ruled/mod/log')
     const logText = await log.text()
-    expect(logText).toContain('settings_update')
-    expect(logText).toContain('rules_update')
+    expect(logText).toContain('Topluluk ayarları güncellendi')
+    expect(logText).toContain('Kurallar güncellendi')
   })
 
   test('rules cap at 15; non-moderators cannot edit settings', async () => {

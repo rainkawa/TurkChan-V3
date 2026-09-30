@@ -3,6 +3,7 @@ import type { CommentRow, PostRow, UserRow, Viewer } from '../types'
 import { getSettings } from './settings'
 import { badRequest, forbidden, notFound, rateLimited, unauthorized } from './errors'
 import { activeBan, getCommunityById, isSuspended } from './access'
+import { isAdminPower } from './ranks'
 import { transaction } from '../db'
 
 export type VoteTarget = 'post' | 'comment'
@@ -46,8 +47,7 @@ export function castVote(
   if (community.archived) throw badRequest('archived', 'Bu topluluk arşivlenmiş ve salt okunur durumdadır.')
   if (activeBan(ctx, viewer.id, community.id)) {
     throw forbidden('Bu topluluktan yasaklandınız.')
-  }
-  if (community.visibility === 'private' && !viewer.is_admin) {
+  }    if (community.visibility === 'private' && !isAdminPower(viewer)) {
     const member = ctx.db
       .prepare("SELECT 1 FROM memberships WHERE user_id = ? AND community_id = ? AND status = 'approved'")
       .get(viewer.id, community.id)

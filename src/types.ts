@@ -8,6 +8,9 @@ export interface UserRow {
   bio: string | null
   avatar_key: string | null
   cover_key: string | null
+  rank_mode: 'auto' | 'manual'
+  rank_override: string | null
+  staff_role: string
   is_admin: number
   deleted: number
   suspended_until: number | null
@@ -127,6 +130,7 @@ export interface ModActionRow {
 export interface NotificationRow {
   id: string
   user_id: string
+  actor_id: string | null
   type: 'reply' | 'mod_removal' | 'mod_ban' | 'membership'
   actor_hidden: number
   title: string

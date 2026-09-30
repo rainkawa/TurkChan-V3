@@ -8,6 +8,9 @@ import { badRequest, notFound } from './errors'
 import { requireAdmin } from './access'
 import { invalidateAllSessions } from './auth'
 import { logAction } from './modlog'
+import { attachUpload } from './uploads'
+import { isAdminPower, isRankId, parseStaffRole } from './ranks'
+import { validateBio, validateDisplayName, validateUsername } from '../lib/validation'
 import { syncCommunityFts } from './communities'
 import { transaction } from '../db'
 
@@ -145,22 +148,144 @@ export interface AdminUserEntry {
   created_at: number
 }
 
+const ADMIN_USER_COLUMNS = `id, username, email_lower, is_admin, deleted, suspended_until,
+  suspended_indefinitely, created_at, display_name, bio, avatar_key, cover_key,
+  rank_mode, rank_override, staff_role`
+
 export function listUsers(ctx: Ctx, viewer: Viewer, query?: string): AdminUserEntry[] {
   requireAdmin(viewer)
   if (query?.trim()) {
     return ctx.db
       .prepare(
-        `SELECT id, username, email_lower, is_admin, deleted, suspended_until, suspended_indefinitely, created_at
-         FROM users WHERE username_lower LIKE ? ORDER BY created_at DESC LIMIT 200`,
+        `SELECT ${ADMIN_USER_COLUMNS} FROM users WHERE username_lower LIKE ? ORDER BY created_at DESC LIMIT 200`,
       )
       .all(`%${query.trim().toLowerCase().replaceAll('%', '')}%`) as unknown as AdminUserEntry[]
   }
   return ctx.db
-    .prepare(
-      `SELECT id, username, email_lower, is_admin, deleted, suspended_until, suspended_indefinitely, created_at
-       FROM users ORDER BY created_at DESC LIMIT 200`,
-    )
+    .prepare(`SELECT ${ADMIN_USER_COLUMNS} FROM users ORDER BY created_at DESC LIMIT 200`)
     .all() as unknown as AdminUserEntry[]
+}
+
+/** Yönetim panelindeki tek kullanıcı detayı (düzenleme formu). */
+export function getAdminUser(ctx: Ctx, viewer: Viewer, userId: string): UserRow | null {
+  requireAdmin(viewer)
+  return ctx.db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as UserRow | undefined ?? null
+}
+
+/** Sitede başka yönetici var mı? (son yöneticiyi koruma kuralı) */
+function adminCount(ctx: Ctx, exceptId?: string): number {
+  const row = ctx.db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM users
+       WHERE deleted = 0 AND (is_admin = 1 OR staff_role IN ('co_admin','admin'))
+         AND id != ?`,
+    )
+    .get(exceptId ?? '') as { n: number }
+  return row.n
+}
+
+export interface AdminUserUpdate {
+  username?: string
+  displayName?: string
+  bio?: string
+  rankMode?: 'auto' | 'manual'
+  rank?: string | null
+  staffRole?: string
+  avatarKey?: string | null
+  coverKey?: string | null
+  /** Yönetici tarafından belirlenen yeni parolanın hash'i (isteğe bağlı). */
+  passwordHash?: string
+}
+
+/**
+ * Yönetim panelinden kullanıcı düzenleme. Güvenlik kuralları:
+ *  - yalnızca yönetici (requireAdmin) çağırabilir,
+ *  - kullanıcı kendi yetkisini yükseltemez/kaldıramaz,
+ *  - sistemde en az bir yönetici kalır.
+ */
+export function updateAdminUser(ctx: Ctx, viewer: Viewer, userId: string, input: AdminUserUpdate): UserRow {
+  const admin = requireAdmin(viewer)
+  const user = ctx.db.prepare('SELECT * FROM users WHERE id = ? AND deleted = 0').get(userId) as UserRow | undefined
+  if (!user) throw notFound('Kullanıcı bulunamadı.')
+
+  const updates: string[] = []
+  const params: (string | number | null)[] = []
+
+  if (input.username !== undefined) {
+    const username = validateUsername(input.username)
+    if (username.toLowerCase() !== user.username_lower) {
+      const taken = ctx.db
+        .prepare('SELECT 1 FROM users WHERE username_lower = ? AND id != ?')
+        .get(username.toLowerCase(), userId)
+      if (taken) throw badRequest('username_taken', 'Bu kullanıcı adı zaten alınmış.')
+      updates.push('username = ?', 'username_lower = ?')
+      params.push(username, username.toLowerCase())
+    }
+  }
+  if (input.displayName !== undefined) {
+    updates.push('display_name = ?')
+    params.push(validateDisplayName(input.displayName))
+  }
+  if (input.bio !== undefined) {
+    updates.push('bio = ?')
+    params.push(validateBio(input.bio))
+  }
+  if (input.avatarKey !== undefined) {
+    // Yüklemeyi yönetici yaptığı için sahiplik admin üzerinden doğrulanır.
+    if (input.avatarKey) attachUpload(ctx, admin, input.avatarKey)
+    updates.push('avatar_key = ?')
+    params.push(input.avatarKey)
+  }
+  if (input.coverKey !== undefined) {
+    if (input.coverKey) attachUpload(ctx, admin, input.coverKey)
+    updates.push('cover_key = ?')
+    params.push(input.coverKey)
+  }
+
+  // Rütbe: otomatik (karma) veya manuel (sabitlenmiş) mod.
+  const rankMode = input.rankMode ?? user.rank_mode
+  if (rankMode === 'manual') {
+    if (!input.rank || !isRankId(input.rank)) throw badRequest('rank', 'Geçerli bir rütbe seçin.')
+    updates.push('rank_mode = ?', 'rank_override = ?')
+    params.push('manual', input.rank)
+  } else {
+    updates.push('rank_mode = ?', 'rank_override = ?')
+    params.push('auto', null)
+  }
+
+  // Yönetim yetkisi: kendi yetkisini değiştiremez, son yönetici korunur.
+  const nextRole = input.staffRole === undefined ? user.staff_role : input.staffRole
+  if (nextRole !== user.staff_role) {
+    if (user.id === admin.id) throw badRequest('self_role', 'Kendi yönetim yetkinizi değiştiremezsiniz.')
+    const losesAdmin = isAdminPower(user) && !isAdminPower({ staff_role: nextRole, is_admin: user.is_admin })
+    if (losesAdmin && adminCount(ctx, userId) === 0) {
+      throw badRequest('last_admin', 'Sistemde en az bir yönetici kalmalı.')
+    }
+  }
+  if (nextRole !== user.staff_role) {
+    if (nextRole !== '' && !parseStaffRole(nextRole)) throw badRequest('role', 'Geçerli bir yetki seçin.')
+    updates.push('staff_role = ?')
+    params.push(nextRole)
+  }
+
+  transaction(ctx.db, () => {
+    if (updates.length > 0) {
+      ctx.db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...params, userId)
+    }
+    // Parola değişikliği ayrı ve isteğe bağlıdır (hash dışarıdan verilir).
+    if (input.passwordHash) {
+      ctx.db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(input.passwordHash, userId)
+    }
+    logAction(ctx, {
+      communityId: null,
+      actorId: admin.id,
+      action: 'update_user',
+      targetType: 'user',
+      targetId: userId,
+      detail: `rank=${rankMode}${input.staffRole ? `, yetki=${input.staffRole}` : ''}`,
+    })
+  })
+  return ctx.db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as unknown as UserRow
 }
 
 export function listAllCommunities(ctx: Ctx, viewer: Viewer): Array<CommunityRow & { member_count: number; post_count: number }> {

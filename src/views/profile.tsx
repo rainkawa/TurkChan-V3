@@ -2,6 +2,8 @@ import type { FC } from 'hono/jsx'
 import { t, relativeTime, formatDate } from '../i18n/tr'
 import { accountAge, compactNumber, previewText, communityColor, communityInitials, formatDateTr, profilePath } from './helpers'
 import { CommunityAvatar, SocialCard } from './components'
+import { RankBadges } from './rank'
+import { STAFF_ROLE_LABELS, rankBadgeLabel, type UserRank } from '../services/ranks'
 import type { ProfileView } from '../services/users'
 import { moderatesAnyCommunity } from '../services/users'
 import type { Ctx } from '../context'
@@ -45,7 +47,9 @@ export const ProfileView_: FC<{
   isModerator: boolean
   tab: ProfileTab
   now: number
-}> = ({ ctx, profile, viewer, isModerator, tab, now }) => {
+  /** Karma rütbesi + yönetim yetkisi (route tarafından çözülür). */
+  rank: UserRank
+}> = ({ ctx, profile, viewer, isModerator, tab, now, rank }) => {
   const { user, karma, posts, comments } = profile
   const isSelf = viewer?.id === user.id
   const displayName = user.display_name?.trim() || user.username
@@ -53,7 +57,8 @@ export const ProfileView_: FC<{
   const contributions = posts.length + comments.length
   const postHref = (id: string) => `/c/${id}`
 
-  const role = user.is_admin === 1 ? t.profile.roleAdmin : isModerator ? t.profile.roleModerator : null
+  // Topluluk moderatörü rozeti, yönetim yetkisi rozetinden ayrıdır.
+  const communityMod = isModerator && !rank.staffRole ? t.profile.roleModerator : null
 
   // Sekme içeriği: gönderiler gerçek kartlarla, diğerleri sunucu tarafında.
   const myVotes = new Map<string, number>()
@@ -107,7 +112,8 @@ export const ProfileView_: FC<{
           {/* Kullanıcı adı, rozet ve Düzenle aynı kompakt bölgede. */}
           <div class="profile-handle">
             <span class="profile-username">/tc/{user.username}</span>
-            {role && <span class="role-badge">{role}</span>}
+            <RankBadges info={rank} />
+            {communityMod && <span class="role-badge">{communityMod}</span>}
             {isSelf && (
               <a class="btn secondary small profile-edit" href="/settings">
                 {t.common.edit}
@@ -175,6 +181,7 @@ export const ProfileView_: FC<{
                     now={now}
                     myVote={myVotes.get(p.id) ?? 0}
                     viewer={viewer}
+                    authorRanks={new Map([[user.id, rank]])}
                     showCommunity
                   />
                 ))}
@@ -247,10 +254,28 @@ export const ProfileView_: FC<{
                   <dt>{t.profile.statComments}</dt>
                   <dd>{comments.length}</dd>
                 </div>
-                {role && (
+                {rank.staffRole && (
                   <div>
                     <dt>{t.profile.roleBadgeLabel}</dt>
-                    <dd>{role}</dd>
+                    <dd>{STAFF_ROLE_LABELS[rank.staffRole]}</dd>
+                  </div>
+                )}
+                <div>
+                  <dt>{t.profile.rankRow}</dt>
+                  <dd>{rankBadgeLabel(rank)}</dd>
+                </div>
+                <div>
+                  <dt>{t.admin.restriction}</dt>
+                  <dd>
+                    {rank.banned
+                      ? `${t.rank.banned}${rank.bannedPermanent ? ` (${t.admin.indefinite})` : ''}`
+                      : t.admin.notRestricted}
+                  </dd>
+                </div>
+                {communityMod && (
+                  <div>
+                    <dt>{t.profile.roleBadgeLabel}</dt>
+                    <dd>{communityMod}</dd>
                   </div>
                 )}
               </dl>

@@ -27,8 +27,18 @@ function migrate(db: DatabaseSync): void {
   for (const [column, ddl] of [
     ['avatar_key', 'ALTER TABLE users ADD COLUMN avatar_key TEXT'],
     ['cover_key', 'ALTER TABLE users ADD COLUMN cover_key TEXT'],
+    ['rank_mode', "ALTER TABLE users ADD COLUMN rank_mode TEXT NOT NULL DEFAULT 'auto'"],
+    ['rank_override', 'ALTER TABLE users ADD COLUMN rank_override TEXT'],
+    ['staff_role', "ALTER TABLE users ADD COLUMN staff_role TEXT NOT NULL DEFAULT ''"],
   ] as const) {
     if (!have.has(column)) db.exec(ddl)
+  }
+
+  const notificationColumns = new Set(
+    (db.prepare('PRAGMA table_info(notifications)').all() as unknown as Array<{ name: string }>).map((c) => c.name),
+  )
+  if (!notificationColumns.has('actor_id')) {
+    db.exec('ALTER TABLE notifications ADD COLUMN actor_id TEXT')
   }
 }
 

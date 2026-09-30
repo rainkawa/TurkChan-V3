@@ -7,6 +7,8 @@ import { badRequest, forbidden, notFound, rateLimited, unauthorized } from './er
 import { canReadCommunity, getCommunityById, isSuspended, requireModerator } from './access'
 import { syncPostFts, getPost } from './posts'
 import { getComment } from './comments'
+import { isAdminPower } from './ranks'
+import { t } from '../i18n/tr'
 
 const HOUR_MS = 60 * 60 * 1000
 
@@ -94,12 +96,13 @@ export interface QueueEntry {
   title: string | null
   body_preview: string | null
   author_username: string | null
+  author_id: string | null
 }
 
 /** US-030: open reports grouped per target, oldest-unresolved first. */
 export function reportQueue(ctx: Ctx, viewer: Viewer, community: CommunityRow | null): QueueEntry[] {
   if (community) requireModerator(ctx, viewer, community)
-  else if (!viewer?.is_admin) throw forbidden('Site yöneticisi yetkisi gerekiyor.')
+  else if (!isAdminPower(viewer)) throw forbidden('Site yöneticisi yetkisi gerekiyor.')
 
   const rows = ctx.db
     .prepare(
@@ -118,29 +121,46 @@ export function reportQueue(ctx: Ctx, viewer: Viewer, community: CommunityRow | 
   return rows.map((row) => {
     if (row.target_type === 'post') {
       const post = getPost(ctx, row.target_id)
-      const author = post
-        ? (ctx.db.prepare('SELECT username FROM users WHERE id = ?').get(post.author_id) as { username: string } | undefined)
-        : undefined
+      const author = post ? getUsername(ctx, post.author_id) : undefined
       return {
         ...row,
         auto_hidden: post?.auto_hidden ?? 0,
         title: post?.title ?? null,
         body_preview: post?.body?.slice(0, 200) ?? null,
         author_username: author?.username ?? null,
+        author_id: post?.author_id ?? null,
       }
     }
     const comment = getComment(ctx, row.target_id)
-    const author = comment
-      ? (ctx.db.prepare('SELECT username FROM users WHERE id = ?').get(comment.author_id) as { username: string } | undefined)
-      : undefined
+    const author = comment ? getUsername(ctx, comment.author_id) : undefined
     return {
       ...row,
       auto_hidden: comment?.auto_hidden ?? 0,
       title: null,
       body_preview: comment?.body.slice(0, 200) ?? null,
       author_username: author?.username ?? null,
+      author_id: comment?.author_id ?? null,
     }
   })
+}
+
+function getUsername(ctx: Ctx, userId: string): { username: string } | undefined {
+  return ctx.db.prepare('SELECT username FROM users WHERE id = ?').get(userId) as { username: string } | undefined
+}
+
+/** "rule,spam" gibi ham değerleri okunabilir Türkçe nedenlere çevirir. */
+export function reasonLabel(raw: string): string {
+  const labels: Record<string, string> = {
+    rule: t.report.rule,
+    spam: t.report.spam,
+    harassment: t.report.harassment,
+    other: t.report.other,
+  }
+  return raw
+    .split(',')
+    .map((part) => labels[part.trim()] ?? part.trim())
+    .filter(Boolean)
+    .join(', ')
 }
 
 /** Dismiss all open reports on a target (mod action from the queue). */

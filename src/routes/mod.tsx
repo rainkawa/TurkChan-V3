@@ -4,7 +4,7 @@ import { t } from '../i18n/tr'
 import { Layout } from '../views/layout'
 import { requireVisibleCommunity, getCommunityById, requireModerator } from '../services/access'
 import { pendingRequests, resolveJoinRequest, listModerators, getUserForModeration } from '../services/communities'
-import { reportQueue, dismissReports } from '../services/reports'
+import { reportQueue, dismissReports, reasonLabel } from '../services/reports'
 import {
   removeContent,
   restoreContent,
@@ -20,7 +20,10 @@ import { communityModLog } from '../services/modlog'
 import { getPost } from '../services/posts'
 import { getComment } from '../services/comments'
 import { AppError, notFound } from '../services/errors'
-import { relativeTime, profilePath } from '../views/helpers'
+import { relativeTime, profilePath, modActionLabel, modDetailLabel, modTargetLabel } from '../views/helpers'
+import { UserByline } from '../views/rank'
+import { authorRanksFor, usersByIds } from '../services/users'
+import { rankInfoFor } from '../services/ranks'
 import { type AppEnv, formData, loginRedirect, setFlash, takeFlash, unread } from './helpers'
 
 export function modRoutes(ctx: Ctx): Hono<AppEnv> {
@@ -34,6 +37,7 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
     requireModerator(ctx, viewer, community)
     const queue = reportQueue(ctx, viewer, community)
     const now = ctx.now()
+    const queueRanks = rankInfoFor(ctx, usersByIds(ctx, queue.map((e) => e.author_id).filter((id): id is string => Boolean(id))))
     return c.html(
       <Layout title={t.community.modQueue} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)}>
         <div class="card">
@@ -45,8 +49,8 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
                 <thead>
                   <tr>
                     <th>{t.admin.content}</th>
-                    <th>{t.admin.reportsCol}</th>
-                    <th>{t.admin.reasons}</th>
+                    <th>{t.report.count}</th>
+                    <th>{t.report.reasons}</th>
                     <th>{t.admin.age}</th>
                     <th>{t.admin.actions}</th>
                   </tr>
@@ -64,10 +68,18 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
                         <td>
                           {entry.auto_hidden === 1 && <span class="pin-tag">⚠ {t.mod.autoHidden}</span>}{' '}
                           <a href={link}>{entry.title ?? entry.body_preview ?? entry.target_id}</a>
-                          {entry.author_username && <div class="hint">{t.common.by} u/{entry.author_username}</div>}
+                          {entry.author_username && (
+                            <div class="hint">
+                              {t.common.by}{' '}
+                              <UserByline
+                                username={entry.author_username}
+                                info={entry.author_id ? queueRanks.get(entry.author_id) ?? null : null}
+                              />
+                            </div>
+                          )}
                         </td>
                         <td>{entry.report_count}</td>
-                        <td>{entry.reasons}</td>
+                        <td>{reasonLabel(entry.reasons)}</td>
                         <td>{relativeTime(entry.oldest_report_at, now)}</td>
                         <td>
                           <form method="post" action={`/mod/remove/${entry.target_type}/${entry.target_id}`} style="display:inline" data-confirm={t.post.removeContentConfirm}>
@@ -183,6 +195,14 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
     const bans = listBans(ctx, viewer, community)
     const banPrefill = c.req.query('ban') ?? ''
     const now = ctx.now()
+    // Kullanıcı listelerinde rütbe ve yetki rozetleri aynı şekilde görünür.
+    const listIds = [
+      ...pending.map((p) => p.user_id),
+      ...moderators.map((m) => m.user_id),
+      ...bans.map((b) => b.user_id),
+    ]
+    const listUsers = usersByIds(ctx, listIds)
+    const listRanks = rankInfoFor(ctx, listUsers)
     return c.html(
       <Layout title={t.community.approvals} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)}>
         <div class="card">
@@ -191,7 +211,9 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
           {pending.map((p) => (
             <div class="dir-item">
               <div>
-                <a class="name" href={profilePath(p.username)}>/tc/{p.username}</a>
+                <a class="name" href={profilePath(p.username)}>
+                  <UserByline username={p.username} info={listRanks.get(p.user_id) ?? null} link={false} />
+                </a>
                 <p class="desc">
                   {t.community.requestedAgo} {relativeTime(p.created_at, now)}
                 </p>
@@ -212,7 +234,9 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
           <h3>{t.community.moderators}</h3>
           {moderators.map((m) => (
             <div class="dir-item">
-              <a class="name" href={profilePath(m.username)}>/tc/{m.username}</a>
+              <a class="name" href={profilePath(m.username)}>
+                <UserByline username={m.username} info={listRanks.get(m.user_id) ?? null} link={false} />
+              </a>
               <form method="post" action={`/c/${community.name}/mod/moderators/${m.user_id}/remove`} style="display:inline" data-confirm={t.post.removeModeratorConfirm}>
                 <button class="btn secondary small" type="submit">{t.community.moderatorRemove}</button>
               </form>
@@ -232,7 +256,9 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
           {bans.map((b) => (
             <div class="dir-item">
               <div>
-                <span class="name">/tc/{b.username}</span>
+                <span class="name">
+                  <UserByline username={b.username} info={listRanks.get(b.user_id) ?? null} />
+                </span>
                 <p class="desc">
                   {b.expires_at === null ? t.community.permanent : `${t.community.until} ${new Date(b.expires_at).toISOString().slice(0, 10)}`}
                   {b.reason ? ` — ${b.reason}` : ''}
@@ -379,9 +405,13 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
                   <tr>
                     <td>{relativeTime(e.created_at, now)}</td>
                     <td>/tc/{usernames.get(e.actor_id)}</td>
-                    <td>{e.action}</td>
-                    <td>{e.target_type ? `${e.target_type}:${e.target_id}` : '—'}</td>
-                    <td>{[e.reason, e.detail].filter(Boolean).join(' · ') || '—'}</td>
+                    <td>{modActionLabel(e.action)}</td>
+                    <td>
+                      {e.target_type
+                        ? `${modTargetLabel(e.target_type)}: ${e.target_id}`
+                        : '—'}
+                    </td>
+                    <td>{[e.reason, modDetailLabel(e.detail)].filter(Boolean).join(' · ') || '—'}</td>
                   </tr>
                 ))}
               </tbody>

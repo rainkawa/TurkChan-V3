@@ -4,6 +4,7 @@ import { validateBio, validateDisplayName, validateUsername, validatePassword } 
 import { conflict, forbidden, notFound, unauthorized } from './errors'
 import { hashPassword, verifyPassword } from '../lib/passwords'
 import { attachUpload } from './uploads'
+import { rankInfoFor, type UserRank } from './ranks'
 import { readableCommunitiesClause } from './access'
 import { transaction } from '../db'
 import { sha256 } from '../lib/ids'
@@ -34,7 +35,17 @@ export function getKarma(ctx: Ctx, userId: string): Karma {
 export interface ProfileView {
   user: Pick<
     UserRow,
-    'id' | 'username' | 'display_name' | 'bio' | 'created_at' | 'is_admin' | 'avatar_key' | 'cover_key'
+    | 'id'
+    | 'username'
+    | 'display_name'
+    | 'bio'
+    | 'created_at'
+    | 'is_admin'
+    | 'avatar_key'
+    | 'cover_key'
+    | 'rank_mode'
+    | 'rank_override'
+    | 'staff_role'
   >
   karma: Karma
   posts: Array<PostRow & { community_name: string }>
@@ -49,6 +60,30 @@ export function moderatesAnyCommunity(ctx: Ctx, userId: string): boolean {
     )
     .get(userId) as { n: number } | undefined
   return row !== undefined
+}
+
+/** Toplu kullanıcı getirme: rütbe/rozet çözümü için (N+1 sorgu önlenir). */
+export function usersByIds(ctx: Ctx, ids: string[]): UserRow[] {
+  const unique = [...new Set(ids.filter(Boolean))]
+  if (unique.length === 0) return []
+  const marks = unique.map(() => '?').join(', ')
+  return ctx.db
+    .prepare(`SELECT * FROM users WHERE id IN (${marks})`)
+    .all(...unique) as unknown as UserRow[]
+}
+
+/** Tek kullanıcı (yoksa null). */
+export function getUserById(ctx: Ctx, id: string): UserRow | null {
+  const row = ctx.db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow | undefined
+  return row ?? null
+}
+
+/**
+ * Görüntülenen gönderi/yorum yazarlarının rütbe ve yetki bilgisi.
+ * Tek toplu sorguda çözülür; kart başına ayrı sorgu yapılmaz.
+ */
+export function authorRanksFor(ctx: Ctx, authorIds: Array<string | null | undefined>): Map<string, UserRank> {
+  return rankInfoFor(ctx, usersByIds(ctx, authorIds.filter((id): id is string => Boolean(id))))
 }
 
 /**
@@ -91,6 +126,9 @@ export function getProfile(ctx: Ctx, viewer: Viewer, username: string): ProfileV
       is_admin: user.is_admin,
       avatar_key: user.avatar_key,
       cover_key: user.cover_key,
+      rank_mode: user.rank_mode,
+      rank_override: user.rank_override,
+      staff_role: user.staff_role,
     },
     karma: getKarma(ctx, user.id),
     posts,

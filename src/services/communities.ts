@@ -16,6 +16,7 @@ import {
   requireModerator,
 } from './access'
 import { logAction } from './modlog'
+import { isAdminPower } from './ranks'
 import { transaction } from '../db'
 import { notify } from './notifications'
 
@@ -27,7 +28,7 @@ export function createCommunity(
   if (!viewer) throw unauthorized()
   if (isSuspended(ctx, viewer)) throw forbidden('Hesabınız askıya alınmış.')
   const settings = getSettings(ctx)
-  if (settings.communityCreation === 'admin' && !viewer.is_admin) {
+  if (settings.communityCreation === 'admin' && !isAdminPower(viewer)) {
     throw forbidden('Şu anda yalnızca site yöneticileri topluluk oluşturabilir.')
   }
 
@@ -92,7 +93,7 @@ export function listDirectory(ctx: Ctx, viewer: Viewer): DirectoryEntry[] {
   return rows.filter((c) => {
     if (c.visibility !== 'private') return true
     if (!viewer) return false
-    if (viewer.is_admin) return true
+    if (isAdminPower(viewer)) return true
     const m = getMembership(ctx, viewer.id, c.id)
     return m?.status === 'approved'
   })

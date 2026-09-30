@@ -1,6 +1,7 @@
 import type { FC, Child } from 'hono/jsx'
 import { t } from '../i18n/tr'
 import { profilePath } from './helpers'
+import { isAdminPower } from '../services/ranks'
 import type { UserRow } from '../types'
 
 export interface OgTags {
@@ -174,7 +175,7 @@ export const Layout: FC<LayoutProps> = ({ title, viewer, unread = 0, og, flash, 
               <li><a href="/notifications">{t.nav.notifications}</a></li>
               {viewer && <li><a href={profilePath(viewer.username)}>{t.nav.profile}</a></li>}
               {viewer && <li><a href="/settings">{t.nav.settings}</a></li>}
-              {viewer?.is_admin === 1 && <li><a href="/admin">{t.nav.admin}</a></li>}
+              {isAdminPower(viewer) && <li><a href="/admin">{t.nav.admin}</a></li>}
               <li><a href="/privacy">{t.footer.privacy}</a></li>
             </ul>
             <div class="drawer-foot">

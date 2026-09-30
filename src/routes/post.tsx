@@ -20,7 +20,10 @@ import { listRules } from '../services/communities'
 import { isModerator, getCommunityById, canReadCommunity } from '../services/access'
 import { AppError, notFound } from '../services/errors'
 import { ValidationError } from '../lib/validation'
-import { relativeTime, profilePath } from '../views/helpers'
+import { relativeTime } from '../views/helpers'
+import { UserByline } from '../views/rank'
+import { authorRanksFor } from '../services/users'
+import { isAdminPower } from '../services/ranks'
 import { type AppEnv, formData, loginRedirect, setFlash, takeFlash, unread } from './helpers'
 
 function parseCommentSort(raw: string | undefined): CommentSort {
@@ -31,6 +34,15 @@ function collectIds(nodes: CommentNode[], out: string[] = []): string[] {
   for (const node of nodes) {
     out.push(node.comment.id)
     collectIds(node.children, out)
+  }
+  return out
+}
+
+/** Yorum ağacındaki tüm yazar kimlikleri (rozet çözümü için). */
+function collectAuthorIds(nodes: CommentNode[], out: string[] = []): string[] {
+  for (const node of nodes) {
+    out.push(node.comment.author_id)
+    collectAuthorIds(node.children, out)
   }
   return out
 }
@@ -47,8 +59,11 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
     const ids = collectIds(tree)
     const myVotes = getMyVotes(ctx, viewer, 'comment', ids)
     const myPostVote = getMyVotes(ctx, viewer, 'post', [postId]).get(postId) ?? 0
+    // Yazar ve yorum yazarlarının rütbe/rozetleri tek toplu sorguda çözülür.
+    const authorRanks = authorRanksFor(ctx, [view.post.author_id, ...collectAuthorIds(tree)])
     const now = ctx.now()
     const { post, community, authorUsername, contentHidden } = view
+    const authorRank = authorRanks.get(post.author_id) ?? null
     const isMod = isModerator(ctx, viewer, community.id)
     const isOwn = viewer?.id === post.author_id
     const canReply = Boolean(viewer) && !community.archived && contentHidden === null
@@ -99,7 +114,7 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
                 <span class="social-card-community-name">c/{community.name}</span>
                 <span class="social-card-time">
                   {authorUsername ? (
-                    <a href={profilePath(authorUsername)}>/tc/{authorUsername}</a>
+                    <UserByline username={authorUsername} info={authorRank} link={false} />
                   ) : (
                     t.post.deletedBody
                   )}
@@ -152,7 +167,7 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
                       )}
                     </>
                   )}
-                  {viewer?.is_admin === 1 && contentHidden === 'removed' && (
+                  {isAdminPower(viewer) && contentHidden === 'removed' && (
                     <form method="post" action={`/mod/restore/post/${post.id}`}>
                       <button type="submit">{t.common.restore}</button>
                     </form>
@@ -246,6 +261,7 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
             postId={post.id}
             canReply={canReply}
             isMod={isMod}
+            authorRanks={authorRanks}
             scoreHidden={scoreHidden}
             highlightId={highlightCommentId}
           />
@@ -416,21 +432,29 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
       <Layout title={t.report.title} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)}>
         <div class="card form-narrow">
           <h2>{t.report.title}</h2>
+          <p class="hint">{t.report.subtitle}</p>
           <form method="post" action={`/report/${type}/${targetId}`}>
-            <div class="field">
-              <label>{t.report.reason}</label>
+            <fieldset class="report-reasons">
+              <legend class="report-reasons-legend">{t.report.reason}</legend>
               {rules.map((rule) => (
-                <label style="display:block;font-weight:400">
+                <label class="report-reason">
                   <input type="radio" name="reason" value={`rule:${rule.id}`} /> {rule.title}
                 </label>
               ))}
-              <label style="display:block;font-weight:400"><input type="radio" name="reason" value="spam" /> {t.report.spam}</label>
-              <label style="display:block;font-weight:400"><input type="radio" name="reason" value="harassment" /> {t.report.harassment}</label>
-              <label style="display:block;font-weight:400"><input type="radio" name="reason" value="other" required /> {t.report.other}</label>
-            </div>
+              <label class="report-reason">
+                <input type="radio" name="reason" value="spam" /> {t.report.spam}
+              </label>
+              <label class="report-reason">
+                <input type="radio" name="reason" value="harassment" /> {t.report.harassment}
+              </label>
+              <label class="report-reason">
+                <input type="radio" name="reason" value="other" required /> {t.report.other}
+              </label>
+            </fieldset>
             <div class="field">
               <label for="detail">{t.report.detail}</label>
               <textarea id="detail" name="detail" maxlength={1000}></textarea>
+              <div class="hint">{t.report.detailHint}</div>
             </div>
             <button class="btn" type="submit">{t.report.submit}</button>
           </form>

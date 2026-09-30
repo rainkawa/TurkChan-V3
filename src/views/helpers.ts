@@ -1,5 +1,35 @@
 /** Yeniden dışa aktarma: zaman biçimlendirme tek kaynaktan (i18n/tr) gelir. */
+import { t } from '../i18n/tr'
 export { relativeTime, formatDate } from '../i18n/tr'
+
+/** Yönetim/moderasyon kaydındaki teknik işlem kodunu Türkçeye çevirir. */
+export function modActionLabel(action: string): string {
+  const labels = t.modActions as Record<string, string>
+  return labels[action] ?? action
+}
+
+/** Kayıttaki hedef türünü Türkçeye çevirir (post/comment/user/community). */
+export function modTargetLabel(targetType: string | null): string | null {
+  if (!targetType) return null
+  const labels: Record<string, string> = {
+    post: 'Gönderi',
+    comment: 'Yorum',
+    user: 'Kullanıcı',
+    community: 'Topluluk',
+  }
+  return labels[targetType] ?? targetType
+}
+
+/** Kayıt detayındaki teknik değerleri ("3 days", "indefinite", …) Türkçeleştirir. */
+export function modDetailLabel(detail: string | null): string {
+  if (!detail) return ''
+  if (detail === 'indefinite') return t.admin.indefinite
+  const days = /^(\d+) days?$/.exec(detail)
+  if (days) return `${days[1]} ${t.admin.days}`
+  const invite = /^expires (\d+)d, max (\d+)$/.exec(detail)
+  if (invite) return `${invite[1]} ${t.admin.days} geçerli, en fazla ${invite[2]} ${t.admin.uses}`
+  return detail
+}
 
 /**
  * Markdown kaynağını kart önizlemesi için düz metne çevirir. Girdi zaten

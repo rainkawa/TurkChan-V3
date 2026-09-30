@@ -10,14 +10,25 @@ export function notify(
     title: string
     link: string
     sourceCommentId?: string
+    /** Bildirimi tetikleyen kullanıcı (rozet gösterimi için). */
+    actorId?: string | null
   },
 ): void {
   ctx.db
     .prepare(
-      `INSERT INTO notifications (id, user_id, type, title, link, source_comment_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO notifications (id, user_id, actor_id, type, title, link, source_comment_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(newId(), input.userId, input.type, input.title, input.link, input.sourceCommentId ?? null, ctx.now())
+    .run(
+      newId(),
+      input.userId,
+      input.actorId ?? null,
+      input.type,
+      input.title,
+      input.link,
+      input.sourceCommentId ?? null,
+      ctx.now(),
+    )
 }
 
 export function listNotifications(ctx: Ctx, userId: string, limit = 50): NotificationRow[] {

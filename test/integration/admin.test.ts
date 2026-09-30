@@ -40,7 +40,7 @@ describe('US-036 account suspension', () => {
 
     // Admin-logged (site-level).
     const log = await admin.get('/admin?tab=log')
-    expect(await log.text()).toContain('suspend_user')
+    expect(await log.text()).toContain('Hesap askıya alındı')
 
     // Timed suspension expires.
     world.tick(8 * DAY)
@@ -134,7 +134,7 @@ describe('US-038 site policies', () => {
     expect(agent.loggedIn()).toBe(false)
 
     const log = await admin.get('/admin?tab=log')
-    expect(await log.text()).toContain('site_settings_update')
+    expect(await log.text()).toContain('Site ayarları güncellendi')
 
     const settingsRow = world.ctx.db.prepare("SELECT value FROM site_settings WHERE key = 'hotDecaySeconds'").get() as { value: string }
     expect(JSON.parse(settingsRow.value)).toBe(120000)
@@ -171,7 +171,7 @@ describe('US-039 community export', () => {
 
     // Admin-logged; link expires after 24h.
     const log = await admin.get('/admin?tab=log')
-    expect(await log.text()).toContain('export_community')
+    expect(await log.text()).toContain('Topluluk dışa aktarıldı')
     world.tick(25 * 60 * 60 * 1000)
     expect((await admin.get(`/exports/${token}`)).status).toBe(404)
   })

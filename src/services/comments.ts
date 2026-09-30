@@ -71,6 +71,7 @@ export function createComment(
     if (recipientId !== user.id && recipientVisible) {
       notify(ctx, {
         userId: recipientId,
+        actorId: user.id,
         type: 'reply',
         title: `/tc/${user.username}, c/${community.name} topluluğundaki ${parent ? 'yorumunuza' : 'gönderinize'} yanıt verdi`,
         link: `/c/${community.name}/comments/${postId}/comment/${id}`,

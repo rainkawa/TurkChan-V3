@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import type { Ctx } from '../context'
 import { t } from '../i18n/tr'
+import type { UserRow } from '../types'
 import { Layout } from '../views/layout'
 import { PostCard, SortTabs, SocialCard } from '../views/components'
 import { ProfileView_, type ProfileTab } from '../views/profile'
@@ -14,10 +15,16 @@ import {
   changeUsername,
   changePassword,
   setProfileImage,
+  authorRanksFor,
+  getUserById,
+  usersByIds,
 } from '../services/users'
+import { isAdminPower, userRankInfo } from '../services/ranks'
 import { requestUpload, receiveUpload } from '../services/uploads'
 import { getMyVotes } from '../services/votes'
 import { listNotifications, markAllRead, markRead } from '../services/notifications'
+import { rankInfoFor } from '../services/ranks'
+import { UserByline } from '../views/rank'
 import { getSettings } from '../services/settings'
 import { decodeCursor } from '../lib/cursor'
 import { AppError } from '../services/errors'
@@ -46,6 +53,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
     const now = ctx.now()
     const all = [...page.pinned, ...page.items]
     const membership = membershipStates(ctx, viewer, all.map((i) => i.community_id))
+    const authorRanks = authorRanksFor(ctx, all.map((i) => i.author_id))
     return c.html(
       <Layout viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)} active="home" og={{ title: t.siteTitle, description: t.ogDescription }}>
         <div class="home-layout">
@@ -65,6 +73,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
                   viewer={viewer}
                   myVote={myVotes.get(item.id) ?? 0}
                   membership={membership.get(item.community_id)}
+                  authorRanks={authorRanks}
                   pinned
                 />
               ))}
@@ -75,6 +84,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
                   viewer={viewer}
                   myVote={myVotes.get(item.id) ?? 0}
                   membership={membership.get(item.community_id)}
+                  authorRanks={authorRanks}
                 />
               ))}
             </div>
@@ -101,7 +111,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
     const viewer = c.get('viewer')
     const entries = listDirectory(ctx, viewer)
     const settings = getSettings(ctx)
-    const canCreate = viewer && (settings.communityCreation === 'member' || viewer.is_admin === 1)
+    const canCreate = viewer && (settings.communityCreation === 'member' || isAdminPower(viewer))
     return c.html(
       <Layout title={t.nav.communities} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)} active="communities">
         <div class="card">
@@ -235,6 +245,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
     }
     const results = query ? search(ctx, viewer, query, communityId) : { posts: [], communities: [] }
     const now = ctx.now()
+    const searchRanks = authorRanksFor(ctx, results.posts.map((p) => p.author_id))
     return c.html(
       <Layout title={`${t.nav.search}: ${query}`} viewer={viewer} unread={unread(ctx, viewer)}>
         <div class="card">
@@ -283,6 +294,11 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
                     c/{p.community_name} · {p.score} {t.common.points} · {p.comment_count} {t.feed.comments} ·{' '}
                     {relativeTime(p.created_at, now)}
                   </p>
+                  {p.author_username && (
+                    <p class="desc">
+                      <UserByline username={p.author_username} info={searchRanks.get(p.author_id) ?? null} />
+                    </p>
+                  )}
                 </div>
               </div>
             ))}
@@ -316,6 +332,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
       rawTab === 'comments' || rawTab === 'saved' || rawTab === 'about' ? rawTab : 'posts'
     const isModerator = moderatesAnyCommunity(ctx, profile.user.id)
     void isSelf
+    const rank = userRankInfo(ctx, getUserById(ctx, profile.user.id) as UserRow)
     return c.html(
       <Layout
         title={`/tc/${profile.user.username}`}
@@ -332,6 +349,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
           isModerator={isModerator}
           tab={tab}
           now={now}
+          rank={rank}
         />
       </Layout>,
     )
@@ -520,6 +538,10 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
     if (!viewer) return c.redirect('/login?next=%2Fnotifications')
     const items = listNotifications(ctx, viewer.id)
     const now = ctx.now()
+    // Bildirimi tetikleyen kullanıcının rozetleri yanıt satırında görünür.
+    const actors = usersByIds(ctx, items.map((n) => n.actor_id).filter((id): id is string => Boolean(id)))
+    const notificationActors = new Map(actors.map((u) => [u.id, u.username]))
+    const notificationRanks = rankInfoFor(ctx, actors)
     return c.html(
       <Layout title={t.notifications.title} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)} active="inbox">
         <div class="card">
@@ -531,10 +553,20 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
           )}
           {items.length === 0 && <p class="placeholder">{t.notifications.empty}</p>}
           {items.map((n) => (
-            <div class="dir-item" style={n.read ? 'opacity:0.6' : ''}>
+            <div class={`dir-item${n.read ? ' is-read' : ''}`}>
               <div>
                 <a class="name" href={`/notifications/open/${n.id}`}>{n.title}</a>
-                <p class="desc">{relativeTime(n.created_at, now)}</p>
+                <p class="desc">
+                  {(n.actor_id && notificationActors.get(n.actor_id)) && (
+                    <>
+                      <UserByline
+                        username={notificationActors.get(n.actor_id as string) as string}
+                        info={notificationRanks.get(n.actor_id) ?? null}
+                      />{' · '}
+                    </>
+                  )}
+                  {relativeTime(n.created_at, now)}
+                </p>
               </div>
             </div>
           ))}

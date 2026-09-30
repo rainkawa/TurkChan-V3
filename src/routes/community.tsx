@@ -3,6 +3,7 @@ import type { Ctx } from '../context'
 import { t, visibilityLabel } from '../i18n/tr'
 import { Layout } from '../views/layout'
 import { PostCard, SortTabs } from '../views/components'
+import { authorRanksFor } from '../services/users'
 import {
   requireVisibleCommunity,
   canReadCommunity,
@@ -95,6 +96,7 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
     const moderators = listModerators(ctx, community.id)
     const members = memberCount(ctx, community.id)
     const now = ctx.now()
+    const authorRanks = authorRanksFor(ctx, [...page.pinned, ...page.items].map((i) => i.author_id))
 
     return c.html(
       <Layout
@@ -144,13 +146,13 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
             <SortTabs basePath={`/c/${community.name}`} sort={sort} window={window} />
             <div class="feed">
               {page.pinned.map((item) => (
-                <PostCard item={item} now={now} viewer={viewer} myVote={myVotes.get(item.id) ?? 0} showCommunity={false} pinned />
+                <PostCard item={item} now={now} viewer={viewer} myVote={myVotes.get(item.id) ?? 0} showCommunity={false} authorRanks={authorRanks} pinned />
               ))}
               {page.items.length === 0 && page.pinned.length === 0 && (
                 <div class="card empty-state"><div class="big">{t.feed.emptyCommunity}</div></div>
               )}
               {page.items.map((item) => (
-                <PostCard item={item} now={now} viewer={viewer} myVote={myVotes.get(item.id) ?? 0} showCommunity={false} />
+                <PostCard item={item} now={now} viewer={viewer} myVote={myVotes.get(item.id) ?? 0} showCommunity={false} authorRanks={authorRanks} />
               ))}
             </div>
             {page.nextCursor && (

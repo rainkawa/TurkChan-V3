@@ -4,6 +4,8 @@ import { previewText, communityColor, communityInitials, profilePath } from './h
 import type { FeedItem } from '../services/feeds'
 import type { CommunityMembershipState } from '../services/communities'
 import type { CommentNode } from '../services/comments'
+import type { UserRank } from '../services/ranks'
+import { RankBadges } from './rank'
 import { renderMarkdown } from '../lib/markdown'
 import type { UserRow } from '../types'
 
@@ -53,8 +55,11 @@ export const PostCard: FC<{
   viewer: UserRow | null
   showCommunity?: boolean
   pinned?: boolean
-}> = ({ item, now, myVote, viewer, showCommunity = true, pinned = false }) => {
+  /** Yazarın rütbesi / yetkisi (author_id ile eşleşir). */
+  authorRanks?: Map<string, UserRank>
+}> = ({ item, now, myVote, viewer, showCommunity = true, pinned = false, authorRanks }) => {
   const isOwn = viewer?.id === item.author_id
+  const authorRank = authorRanks?.get(item.author_id) ?? null
   const thumb =
     item.type === 'image' && item.image_key
       ? `/media/${item.image_key}`
@@ -68,7 +73,16 @@ export const PostCard: FC<{
         {pinned && <span class="pin-tag">📌 {t.feed.pinned}</span>}
         <div class="meta">
           {showCommunity && <a href={`/c/${item.community_name}`}>c/{item.community_name}</a>}
-          <span>{item.author_username ? <a href={profilePath(item.author_username)}>/tc/{item.author_username}</a> : t.post.deletedBody}</span>
+          <span class="user-byline">
+            {item.author_username ? (
+              <>
+                <a href={profilePath(item.author_username)}>/tc/{item.author_username}</a>
+                <RankBadges info={authorRank} />
+              </>
+            ) : (
+              t.post.deletedBody
+            )}
+          </span>
           <span>{relativeTime(item.created_at, now)}</span>
           {item.edited_at !== null && <span>({t.post.edited})</span>}
         </div>
@@ -137,8 +151,11 @@ export const SocialCard: FC<{
   membership?: CommunityMembershipState
   showCommunity?: boolean
   pinned?: boolean
-}> = ({ item, now, myVote, viewer, membership = 'none', showCommunity = true, pinned = false }) => {
+  /** Yazarın rütbesi / yetkisi (author_id ile eşleşir). */
+  authorRanks?: Map<string, UserRank>
+}> = ({ item, now, myVote, viewer, membership = 'none', showCommunity = true, pinned = false, authorRanks }) => {
   const isOwn = viewer?.id === item.author_id
+  const authorRank = authorRanks?.get(item.author_id) ?? null
   const href = `/c/${item.community_name}/comments/${item.id}`
   const preview = previewText(item.body)
   const media =
@@ -207,7 +224,10 @@ export const SocialCard: FC<{
 
       <div class="social-card-author">
         {item.author_username ? (
-          <a href={profilePath(item.author_username)}>/tc/{item.author_username}</a>
+          <span class="user-byline">
+            <a href={profilePath(item.author_username)}>/tc/{item.author_username}</a>
+            <RankBadges info={authorRank} />
+          </span>
         ) : (
           <span class="placeholder">{t.post.deletedBody}</span>
         )}
@@ -298,6 +318,8 @@ export const CommentTreeView: FC<{
   scoreHidden: (createdAt: number) => boolean
   highlightId?: string | null
   maxRendered?: number
+  /** Yazar rütbeleri (author_id ile eşleşir). */
+  authorRanks?: Map<string, UserRank>
 }> = (props) => {
   let rendered = 0
   const limit = props.maxRendered ?? 50
@@ -327,7 +349,14 @@ export const CommentTreeView: FC<{
       <div class={`comment${props.highlightId === c.id ? ' highlight' : ''}`} data-depth={String(Math.min(c.depth, 8))} id={`comment-${c.id}`}>
         <details class="subtree" open={!collapsed}>
           <summary>
-            {node.authorUsername ? `/tc/${node.authorUsername}` : t.comment.deleted} ·{' '}
+            {node.authorUsername ? (
+              <span class="user-byline">
+                <a href={profilePath(node.authorUsername)}>/tc/{node.authorUsername}</a>
+                <RankBadges info={props.authorRanks?.get(c.author_id) ?? null} />
+              </span>
+            ) : (
+              t.comment.deleted
+            )}{' '}·{' '}
             {props.scoreHidden(c.created_at) && !node.hidden ? `· ${t.common.points}` : `${c.score} ${t.common.points}`} ·{' '}
             {relativeTime(c.created_at, props.now)}
             {c.edited_at !== null && ` (${t.post.edited})`}

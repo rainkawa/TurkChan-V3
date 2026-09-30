@@ -9,6 +9,7 @@ import { canReadCommunity, getCommunityById, requireParticipant } from './access
 import { joinCommunity } from './communities'
 import { fetchLinkPreview } from './linkpreview'
 import { attachUpload } from './uploads'
+import { isAdminPower } from './ranks'
 import { transaction } from '../db'
 
 const TEN_MINUTES_MS = 10 * 60 * 1000
@@ -180,12 +181,12 @@ export function getPostForViewer(ctx: Ctx, viewer: Viewer, postId: string): Post
   if (!post) throw notFound('Bu içerik artık mevcut değil.')
   const community = getCommunityById(ctx, post.community_id)
   if (!community) throw notFound('Bu içerik artık mevcut değil.')
-    if (community.deleted_at !== null && !viewer?.is_admin) throw notFound('Bu içerik artık mevcut değil.')
+    if (community.deleted_at !== null && !isAdminPower(viewer)) throw notFound('Bu içerik artık mevcut değil.')
   if (!canReadCommunity(ctx, viewer, community)) {
     throw forbidden('Bu topluluk gizli. Görüntülemek için onaylı üye olmalısınız.')
   }
 
-  const isModOrAdmin = Boolean(viewer?.is_admin)
+  const isModOrAdmin = isAdminPower(viewer)
   let contentHidden: PostView['contentHidden'] = null
   if (post.deleted) contentHidden = 'deleted'
   else if (post.removed) contentHidden = 'removed'

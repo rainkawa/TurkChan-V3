@@ -1,13 +1,14 @@
 import type { Ctx } from '../context'
 import type { CommentRow, CommunityRow, PostRow, Viewer } from '../types'
 import { badRequest, forbidden, notFound } from './errors'
-import { getCommunityById, getMembership, requireModerator } from './access'
+import { getCommunityById, getMembership, requireAdmin, requireModerator } from './access'
 import { getPost, syncPostFts } from './posts'
 import { getComment } from './comments'
 import { notify, withdrawForComment } from './notifications'
 import { logAction } from './modlog'
 import { resolveReportsForTarget } from './reports'
 import { listModerators } from './communities'
+import { isAdminPower } from './ranks'
 import { transaction } from '../db'
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -71,7 +72,7 @@ export function restoreContent(ctx: Ctx, viewer: Viewer, targetType: 'post' | 'c
   const target = targetType === 'post' ? getPost(ctx, targetId) : getComment(ctx, targetId)
   if (!target) throw notFound('Bu içerik artık mevcut değil.')
   const community = targetCommunity(ctx, targetType, target)
-  if (!viewer?.is_admin) throw forbidden('Site yöneticisi yetkisi gerekiyor.')
+  const admin = requireAdmin(viewer)
 
   transaction(ctx.db, () => {
     if (targetType === 'post') {
@@ -82,7 +83,7 @@ export function restoreContent(ctx: Ctx, viewer: Viewer, targetType: 'post' | 'c
     }
     logAction(ctx, {
       communityId: community.id,
-      actorId: viewer.id,
+      actorId: admin.id,
       action: `restore_${targetType}`,
       targetType,
       targetId,
@@ -103,11 +104,11 @@ export function banUser(
   if (durationDays !== null && !BAN_DURATIONS_DAYS.includes(durationDays as (typeof BAN_DURATIONS_DAYS)[number])) {
     throw badRequest('duration', 'Yasaklama süresi 3, 7 veya 30 gün ya da süresiz olmalıdır.')
   }
-  const target = ctx.db.prepare('SELECT id, is_admin FROM users WHERE id = ? AND deleted = 0').get(userId) as
-    | { id: string; is_admin: number }
+  const target = ctx.db.prepare('SELECT id, is_admin, staff_role FROM users WHERE id = ? AND deleted = 0').get(userId) as
+    | { id: string; is_admin: number; staff_role: string }
     | undefined
   if (!target) throw notFound('Kullanıcı bulunamadı.')
-  if (target.is_admin) throw forbidden('Site yöneticileri topluluklardan yasaklanamaz.')
+  if (isAdminPower(target)) throw forbidden('Site yöneticileri topluluklardan yasaklanamaz.')
   if (target.id === actor.id) throw badRequest('self', 'Kendinizi yasaklayamazsınız.')
 
   const expiresAt = durationDays === null ? null : ctx.now() + durationDays * DAY_MS
@@ -217,7 +218,7 @@ export function removeModerator(ctx: Ctx, viewer: Viewer, community: CommunityRo
   }
   const oldest = moderators[0]
   const isSelfStepDown = actor.id === userId
-  if (!isSelfStepDown && !actor.is_admin && actor.id !== oldest?.user_id) {
+  if (!isSelfStepDown && !isAdminPower(actor) && actor.id !== oldest?.user_id) {
     throw forbidden('Yalnızca en eski moderatör ya da site yöneticisi diğer moderatörleri kaldırabilir.')
   }
   transaction(ctx.db, () => {
