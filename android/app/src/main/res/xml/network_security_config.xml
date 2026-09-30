@@ -1,7 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Güvenlik: APK'da düz metin (HTTP) trafik KESİNLİKLE kapalıdır.
-  Yalnızca HTTPS kullanılır; kullanıcı güvenilir olmayan CA yükleyemez.
+  Güvenlik: production APK'da düz metin (HTTP) trafik KESİNLİKLE kapalıdır.
+
+  Tek istisna, yalnızca YEREL GELİŞTİRME hedefleri için açılmıştır:
+  telefonun kendi `localhost`'u, `adb reverse` ile geliştirme bilgisayarına
+  yönlendirildiğinde uygulama HTTP üzerinden konuşur. Bu istisna yalnızca
+  loopback ve emülatör köprüsü için geçerlidir; internetteki herhangi bir
+  host için düz metin trafik yine de reddedilir.
+
+  Canlıya alırken `-PserverUrl=https://alan-adiniz` ile derleyin.
 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false">
@@ -9,4 +16,15 @@
             <certificates src="system" />
         </trust-anchors>
     </base-config>
+
+    <!--
+      Yerel geliştirme: `adb reverse tcp:3000 tcp:3000` sonrası telefonun
+      kendi loopback adresi geliştirme sunucusuna yönlenir.
+    -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <!-- Android emülatörünün host köprüsü (gerçek cihazda gerekmez). -->
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
 </network-security-config>

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  YALNIZCA `debug` derlemesinde kullanılır (src/dev). Release derlemesi
+  src/main içindeki katı yapılandırmayı kullanır.
+
+  Amaç: telefonda, geliştirme bilgisayarının LAN adresine
+  (örn. http://192.168.1.20:3000) erişebilmek. `adb reverse` kullanılamayan
+  durumlar (kablosuz test, başka cihaz) için gereklidir.
+
+  Güvenlik: bu izin yalnızca özel ağ aralıklarıyla sınırlıdır; internetteki
+  herhangi bir host için düz metin trafik yine de reddedilir. Release APK
+  bu dosyayı içermez.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- Loopback: adb reverse / emülatör köprüsü -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
+
+    <!--
+      Özel ağ aralıkları. Android, `domain-config` için IP aralığı yerine
+      ana makine adı ister; bu yüzden yaygın özel bloklar açıkça listelenmiştir.
+      Yalnızca debug derlemesinde etkindir.
+    -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">192.168.0.0</domain>
+        <domain includeSubdomains="true">10.0.0.0</domain>
+        <domain includeSubdomains="true">172.16.0.0</domain>
+    </domain-config>
+</network-security-config>

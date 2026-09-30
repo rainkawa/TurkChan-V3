@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       serverUrl:
-        description: 'Uygulamanın bağlanacağı HTTPS sunucu adresi'
+        description: 'Uygulamanın bağlanacağı sunucu adresi (canlı için https://)'
         required: false
         default: 'https://turkchan.app'
 

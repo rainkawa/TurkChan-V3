@@ -114,17 +114,72 @@ aynı sunucuda çalışmaya devam eder; APK yalnızca istemcidir.
 - **minSdk 24 (Android 7.0) · targetSdk/compileSdk 34**
 - **İzinler:** yalnızca `INTERNET` ve `ACCESS_NETWORK_STATE` (kamera izni yok —
   kamera `ACTION_IMAGE_CAPTURE` intent’i üzerinden çalışır, sistem izni istemez)
-- **Güvenlik:** `usesCleartextTraffic="false"` + network security config; düz metin
-  (HTTP) bağlantı reddedilir, JS köprüsü (`addJavascriptInterface`) yoktur,
-  dosya sistemi erişimi kapalı, üçüncü taraf çerezler kapalı
+- **Güvenlik:** `usesCleartextTraffic="false"` + network security config; internetteki
+  herhangi bir host için düz metin (HTTP) reddedilir (tek istisna: aşağıdaki
+  loopback), JS köprüsü (`addJavascriptInterface`) yoktur, dosya sistemi erişimi
+  kapalı, üçüncü taraf çerezler kapalı
 - **Boyut:** R8 + kaynak küçültme ile ~200 KB
 
 ### Gereksinimler
 
 JDK 17, Android SDK (platform 34 + build-tools 34.0.0) ve Gradle. Lokal SDK yolunu
 `android/local.properties` içine yazın (`sdk.dir=/path/to/android-sdk`) ya da
-`ANDROID_HOME` tanımlayın. GitHub Actions için `android/workflows/android.yml`
+`ANDROID_HOME` tanımlayın. GitHub Actions için `.github/workflows/android.yml`
 hazırdır.
+
+### Sunucu adresi
+
+APK bir **istemcidir**; veriyi kendi sunucusundan çeker. Adres build zamanında
+verilir:
+
+```bash
+# Yerel geliştirme (telefonun kendi localhost'u → bilgisayarınız)
+./gradlew :app:assembleRelease -PserverUrl=http://localhost:3000
+
+# Canlı sunucu
+./gradlew :app:assembleRelease -PserverUrl=https://alan-adiniz
+
+# Hiçbir şey vermezseniz: uygulama ilk açılışta adresi sorar
+./gradlew :app:assembleRelease
+```
+
+Ayarlanan adres uygulamada kalıcıdır; değiştirmek için ekranın herhangi bir
+yerine **uzun basın** (menü çubuğu eklenmez), hata ekranından **“Sunucu
+adresini değiştir”** düğmesiyle veya geri tuşuyla erişilir.
+
+> **Önemli — telefonda `localhost`:** Telefonda `localhost` **telefonun kendisidir**,
+> bilgisayarınız değil. Bu yüzden `adb reverse` ile yönlendirme gerekir:
+>
+> ```bash
+> npm run dev            # sunucuyu başlatın (3000)
+> npm run android:link   # telefonun 3000'ünü bilgisayarın 3000'üne bağlar
+> adb reverse --list     # doğrulama
+> ```
+>
+> Alternatif: bilgisayarınızın LAN adresini kullanın (örn. `http://192.168.1.20:3000`)
+> ve **debug** derlemesi alın — özel ağ adreslerine düz metin izni yalnızca
+> `src/dev` içinde, `release` APK’sında yoktur.
+
+### Sorun giderme
+
+Uygulama siyah ekranla değil, **nedenini yazan bir hata ekranıyla** açılır
+(DNS, bağlantı, zaman aşımı, HTTP kodu, TLS). Gerçek nedeni `adb logcat`
+üzerinden de görebilirsiniz:
+
+```bash
+adb logcat -s TurkChan:* chromium:E
+```
+
+| Belirti | Sebep / Çözüm |
+|---|---|
+| “Sunucu adresi çözümlenemedi” | Adres yanlış ya da `adb reverse` kurulmamış |
+| “Sunucuya bağlanılamadı” | Sunucu çalışmıyor veya telefon aynı ağda değil |
+| “Sunucu HTTP 502 döndürdü” | Sunucu arka planda hata veriyor |
+| TLS doğrulanamadı | Geçersiz sertifika — bağlantı bilerek iptal edilir |
+| Hata ekranı hiç gelmiyor | Sunucu 25 sn yanıt vermedi (yükleme zaman aşımı) |
+
+Bu ekran bir “yükleme animasyonu” değildir: WebView sessizce boş kaldığında
+nedenini, denenen adresi ve ne yapılması gerektiğini gösterir.
 
 ### Komutlar
 
@@ -133,9 +188,10 @@ hazırdır.
 #    dosyalar depoda hazır.
 npm run android:assets
 
-# 2) Release APK derle (sunucu adresi HTTPS olmak zorunda)
+# 2) Release APK derle (sunucu adresi verilir)
 cd android
-./gradlew :app:assembleRelease -PserverUrl=https://turkchan.app
+./gradlew :app:assembleRelease -PserverUrl=http://localhost:3000   # yerel
+./gradlew :app:assembleRelease -PserverUrl=https://alan-adiniz    # canlı
 # Çıktı: android/app/build/outputs/apk/release/app-release.apk
 
 # Veya proje kökünden
@@ -156,7 +212,8 @@ cd android && ./gradlew :app:assembleRelease \
 ### Davranış notları
 
 - **Geri tuşu:** uygulama içindeki sayfalarda önce WebView geçmişi geri gider;
-  ana sayfada tekrar geri basılırsa uygulama kapanır.
+  ana sayfada tekrar geri basılırsa uygulama kapanır. Hata ekranı açıksa geri
+  tuşu adres ayarını açar.
 - **Güvenli alan:** sistem çentik/status bar/nav bar inset’leri
   `--tc-safe-*` CSS değişkenleri olarak sayfaya aktarılır; `html.tc-android`
   bloğu bunları kullanır. Web sürümü etkilenmez.
@@ -166,6 +223,8 @@ cd android && ./gradlew :app:assembleRelease \
 - **Paylaşım/dış linkler:** sunucu dışı bağlantılar uygulama dışında açılır;
   `text/plain` paylaşım intent’i desteklenir.
 - **Splash:** koyu zemin üzerinde TurkChan monogramı, tema arka planıyla birebir aynı.
+- **Oturum:** çerezler `onPause` anında diske yazılır, uygulama kill edilse bile
+  giriş korunur. Üçüncü taraf çerezler kapalı (site tek origin’de çalışır).
 
 ## Lisans
 

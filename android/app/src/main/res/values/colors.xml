@@ -4,4 +4,9 @@
     <color name="tc_black">#FF000000</color>
     <color name="tc_red">#FFFF1233</color>
     <color name="tc_white">#FFFFFFFF</color>
+    <!-- Web arayüzünün yüzey/ink renkleri (public/style.css ile aynı).
+         WebView yüklenene kadar siyah ekran yerine bunlar kullanılır. -->
+    <color name="tc_surface">#FFF4F6F5</color>
+    <color name="tc_ink">#FF101828</color>
+    <color name="tc_ink_soft">#FF4A5567</color>
 </resources>

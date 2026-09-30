@@ -8,24 +8,34 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
+import android.net.http.SslError;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.MediaStore;
+import android.util.Log;
+import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowManager;
+import android.webkit.ConsoleMessage;
 import android.webkit.CookieManager;
 import android.webkit.PermissionRequest;
 import android.webkit.SafeBrowsingResponse;
+import android.webkit.SslErrorHandler;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -53,14 +63,31 @@ public class MainActivity extends Activity {
 
     private static final String PREFS = "turkchan";
     private static final String KEY_SERVER = "server_url";
+    private static final String KEY_SETUP_DONE = "setup_done";
+    private static final String TAG = "TurkChan";
     private static final long EXIT_DELAY_MS = 2000L;
+    /**
+     * Yükleme durmazsa ne kadar sonra hata ekranı gösterilir. Sunucu yoksa
+     * WebView sessizce siyah kalmasın diye ağır bir güvenlik ağıdır.
+     */
+    private static final long LOAD_TIMEOUT_MS = 25000L;
 
     private WebView web;
     private FrameLayout root;
+    private LinearLayout errorView;
+    private TextView errorText;
     private ValueCallback<Uri[]> pendingFileCallback;
     private Uri pendingCameraUri;
     private SharedPreferences prefs;
     private long lastBackPress = 0L;
+    private boolean pageLoaded = false;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final Runnable loadWatchdog = new Runnable() {
+        @Override
+        public void run() {
+            if (!pageLoaded) showError(getString(R.string.load_timeout));
+        }
+    };
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -73,22 +100,34 @@ public class MainActivity extends Activity {
         root = new FrameLayout(this);
         root.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        root.setBackgroundColor(Color.BLACK);
+        root.setBackgroundColor(getResources().getColor(R.color.tc_surface));
 
         web = new WebView(this);
         web.setLayoutParams(new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        web.setBackgroundColor(Color.BLACK);
+        web.setBackgroundColor(getResources().getColor(R.color.tc_surface));
         web.setOverScrollMode(View.OVER_SCROLL_NEVER);
         root.addView(web);
+
+        errorView = buildErrorView();
+        errorView.setVisibility(View.GONE);
+        root.addView(errorView);
+
         setContentView(root);
 
         configureWebView();
 
         if (savedInstanceState != null) {
             web.restoreState(savedInstanceState);
+        } else if (!prefs.getBoolean(KEY_SETUP_DONE, false) && serverUrl() == null) {
+            // Adres hem kayıtlı değil hem build ile verilmemiş: kullanıcıdan al.
+            // Böylece APK yanlış/erişilemez bir adrese bağlı kalmaz.
+            web.setVisibility(View.INVISIBLE);
+            handler.postDelayed(() -> {
+                if (!isFinishing()) showServerDialog(true);
+            }, 300);
         } else {
-            web.loadUrl(serverUrl());
+            loadServer();
         }
 
         applyInsets();
@@ -193,6 +232,13 @@ public class MainActivity extends Activity {
         s.setGeolocationEnabled(false);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         s.setUserAgentString(s.getUserAgentString() + " TurkChanAndroid/" + BuildConfig.VERSION_NAME);
+        // Oturum çerezi uygulama kapanınca da kalıcı olsun (login/session).
+        CookieManager.getInstance().setAcceptCookie(true);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            CookieManager.getInstance().setAcceptThirdPartyCookies(web, false);
+        }
+        // WebView'ın kendi hata sayfası yerine native hata yüzeyimiz kullanılsın.
+        s.setCacheMode(WebSettings.LOAD_DEFAULT);
 
         // JavaScript köprüsü açılmaz; dışarıdan çağrılmış hiçbir yöntem yok.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
@@ -216,9 +262,64 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                pageLoaded = false;
+                handler.removeCallbacks(loadWatchdog);
+                handler.postDelayed(loadWatchdog, LOAD_TIMEOUT_MS);
+            }
+
+            @Override
             public void onPageFinished(WebView view, String url) {
                 // Sayfa yeniden çizildiğinde güvenli alan yeniden uygulanır.
+                pageLoaded = true;
+                handler.removeCallbacks(loadWatchdog);
+                hideError();
                 root.requestApplyInsets();
+            }
+
+            /**
+             * Ağ hatası. ÖNEMLİ: yalnızca ana çerçeve (isForMainFrame)
+             * dikkate alınır; alt kaynak hataları (yazı tipi, favicon)
+             * sayfayı bozmaz.
+             *
+             * Önceki sürümde bu geri çağrı yoktu: WebView sessizce boş bir
+             * sayfa bırakıyor ve kullanıcı siyah ekranla karşılaşıyordu.
+             */
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                if (request == null || !request.isForMainFrame()) return;
+                int code = error != null && error.getErrorCode() != 0
+                        ? error.getErrorCode() : WebViewClient.ERROR_UNKNOWN;
+                CharSequence desc = error != null ? error.getDescription() : null;
+                Log.w(TAG, "Ana çerçeve yüklenemedi: " + code + " " + desc + " url=" + request.getUrl());
+                showError(describeError(code, desc, request.getUrl()));
+            }
+
+            @SuppressWarnings("deprecation")
+            @Override
+            public void onReceivedError(WebView view, int errorCode, String description,
+                                        String failingUrl) {
+                // API < 23 yolu (minSdk 24'te yalnızca geriye dönük uyum).
+                showError(describeError(errorCode, description, Uri.parse(failingUrl)));
+            }
+
+            /** Ana çerçeve bir HTTP hatası döndürdüyse (ör. 502, 404). */
+            @Override
+            public void onReceivedHttpError(WebView view, WebResourceRequest request,
+                                           WebResourceResponse response) {
+                if (request == null || !request.isForMainFrame() || response == null) return;
+                int status = response.getStatusCode();
+                Log.w(TAG, "HTTP hatası: " + status + " url=" + request.getUrl());
+                showError(getString(R.string.error_http, status, String.valueOf(request.getUrl())));
+            }
+
+            /** TLS doğrulaması başarısız: kullanıcı onayı YOK, reddedilir. */
+            @Override
+            public void onReceivedSslError(WebView view, SslErrorHandler handler,
+                                           SslError error) {
+                Log.e(TAG, "SSL hatası: " + (error != null ? error.getPrimaryError() : "?"));
+                handler.cancel();
+                showError(getString(R.string.error_ssl));
             }
 
             @Override
@@ -239,6 +340,29 @@ public class MainActivity extends Activity {
                 return true;
             }
 
+            /**
+             * WebView konsolundaki hataları logcat'e taşır. Kullanıcı "siyah
+             * ekran" bildirdiğinde gerçek neden buradan görülebilir.
+             */
+            @Override
+            public boolean onConsoleMessage(ConsoleMessage message) {
+                String text = message.message() + " (" + message.sourceId() + ":" + message.lineNumber() + ")";
+                if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
+                    Log.e(TAG, "JS: " + text);
+                } else {
+                    Log.d(TAG, "JS: " + text);
+                }
+                return true;
+            }
+
+            @Override
+            public void onReceivedTitle(WebView view, String title) {
+                // Sunucu 5xx dönerse tarayıcı hata sayfası başlığını gösterir.
+                if (title != null && title.contains("Webpage not available")) {
+                    showError(getString(R.string.load_failed));
+                }
+            }
+
             @Override
             public void onPermissionRequest(PermissionRequest request) {
                 // Uygulama kamera/mikrofon izni istemez; istekler reddedilir.
@@ -255,7 +379,7 @@ public class MainActivity extends Activity {
         // Sunucu ayarı: herhangi bir yere uzun basıldığında açılır. Böylece
         // uygulamaya menü çubuğu eklemeden de adres değiştirilebilir.
         web.setOnLongClickListener(v -> {
-            showServerDialog();
+            showServerDialog(false);
             return true;
         });
     }
@@ -355,6 +479,15 @@ public class MainActivity extends Activity {
 
     private static final int REQ_PICK = 1001;
 
+    /** Diyalogda önerilen adres: build parametresi, yoksa localhost. */
+    private String defaultServerHint() {
+        String built = BuildConfig.SERVER_URL;
+        if (built == null || built.trim().isEmpty() || built.startsWith("__")) {
+            return "http://localhost:3000";
+        }
+        return built;
+    }
+
     // ------------------------------------------------------------- geri tuşu --
 
     /**
@@ -369,6 +502,11 @@ public class MainActivity extends Activity {
         if (keyCode == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_DOWN) {
             if (web.canGoBack()) {
                 web.goBack();
+                return true;
+            }
+            // Hata ekranı açıksa geri tuşu adres ayarını açar (çıkış değil).
+            if (errorView != null && errorView.getVisibility() == View.VISIBLE) {
+                showServerDialog(false);
                 return true;
             }
             long now = System.currentTimeMillis();
@@ -389,6 +527,10 @@ public class MainActivity extends Activity {
             web.goBack();
             return;
         }
+        if (errorView != null && errorView.getVisibility() == View.VISIBLE) {
+            hideError();
+            return;
+        }
         super.onBackPressed();
     }
 
@@ -397,7 +539,111 @@ public class MainActivity extends Activity {
     private String serverUrl() {
         String saved = prefs.getString(KEY_SERVER, null);
         if (saved != null && !saved.isEmpty()) return saved;
-        return BuildConfig.SERVER_URL;
+        String built = BuildConfig.SERVER_URL;
+        // Build parametresi verilmemişse kullanıcıdan adres iste.
+        if (built == null || built.trim().isEmpty() || built.startsWith("__")) return null;
+        return built;
+    }
+
+    /**
+     * Yapılandırılmış sunucuya bağlanır ve yükleme izleyicisini başlatır.
+     * URL her zaman HTTPS olmalıdır; düz metin trafiğe izin verilmez.
+     */
+    private void loadServer() {
+        String url = serverUrl();
+        if (url == null) {
+            showError(getString(R.string.error_no_server));
+            return;
+        }
+        String problem = validateServerUrl(url);
+        if (problem != null) {
+            showError(problem);
+            return;
+        }
+        pageLoaded = false;
+        handler.removeCallbacks(loadWatchdog);
+        handler.postDelayed(loadWatchdog, LOAD_TIMEOUT_MS);
+        errorView.setVisibility(View.GONE);
+        web.setVisibility(View.VISIBLE);
+        web.loadUrl(url);
+    }
+
+    // ------------------------------------------------------- hata yüzeyi --
+
+    /**
+     * Gerçek hata ekranı.
+     *
+     * Bu bir "splash değil, hata örtüsü" değil: WebView'in sessizce boş
+     * kalması yerine neden, hangi adresin denendiği ve ne yapılması gerektiği
+     * kullanıcıya gösterilir. Düz metin ekranı yoktur.
+     */
+    private LinearLayout buildErrorView() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER);
+        int pad = (int) (24 * getResources().getDisplayMetrics().density);
+        box.setPadding(pad, pad, pad, pad);
+        box.setBackgroundColor(getResources().getColor(R.color.tc_surface));
+
+        TextView title = new TextView(this);
+        title.setText(R.string.error_title);
+        title.setTextColor(getResources().getColor(R.color.tc_ink));
+        title.setTextSize(18f);
+        title.setGravity(Gravity.CENTER);
+        title.setPadding(0, 0, 0, pad / 3);
+        box.addView(title);
+
+        errorText = new TextView(this);
+        errorText.setTextColor(getResources().getColor(R.color.tc_ink_soft));
+        errorText.setTextSize(13f);
+        errorText.setGravity(Gravity.CENTER);
+        errorText.setPadding(0, 0, 0, pad);
+        box.addView(errorText);
+
+        Button retry = new Button(this);
+        retry.setText(R.string.error_retry);
+        retry.setOnClickListener(v -> loadServer());
+        box.addView(retry);
+
+        Button change = new Button(this);
+        change.setText(R.string.error_change_server);
+        change.setOnClickListener(v -> {
+            errorView.setVisibility(View.GONE);
+            showServerDialog(false);
+        });
+        box.addView(change);
+
+        return box;
+    }
+
+    private void showError(String message) {
+        if (errorText == null) return;
+        handler.removeCallbacks(loadWatchdog);
+        errorText.setText(message);
+        errorView.setVisibility(View.VISIBLE);
+        web.setVisibility(View.INVISIBLE);
+    }
+
+    private void hideError() {
+        if (errorView != null) errorView.setVisibility(View.GONE);
+        web.setVisibility(View.VISIBLE);
+    }
+
+    /** WebView hata kodunu kullanıcıya gösterilecek metne çevirir. */
+    private String describeError(int code, CharSequence description, Uri url) {
+        if (url == null) return getString(R.string.err_generic);
+        String reason;
+        switch (code) {
+            case WebViewClient.ERROR_HOST_LOOKUP:      reason = getString(R.string.err_dns); break;
+            case WebViewClient.ERROR_CONNECT:
+            case WebViewClient.ERROR_TIMEOUT:          reason = getString(R.string.err_connect); break;
+            case WebViewClient.ERROR_IO:                reason = getString(R.string.err_io); break;
+            case WebViewClient.ERROR_UNSUPPORTED_SCHEME: reason = getString(R.string.err_scheme); break;
+            default:                                    reason = getString(R.string.err_generic); break;
+        }
+        String detail = description == null ? "" : description.toString();
+        if (url == null) return reason + (detail.isEmpty() ? "" : "\n" + detail);
+        return getString(R.string.error_detail, reason, url.getHost(), detail);
     }
 
     /**
@@ -429,7 +675,7 @@ public class MainActivity extends Activity {
      * Yalnızca HTTPS adresleri kabul edilir; uygulamanın güvenliği sunucu
      * tarafında olduğu için düz metin adres asla kabul edilmez.
      */
-    private void showServerDialog() {
+    private void showServerDialog(boolean firstRun) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         int pad = (int) (24 * getResources().getDisplayMetrics().density);
@@ -446,47 +692,135 @@ public class MainActivity extends Activity {
         input.setSingleLine(true);
         input.setTextColor(Color.WHITE);
         input.setHintTextColor(Color.GRAY);
-        input.setText(serverUrl());
+        String current = prefs.getString(KEY_SERVER, null);
+        input.setText(current != null ? current : defaultServerHint());
+        input.setHint(R.string.server_dialog_hint);
+        input.setSelectAllOnFocus(true);
         box.addView(input);
 
-        android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this)
+        android.app.AlertDialog.Builder builder = new android.app.AlertDialog.Builder(this)
                 .setTitle(R.string.server_dialog_title)
                 .setView(box)
                 .setPositiveButton(R.string.server_dialog_save, (d, which) -> {
-                    String value = input.getText().toString().trim();
-                    String error = validateServerUrl(value);
+                    String raw = input.getText().toString().trim();
+                    String error = validateServerUrl(raw);
                     if (error != null) {
                         Toast.makeText(this, error, Toast.LENGTH_LONG).show();
+                        // Geçersiz adres kaydedilmez; kullanıcı tekrar dener.
+                        if (firstRun) showServerDialog(true);
                         return;
                     }
-                    prefs.edit().putString(KEY_SERVER, value).apply();
-                    web.clearHistory();
-                    web.loadUrl(value);
-                })
-                .setNegativeButton(R.string.server_dialog_cancel, null)
-                .create();
+                    String normalized = normalizeServerUrl(raw);
+                    prefs.edit()
+                            .putString(KEY_SERVER, normalized)
+                            .putBoolean(KEY_SETUP_DONE, true)
+                            .apply();
+                    hideError();
+                    loadServer();
+                });
+        if (!firstRun) {
+            builder.setNegativeButton(R.string.server_dialog_cancel, null);
+        }
+        android.app.AlertDialog dialog = builder.create();
         dialog.setOnShowListener(d -> {
             // Uzun basışla erişilen ayarda düz metin adres kabul edilmez.
             dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setTextColor(Color.WHITE);
-            dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE).setTextColor(Color.LTGRAY);
+            if (dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE) != null) {
+                dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE).setTextColor(Color.LTGRAY);
+            }
         });
+        if (firstRun) {
+            // Diyalog kapatılırsa uygulama yine de bir şey göstermelidir:
+            // kayıtlı adres varsa yüklenir, yoksa hata ekranı açılır.
+            dialog.setOnCancelListener(d -> {
+                if (prefs.getString(KEY_SERVER, null) != null) {
+                    loadServer();
+                } else {
+                    showError(getString(R.string.error_no_server));
+                }
+            });
+        }
         dialog.show();
     }
 
-    private String validateServerUrl(String value) {
-        if (value.isEmpty()) return getString(R.string.server_error_empty);
+    /**
+     * Yalnızca yerel geliştirme hedefleri.
+     *
+     * Bunlar {@code network_security_config.xml} içinde de açıkça listelenmiştir;
+     * listede olmayan hiçbir host için düz metin trafik engellidir.
+     */
+    private static boolean isLocalDevHost(String host) {
+        if (host == null) return false;
+        String h = host.toLowerCase(Locale.ROOT);
+        return h.equals("localhost") || h.equals("127.0.0.1") || h.equals("10.0.2.2");
+    }
+
+    /**
+     * Sunucu adresini doğrular ve normalleştirir.
+     *
+     * Kural:
+     * - şemasız yazım ("ornek.site") → https varsayılır
+     * - http:// yalnızca localhost / 127.0.0.1 / 10.0.2.2 için kabul edilir
+     * - diğer her host için düz metin reddedilir
+     *
+     * Dönüş: hata mesajı ya da kullanılabilir adres. Yan etkisi yoktur.
+     */
+    private String normalizeServerUrl(String raw) {
+        if (raw == null || raw.trim().isEmpty()) return null;
+        String value = raw.trim();
+        if (value.contains(" ")) return null;
+
+        if (!value.startsWith("http://") && !value.startsWith("https://")) {
+            // Başka bir şema açıkça yazılmışsa (ftp://, javascript:, file:// ...)
+            // reddedilir; sessizce https:// öneki eklenmez.
+            int schemeEnd = value.indexOf("://");
+            if (schemeEnd > 0) {
+                String scheme = value.substring(0, schemeEnd).toLowerCase(Locale.ROOT);
+                boolean known = "http".equals(scheme) || "https".equals(scheme);
+                if (!known) return null;
+            }
+            // Şemasız alan adı: önce host'u kontrol et, yerel değilse HTTPS.
+            String bare = value;
+            int slash = bare.indexOf('/');
+            if (slash >= 0) bare = bare.substring(0, slash);
+            int colon = bare.indexOf(':');
+            if (colon >= 0) bare = bare.substring(0, colon);
+            value = (isLocalDevHost(bare) ? "http://" : "https://") + value;
+        }
+
         Uri uri;
         try {
             uri = Uri.parse(value);
         } catch (Exception e) {
-            return getString(R.string.server_error_invalid);
+            return null;
         }
         String scheme = uri.getScheme();
-        if (scheme == null || !scheme.equalsIgnoreCase("https")) {
-            return getString(R.string.server_error_insecure);
-        }
-        if (uri.getHost() == null || uri.getHost().isEmpty()) {
-            return getString(R.string.server_error_invalid);
+        if (scheme == null) return null;
+        String host = uri.getHost();
+        if (host == null || host.isEmpty()) return null;
+
+        boolean https = scheme.equalsIgnoreCase("https");
+        boolean http = scheme.equalsIgnoreCase("http");
+        if (!https && !http) return null;
+        // Düz metin sadece network_security_config'te listelenen yerel hostlarda.
+        if (http && !isLocalDevHost(host)) return null;
+        return value;
+    }
+
+    /** Hata mesajı döner veya adres geçerliyse null. */
+    private String validateServerUrl(String value) {
+        if (value == null || value.trim().isEmpty()) return getString(R.string.server_error_empty);
+        String trimmed = value.trim();
+        if (normalizeServerUrl(trimmed) == null) {
+            if (trimmed.toLowerCase(Locale.ROOT).startsWith("http://")
+                    && !trimmed.toLowerCase(Locale.ROOT).contains("localhost")
+                    && !trimmed.toLowerCase(Locale.ROOT).contains("127.0.0.1")
+                    && !trimmed.toLowerCase(Locale.ROOT).contains("10.0.2.2")) {
+                return getString(R.string.server_error_insecure);
+            }
+            return trimmed.contains("://")
+                    ? getString(R.string.server_error_insecure)
+                    : getString(R.string.server_error_invalid);
         }
         return null;
     }
@@ -512,6 +846,8 @@ public class MainActivity extends Activity {
         // Arka plandayken medya sesi sürdürülmez (pil).
         web.onPause();
         web.pauseTimers();
+        // Oturum çerezi diske yazılır: uygulama kill edilse bile giriş korunur.
+        CookieManager.getInstance().flush();
     }
 
     @Override
@@ -524,6 +860,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        handler.removeCallbacksAndMessages(null);
         if (web != null) {
             root.removeView(web);
             web.destroy();
