@@ -21,7 +21,7 @@ import { siteAdminLog } from '../services/modlog'
 import { getSettings, updateSettings, type SiteSettings } from '../services/settings'
 import { getComment } from '../services/comments'
 import { AppError, notFound } from '../services/errors'
-import { relativeTime, formatDate } from '../views/helpers'
+import { relativeTime, formatDate, profilePath } from '../views/helpers'
 import { type AppEnv, formData, loginRedirect, setFlash, takeFlash, unread } from './helpers'
 import { readFile } from 'node:fs/promises'
 
@@ -72,7 +72,7 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
                   const suspended = u.suspended_indefinitely === 1 || (u.suspended_until !== null && u.suspended_until > now)
                   return (
                     <tr>
-                      <td><a href={`/u/${u.username}`}>u/{u.username}</a>{u.is_admin === 1 && ' ⭐'}</td>
+                      <td><a href={profilePath(u.username)}>/tc/{u.username}</a>{u.is_admin === 1 && ' ⭐'}</td>
                       <td>{u.email_lower ?? '—'}</td>
                       <td>
                         {u.deleted === 1

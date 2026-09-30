@@ -20,7 +20,7 @@ describe('US-008 community creation', () => {
     const page = await agent.get('/c/parents_2026')
     const text = await page.text()
     expect(text).toContain('Community parents_2026')
-    expect(text).toContain('u/founder') // listed as moderator
+    expect(text).toContain('/tc/founder') // listed as moderator
     expect(text).toContain('1 üye')
 
     const membership = world.ctx.db
@@ -105,7 +105,7 @@ describe('US-010 join and leave', () => {
 
     // Moderator sees the queue and approves.
     const queue = await owner.get('/c/gated/mod/members')
-    expect(await queue.text()).toContain(`u/${username}`)
+    expect(await queue.text()).toContain(`/tc/${username}`)
     const userId = (world.ctx.db.prepare('SELECT id FROM users WHERE username_lower = ?').get('hopeful') as { id: string }).id
     await owner.post(`/c/gated/mod/requests/${userId}/approve`)
 

@@ -1,8 +1,12 @@
 import type { Ctx } from '../context'
 import type { CommentRow, PostRow, UserRow, Viewer } from '../types'
-import { validateBio, validateDisplayName } from '../lib/validation'
-import { unauthorized } from './errors'
+import { validateBio, validateDisplayName, validateUsername, validatePassword } from '../lib/validation'
+import { conflict, forbidden, notFound, unauthorized } from './errors'
+import { hashPassword, verifyPassword } from '../lib/passwords'
+import { attachUpload } from './uploads'
 import { readableCommunitiesClause } from './access'
+import { transaction } from '../db'
+import { sha256 } from '../lib/ids'
 
 export interface Karma {
   postKarma: number
@@ -28,7 +32,10 @@ export function getKarma(ctx: Ctx, userId: string): Karma {
 }
 
 export interface ProfileView {
-  user: Pick<UserRow, 'id' | 'username' | 'display_name' | 'bio' | 'created_at' | 'is_admin'>
+  user: Pick<
+    UserRow,
+    'id' | 'username' | 'display_name' | 'bio' | 'created_at' | 'is_admin' | 'avatar_key' | 'cover_key'
+  >
   karma: Karma
   posts: Array<PostRow & { community_name: string }>
   comments: Array<CommentRow & { community_name: string; post_title: string; post_id: string }>
@@ -82,6 +89,8 @@ export function getProfile(ctx: Ctx, viewer: Viewer, username: string): ProfileV
       bio: user.bio,
       created_at: user.created_at,
       is_admin: user.is_admin,
+      avatar_key: user.avatar_key,
+      cover_key: user.cover_key,
     },
     karma: getKarma(ctx, user.id),
     posts,
@@ -95,5 +104,73 @@ export function updateProfile(ctx: Ctx, viewer: Viewer, input: { displayName: st
   const displayName = validateDisplayName(input.displayName)
   const bio = validateBio(input.bio)
   ctx.db.prepare('UPDATE users SET display_name = ?, bio = ? WHERE id = ?').run(displayName, bio, viewer.id)
+  return ctx.db.prepare('SELECT * FROM users WHERE id = ?').get(viewer.id) as unknown as UserRow
+}
+
+/**
+ * Username change. Reuses the registration validator and the same uniqueness
+ * rule, so a name that could not be registered cannot be taken here either.
+ * Sessions keep working because they key on the user id, not the username.
+ */
+export function changeUsername(ctx: Ctx, viewer: Viewer, rawUsername: string): UserRow {
+  if (!viewer) throw unauthorized()
+  const username = validateUsername(rawUsername)
+  if (username.toLowerCase() === viewer.username_lower) return viewer
+  const taken = ctx.db
+    .prepare('SELECT 1 FROM users WHERE username_lower = ? AND id != ?')
+    .get(username.toLowerCase(), viewer.id)
+  if (taken) throw conflict('username_taken', 'Bu kullanıcı adı zaten alınmış.')
+  ctx.db
+    .prepare('UPDATE users SET username = ?, username_lower = ? WHERE id = ?')
+    .run(username, username.toLowerCase(), viewer.id)
+  return ctx.db.prepare('SELECT * FROM users WHERE id = ?').get(viewer.id) as unknown as UserRow
+}
+
+/**
+ * Password change. Requires the current password, so a stolen session alone
+ * cannot lock the owner out. Other sessions are dropped on success.
+ */
+export async function changePassword(
+  ctx: Ctx,
+  viewer: Viewer,
+  currentPassword: string,
+  newPassword: string,
+  keepSessionToken?: string,
+): Promise<void> {
+  if (!viewer) throw unauthorized()
+  const valid = await verifyPassword(viewer.password_hash, currentPassword)
+  if (!valid) throw forbidden('Mevcut parola hatalı.')
+  const next = validatePassword(newPassword)
+  if (next === currentPassword) throw forbidden('Yeni parola eskisiyle aynı olamaz.')
+  const hash = await hashPassword(next)
+  transaction(ctx.db, () => {
+    ctx.db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, viewer.id)
+    // Keep the session the user is acting from; drop any other device.
+    if (keepSessionToken) {
+      ctx.db
+        .prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?')
+        .run(viewer.id, sha256(keepSessionToken))
+    } else {
+      ctx.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(viewer.id)
+    }
+  })
+}
+
+/** Set or clear the profile picture / cover. `key` must be an owned, uploaded image. */
+export function setProfileImage(
+  ctx: Ctx,
+  viewer: Viewer,
+  field: 'avatar' | 'cover',
+  key: string | null,
+): UserRow {
+  if (!viewer) throw unauthorized()
+  const column = field === 'avatar' ? 'avatar_key' : 'cover_key'
+  if (key === null) {
+    ctx.db.prepare(`UPDATE users SET ${column} = NULL WHERE id = ?`).run(viewer.id)
+    return ctx.db.prepare('SELECT * FROM users WHERE id = ?').get(viewer.id) as unknown as UserRow
+  }
+  // Reuses the post-image pipeline: ownership, single-use, type and size checks.
+  attachUpload(ctx, viewer, key)
+  ctx.db.prepare(`UPDATE users SET ${column} = ? WHERE id = ?`).run(key, viewer.id)
   return ctx.db.prepare('SELECT * FROM users WHERE id = ?').get(viewer.id) as unknown as UserRow
 }

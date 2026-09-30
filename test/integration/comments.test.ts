@@ -134,11 +134,11 @@ describe('US-020 comment edit and delete', () => {
     await bob.json('/api/vote', { targetType: 'comment', targetId: commentId, value: 1 })
 
     const aliceName = (world.ctx.db.prepare('SELECT username FROM comments c JOIN users u ON u.id = c.author_id WHERE c.id = ?').get(commentId) as { username: string }).username
-    let profile = await bob.get(`/u/${aliceName}`)
+    let profile = await bob.get(`/tc/${aliceName}`)
     expect(await profile.text()).toContain('Yorum karma: 1')
 
     await alice.post(`/comments/${commentId}/delete`)
-    profile = await bob.get(`/u/${aliceName}`)
+    profile = await bob.get(`/tc/${aliceName}`)
     expect(await profile.text()).toContain('Yorum karma: 0')
   })
 })

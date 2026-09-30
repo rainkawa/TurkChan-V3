@@ -19,7 +19,7 @@ describe('US-001 registration', () => {
     expect(res.headers.get('location')).toBe('/communities')
     expect(agent.loggedIn()).toBe(true)
     const home = await agent.get('/')
-    expect(await home.text()).toContain('u/aisyah')
+    expect(await home.text()).toContain('/tc/aisyah')
   })
 
   test('first registered user becomes site admin', async () => {
@@ -286,7 +286,7 @@ describe('US-004 account deletion', () => {
 
     // Profile URL → not-available page, not an error (US-005).
     const guest = new Agent(world.app)
-    const profile = await guest.get('/u/leaver')
+    const profile = await guest.get('/tc/leaver')
     expect(profile.status).toBe(404)
     expect(await profile.text()).toContain('kullanılamıyor')
 

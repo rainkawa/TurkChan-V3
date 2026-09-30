@@ -1,6 +1,6 @@
 import type { FC } from 'hono/jsx'
 import { t, relativeTime, formatDate } from '../i18n/tr'
-import { accountAge, compactNumber, previewText, communityColor, communityInitials, formatDateTr } from './helpers'
+import { accountAge, compactNumber, previewText, communityColor, communityInitials, formatDateTr, profilePath } from './helpers'
 import { CommunityAvatar, SocialCard } from './components'
 import type { ProfileView } from '../services/users'
 import { moderatesAnyCommunity } from '../services/users'
@@ -63,51 +63,50 @@ export const ProfileView_: FC<{
 
   return (
     <div class="profile">
-      <section class="profile-cover">
-        <div class="profile-cover-bg" aria-hidden="true" />
-        <div class="profile-cover-scrim" aria-hidden="true" />
-        <div class="profile-cover-actions">
-          <a class="round-btn" href="/search" aria-label={t.nav.search}>
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2" />
-              <path d="m16 16 4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-            </svg>
-          </a>
-          <button class="round-btn" type="button" data-share={`/u/${user.username}`} aria-label={t.profile.shareProfile}>
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 15V4m0 0L8 8m4-4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-              <path d="M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-            </svg>
-          </button>
-          <details class="overflow-menu profile-menu">
-            <summary class="round-btn" aria-label={t.card.more} title={t.card.more}>
+      {/*
+        * Hero: kapak + kimlik + istatistik tek bir koyu kompozisyon.
+        * Kapak görselinin altı scrim ile siyaha kararır; profil bilgileri
+        * aynı koyu zeminde devam eder, keskin yatay sınır oluşmaz.
+        */}
+      <div class="profile-hero">
+        <section class="profile-cover">
+          <div class="profile-cover-bg" aria-hidden="true" />
+          {user.cover_key && (
+            <img class="profile-cover-img" src={`/media/${user.cover_key}`} alt={t.profile.coverAlt} />
+          )}
+          <div class="profile-cover-scrim" aria-hidden="true" />
+          <div class="profile-cover-actions">
+            <a class="round-btn" href="/search" aria-label={t.nav.search}>
               <svg viewBox="0 0 24 24" aria-hidden="true">
-                <circle cx="5" cy="12" r="2" fill="currentColor" />
-                <circle cx="12" cy="12" r="2" fill="currentColor" />
-                <circle cx="19" cy="12" r="2" fill="currentColor" />
+                <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2" />
+                <path d="m16 16 4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
               </svg>
-            </summary>
-            <div class="overflow-panel">
-              <a href="/privacy">{t.footer.privacy}</a>
-              {isSelf && <a href="/settings">{t.nav.settings}</a>}
-            </div>
-          </details>
-        </div>
-        <div
-          class="profile-avatar"
-          style={`--c-bg:${communityColor(user.username)}`}
-          aria-label={t.profile.avatarAlt}
-        >
-          {communityInitials(user.username)}
-        </div>
-      </section>
+            </a>
+            <button class="round-btn" type="button" data-share={profilePath(user.username)} aria-label={t.profile.shareProfile}>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 15V4m0 0L8 8m4-4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                <path d="M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+              </svg>
+            </button>
+          </div>
+          <div
+            class="profile-avatar"
+            style={`--c-bg:${communityColor(user.username)}`}
+            aria-label={t.profile.avatarAlt}
+          >
+            {user.avatar_key ? (
+              <img src={`/media/${user.avatar_key}`} alt={t.profile.avatarAlt} />
+            ) : (
+              communityInitials(user.username)
+            )}
+          </div>
+        </section>
 
-      <div class="profile-body">
         <div class="profile-identity">
           <h1 class="profile-name">{displayName}</h1>
           {/* Kullanıcı adı, rozet ve Düzenle aynı kompakt bölgede. */}
           <div class="profile-handle">
-            <span class="profile-username">u/{user.username}</span>
+            <span class="profile-username">/tc/{user.username}</span>
             {role && <span class="role-badge">{role}</span>}
             {isSelf && (
               <a class="btn secondary small profile-edit" href="/settings">
@@ -137,11 +136,14 @@ export const ProfileView_: FC<{
             <dd>{accountAge(user.created_at, now)}</dd>
           </div>
         </dl>
+      </div>
 
+      {/* Koyu hero biter; içerik bölümü açık zeminde ve sekmelerle başlar. */}
+      <div class="profile-body">
         <nav class="profile-tabs" role="tablist" aria-label={t.profile.tabsLabel}>
           {TABS.map((item) => (
             <a
-              href={`/u/${user.username}?tab=${item.key}`}
+              href={`${profilePath(user.username)}?tab=${item.key}`}
               class={`profile-tab${tab === item.key ? ' active' : ''}`}
               role="tab"
               aria-selected={tab === item.key ? 'true' : 'false'}

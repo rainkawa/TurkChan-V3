@@ -10,8 +10,26 @@ export function openDatabase(path: string): DB {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
   const db = new DatabaseSync(path)
   db.exec(SCHEMA_SQL)
+  migrate(db)
   registerFunctions(db)
   return db
+}
+
+/**
+ * Add columns introduced after the initial release. CREATE TABLE IF NOT EXISTS
+ * silently skips them on an existing database, so we inspect and ALTER.
+ * Idempotent, and a no-op on a fresh install.
+ */
+function migrate(db: DatabaseSync): void {
+  const have = new Set(
+    (db.prepare('PRAGMA table_info(users)').all() as unknown as Array<{ name: string }>).map((c) => c.name),
+  )
+  for (const [column, ddl] of [
+    ['avatar_key', 'ALTER TABLE users ADD COLUMN avatar_key TEXT'],
+    ['cover_key', 'ALTER TABLE users ADD COLUMN cover_key TEXT'],
+  ] as const) {
+    if (!have.has(column)) db.exec(ddl)
+  }
 }
 
 function registerFunctions(db: DatabaseSync) {

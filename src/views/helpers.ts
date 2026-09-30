@@ -44,6 +44,11 @@ const TR_MONTHS = [
   'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık',
 ] as const
 
+/** Kullanıcı profil yolu: /tc/kullaniciadi */
+export function profilePath(username: string): string {
+  return `/tc/${encodeURIComponent(username)}`
+}
+
 /** Kısa Türkçe uzun tarih: "1 Temmuz 2026". */
 export function formatDateTr(ms: number): string {
   const d = new Date(ms)

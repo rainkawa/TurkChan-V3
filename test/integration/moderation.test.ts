@@ -83,7 +83,7 @@ describe('US-030/US-031 queue and removal', () => {
   test('remove from queue: placeholder shown, reports resolved, author notified, karma reversed, mod-logged', async () => {
     const { mod, author, authorName, reporter, postId } = await setup()
     await reporter.json('/api/vote', { targetType: 'post', targetId: postId, value: 1 })
-    let profile = await reporter.get(`/u/${authorName}`)
+    let profile = await reporter.get(`/tc/${authorName}`)
     expect(await profile.text()).toContain('Gönderi karma: 1')
 
     await reporter.post(`/report/post/${postId}`, { reason: 'spam', detail: '' })
@@ -99,7 +99,7 @@ describe('US-030/US-031 queue and removal', () => {
     expect((world.ctx.db.prepare("SELECT COUNT(*) AS n FROM reports WHERE status='open'").get() as { n: number }).n).toBe(0)
 
     // Karma reversed (US-031).
-    profile = await reporter.get(`/u/${authorName}`)
+    profile = await reporter.get(`/tc/${authorName}`)
     expect(await profile.text()).toContain('Gönderi karma: 0')
 
     // Author notified with the cited rule; moderator not identified (US-041).

@@ -48,7 +48,7 @@
   --bottom-nav-h: 58px;
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
-  --header-h: 52px;
+  --header-h: 54px;
 }
 
 * { box-sizing: border-box; }
@@ -88,12 +88,14 @@ button { font-family: inherit; }
   border-bottom: 1px solid var(--line);
   padding-top: var(--safe-t);
 }
+/* Tek, dengeli satır: hamburger · arama · bildirim aynı dikey merkezde. */
 .app-header-inner {
   max-width: 46rem; margin: 0 auto;
-  height: 52px;
+  height: var(--header-h);
   padding: 0 10px;
-  display: flex; align-items: center; gap: 6px;
+  display: flex; align-items: center; gap: 8px;
 }
+.app-header-inner > * { align-self: center; margin-block: 0; }
 
 .icon-btn {
   flex: 0 0 auto;
@@ -110,7 +112,7 @@ button { font-family: inherit; }
 .app-search {
   flex: 1 1 auto; min-width: 0;
   position: relative; display: flex; align-items: center;
-  height: 38px;
+  height: 38px; margin: 0;
   padding-left: 10px; padding-right: 8px;
   border: 1px solid transparent;
   border-radius: var(--radius-pill);
@@ -144,6 +146,15 @@ button { font-family: inherit; }
 .app-search input:focus { outline: none; }
 .app-search input::placeholder { color: var(--ink-faint); }
 .app-search input::-webkit-search-cancel-button { cursor: pointer; }
+/* Çok dar ekranlarda satır bozulmaz: logoyu küçült, boşluğu sıkıştır. */
+@media (max-width: 359px) {
+  .app-header-inner { padding: 0 6px; gap: 5px; }
+  .icon-btn { width: 34px; height: 34px; }
+  .icon-btn svg { width: 20px; height: 20px; }
+  .app-search { height: 34px; padding-left: 7px; }
+  .app-search-mark .brand-mark { width: 15px; height: 15px; }
+  .app-search input { font-size: 0.85rem; padding: 0 5px; }
+}
 
 .notif-badge {
   position: absolute; top: 3px; right: 3px;
@@ -495,9 +506,14 @@ button { font-family: inherit; }
 /* ==========================================================================
    8. Profil sayfası
    ========================================================================== */
-.profile { margin: calc(var(--space-3) * -1) calc(var(--space-3) * -1) 0; }
+/* Kapak ekranın tamamını yatay olarak kaplar: sayfa iç boşluğu iptal edilir. */
+.profile { margin: calc(var(--space-3) * -1) -8px 0; }
 
-.profile-cover { position: relative; }
+/* Profil üstü tek bir koyu kompozisyon: kapak + kimlik + istatistik. */
+.profile-hero { position: relative; background: #04070a; }
+
+/* flow-root: avatarın negatif kenar boşluğu kapağın dışına taşar, kapak yerinden oynamaz. */
+.profile-cover { position: relative; display: flow-root; }
 /* Kapak: tam genişlik, kısa ve yoğun. */
 .profile-cover-bg {
   height: 200px;
@@ -507,10 +523,23 @@ button { font-family: inherit; }
 }
 @media (max-width: 380px) { .profile-cover-bg { height: 180px; } }
 @media (min-width: 900px) { .profile-cover-bg { height: 220px; } }
-/* Butonların okunurluğu için koyu gradient kaplama. */
+/* Kullanıcının yüklediği kapak görseli. */
+.profile-cover-img {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover; object-position: center;
+}
+/*
+ * İki katmanlı kaplama:
+ *  1) üstte butonların okunurluğu için hafif koyulaştırma,
+ *  2) alt %50'de kapak görselinin doğal biçimde siyaha kararması.
+ * Alt uçtaki opak renk, .profile-hero zemininin aynısı: kesin yatay sınır oluşmaz.
+ */
 .profile-cover-scrim {
   position: absolute; inset: 0;
-  background: linear-gradient(180deg, rgb(4 20 19 / 0.5) 0%, rgb(4 20 19 / 0.12) 45%, rgb(4 20 19 / 0.45) 100%);
+  background:
+    linear-gradient(180deg, rgb(4 10 12 / 0.55) 0%, rgb(4 10 12 / 0.12) 34%, rgb(4 10 12 / 0) 52%),
+    linear-gradient(180deg, rgb(4 7 10 / 0) 46%, rgb(4 7 10 / 0.38) 64%, rgb(4 7 10 / 0.8) 82%, rgb(4 7 10 / 0.97) 93%, #04070a 100%);
   pointer-events: none;
 }
 .profile-cover-actions {
@@ -532,40 +561,38 @@ button { font-family: inherit; }
 }
 .round-btn:hover { background: rgb(255 255 255 / 0.3); transform: translateY(-1px); }
 .round-btn svg { width: 19px; height: 19px; }
-.profile-menu > summary { list-style: none; }
-.profile-menu > summary::-webkit-details-marker { display: none; }
-.profile-menu .overflow-panel { top: calc(100% + 6px); background: var(--surface-raised); }
-.profile-menu .overflow-panel a { color: var(--ink); }
-
-/* Avatar: kapak ile beyaz alanın birleştiği noktada, 108px. */
+/* Avatar: kapak ile koyu alanın birleştiği noktada, belirgin beyaz halkalı. */
 .profile-avatar {
   position: relative; z-index: 3;
-  width: 108px; height: 108px;
-  margin: -54px auto 0;
+  width: 112px; height: 112px;
+  margin: -58px auto 0;
   display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
   background: var(--c-bg, var(--brand)); color: #fff;
-  border: 4px solid var(--surface-raised);
+  border: 4px solid #fff;
   border-radius: 50%;
-  box-shadow: 0 4px 16px rgb(4 33 31 / 0.22);
-  font-size: 2.25rem; font-weight: 800; letter-spacing: -0.02em;
+  box-shadow: 0 6px 22px rgb(0 0 0 / 0.45);
+  font-size: 2.3rem; font-weight: 800; letter-spacing: -0.02em;
   text-transform: uppercase;
 }
+.profile-avatar img { width: 100%; height: 100%; object-fit: cover; }
 
 .profile-body { padding: 0 var(--space-3); }
-/* Sıkı ve derli toplu: kullanıcı ilk ekranda temel bilgileri görür. */
-.profile-identity { text-align: center; padding: 8px 0 10px; }
+/* Avatarın altını kapatacak kadar boşluk: metin yuvarlak avatarın altında başlar. */
+.profile-identity { text-align: center; padding: 60px var(--space-3) 8px; }
 .profile-name {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 1.55rem; font-weight: 800; line-height: 1.15;
+  font-size: 1.6rem; font-weight: 800; line-height: 1.15;
+  color: #fff;
   letter-spacing: -0.025em; overflow-wrap: anywhere;
 }
 .profile-handle {
   display: flex; align-items: center; justify-content: center;
-  flex-wrap: wrap; gap: 5px;
-  margin-top: 3px;
+  flex-wrap: wrap; gap: 6px;
+  margin-top: 4px;
 }
-.profile-username { color: var(--ink-faint); font-size: 0.87rem; font-weight: 600; }
+.profile-username { color: rgb(255 255 255 / 0.7); font-size: 0.87rem; font-weight: 600; }
 .role-badge {
   display: inline-flex; align-items: center;
   padding: 0 7px; height: 18px;
@@ -573,30 +600,37 @@ button { font-family: inherit; }
   background: var(--brand); color: #fff;
   font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em;
 }
-.profile-edit { min-height: 26px; padding: 0 10px; font-size: 0.72rem; }
-/* Küçük gri ikincil satır, kullanıcı bilgisinin hemen altında. */
+/* Koyu zeminde cam görünümlü düzenle butonu. */
+.profile-edit {
+  min-height: 28px; padding: 0 12px; font-size: 0.74rem;
+  background: rgb(255 255 255 / 0.14); color: #fff;
+  border: 1px solid rgb(255 255 255 / 0.24);
+}
+.profile-edit:hover { background: rgb(255 255 255 / 0.26); color: #fff; }
+/* Küçük ikincil satır, kullanıcı bilgisinin hemen altında. */
 .profile-meta {
-  margin: 5px 0 0;
-  color: var(--ink-faint); font-size: 0.73rem; line-height: 1.4;
+  margin: 7px 0 0;
+  color: rgb(255 255 255 / 0.55); font-size: 0.74rem; line-height: 1.4;
+  text-align: center;
 }
 .profile-bio {
-  margin: 7px auto 0; max-width: 34rem;
-  color: var(--ink); font-size: 0.9rem; line-height: 1.45;
+  margin: 9px auto 0; max-width: 34rem;
+  color: rgb(255 255 255 / 0.85); font-size: 0.9rem; line-height: 1.45;
   overflow-wrap: anywhere; white-space: pre-wrap;
 }
 
-/* İstatistikler: bilgilerin hemen altında, kısa. */
+/* İstatistikler: koyu alanın içinde, ince ayırıcıyla. */
 .profile-stats {
   display: grid; grid-template-columns: repeat(3, 1fr);
   gap: 4px;
   margin: 0;
-  padding: 9px 0 10px;
-  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  padding: 11px var(--space-3) 16px;
+  border-top: 1px solid rgb(255 255 255 / 0.12);
 }
 .profile-stat { text-align: center; min-width: 0; }
-.profile-stat dt { font-size: 0.7rem; color: var(--ink-faint); font-weight: 600; line-height: 1.2; }
+.profile-stat dt { font-size: 0.69rem; color: rgb(255 255 255 / 0.58); font-weight: 600; line-height: 1.2; }
 .profile-stat dd {
-  margin: 1px 0 0; font-size: 1.15rem; font-weight: 800; color: var(--ink);
+  margin: 2px 0 0; font-size: 1.15rem; font-weight: 800; color: #fff;
   line-height: 1.15; letter-spacing: -0.02em; overflow-wrap: anywhere;
 }
 /* Sıkışırsa yatay kaydırılabilir. */
@@ -607,13 +641,7 @@ button { font-family: inherit; }
   .profile-stats::-webkit-scrollbar { display: none; }
   .profile-stat { flex: 1 0 33%; }
 }
-/* Ana istatistiklerin altında daha küçük, ikincil bilgi. */
-.profile-meta {
-  margin: 7px 0 0;
-  color: var(--ink-faint); font-size: 0.76rem; text-align: center;
-}
-
-/* Sekmeler: istatistiklerin hemen altında, yapışkan, boşluksuz. */
+/* Sekmeler: koyu hero'nun hemen altında, yapışkan ve boşluksuz. */
 .profile-tabs {
   position: sticky; top: calc(var(--header-h) + var(--safe-t)); z-index: 10;
   display: flex;
@@ -817,6 +845,134 @@ table.data th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0
 .type-tabs { display: flex; gap: 0; border: 1px solid var(--line); border-radius: var(--radius-pill); overflow: hidden; width: fit-content; margin-bottom: var(--space-4); }
 .type-tabs a { padding: 0.45rem 1.1rem; font-size: 0.85rem; font-weight: 700; color: var(--ink-soft); }
 .type-tabs a.active { background: var(--ink); color: #fff; }
+
+/* ==========================================================================
+   11. Gönderi detayı — dikey öncelikli mobil düzen
+   ========================================================================== */
+.post-detail { padding: 9px 12px 2px; }
+.post-detail .social-card-head { margin-bottom: 6px; }
+.post-detail .social-card-community-name { font-size: 0.9rem; }
+.post-detail .social-card-time a { color: var(--ink-soft); font-weight: 700; }
+.post-detail-title {
+  margin: 2px 0 0;
+  font-family: var(--font-display);
+  font-size: 1.32rem; font-weight: 800; line-height: 1.24;
+  letter-spacing: -0.022em; color: var(--ink);
+  overflow-wrap: anywhere;
+}
+/* Okunabilir genişlik: dar sütun yerine tam genişlik, rahat satır aralığı. */
+.post-detail-body { margin-top: 8px; }
+.post-detail-body > p { margin: 0 0 var(--space-2); }
+.post-detail-body > p:last-child { margin-bottom: 0; }
+.post-detail-body .md { font-size: 0.97rem; line-height: 1.55; }
+.post-detail-body .md p { margin: 0 0 var(--space-3); }
+.post-detail-body img { width: 100%; border-radius: 12px; }
+.post-detail-actions { margin-top: 9px; }
+.post-detail-actions .action-btn { padding: 0 9px; }
+/* Menüdeki formlar butonu tam genişlikte gösterir. */
+.overflow-panel form { margin: 0; }
+.danger-link { color: var(--danger) !important; }
+.danger-link:hover { background: var(--danger-soft) !important; }
+
+/* Yorum bloğu: gönderiyle aynı kart dili, aralarında boşluk yok. */
+.comments-block {
+  margin-top: 9px;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 10px 12px 12px;
+}
+.comments-block .sort-tabs { margin-bottom: 10px; }
+.comment-form {
+  margin: 0 0 4px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.comment-form .field { margin-bottom: 8px; }
+.comment-form textarea { min-height: 4.5rem; font-size: 0.95rem; }
+.comment-form .btn { min-height: 40px; }
+.comment-tree { margin-top: 0; gap: 0; }
+.comment {
+  margin-top: 0; padding: 9px 0 0;
+  border-left: 0; border-top: 1px solid var(--line);
+}
+.comment-tree > .comment:first-child { border-top: 0; padding-top: 2px; }
+/* Yanıtlar (derinlik 2+) girinteli ve ince çizgiyle ayrışır. */
+.comment:not([data-depth="1"]) {
+  margin-top: 8px; padding: 8px 0 0 10px;
+  border-top: 0; border-left: 2px solid var(--line);
+}
+.comment > .subtree > summary {
+  font-size: 0.76rem; font-weight: 700; color: var(--ink-faint);
+  margin-bottom: 2px; overflow-wrap: anywhere;
+}
+.comment .body { font-size: 0.94rem; line-height: 1.5; }
+.comment .comment-main { grid-template-columns: auto 1fr; gap: 0.45rem; }
+.comment-actions { gap: 0.85rem; }
+
+/* ==========================================================================
+   12. Ayarlar sayfası
+   ========================================================================== */
+.visually-hidden {
+  position: absolute !important; width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+.btn.block { display: flex; width: 100%; }
+.btn.ghost { background: transparent; color: var(--ink-soft); border: 1px solid var(--line); }
+.btn.ghost:hover { background: var(--surface-sunken); color: var(--ink); }
+
+.settings-page {
+  max-width: 34rem; margin: 0 auto;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.settings-title {
+  margin: 4px 0 2px;
+  font-family: var(--font-display);
+  font-size: 1.3rem; font-weight: 800; letter-spacing: -0.02em;
+}
+.settings-card {
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 12px 12px 14px;
+}
+.settings-card-title {
+  margin: 0 0 var(--space-3);
+  font-family: var(--font-display);
+  font-size: 1rem; font-weight: 800; letter-spacing: -0.015em;
+}
+.settings-card .field { margin-bottom: 12px; }
+/* Görsel alanları: etiket üstte, önizleme + butonlar altta tek satırda. */
+.settings-row {
+  display: flex; flex-direction: column; gap: 7px;
+  padding-bottom: 12px; margin-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.settings-label { font-size: 0.8rem; font-weight: 700; color: var(--ink-soft); }
+.settings-media { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.settings-avatar {
+  flex: 0 0 auto; width: 56px; height: 56px;
+  display: inline-flex; align-items: center; justify-content: center;
+  overflow: hidden; border-radius: 50%;
+  background: var(--c-bg, var(--brand)); color: #fff;
+  font-size: 1.3rem; font-weight: 800; letter-spacing: -0.02em; text-transform: uppercase;
+}
+.settings-cover {
+  flex: 0 0 auto; width: 88px; height: 48px;
+  display: inline-flex; align-items: center; justify-content: center;
+  overflow: hidden; border-radius: 10px; object-fit: cover;
+  background: linear-gradient(135deg, var(--brand-ink) 0%, var(--brand) 100%);
+  color: rgb(255 255 255 / 0.9);
+  font-size: 0.66rem; font-weight: 600; line-height: 1.2; text-align: center;
+  padding: 0 6px;
+}
+.settings-cover.empty {
+  background: var(--surface-sunken); color: var(--ink-faint);
+  border: 1px dashed var(--line-strong);
+}
+.settings-media-actions { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.settings-danger { margin: 0; text-align: center; font-size: 0.82rem; }
+.settings-danger a { color: var(--danger); font-weight: 700; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

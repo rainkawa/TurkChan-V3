@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT NOT NULL DEFAULT '',
   display_name TEXT,
   bio TEXT,
+  avatar_key TEXT,                    -- profile picture (uploads key)
+  cover_key TEXT,                     -- profile cover image (uploads key)
   is_admin INTEGER NOT NULL DEFAULT 0,
   deleted INTEGER NOT NULL DEFAULT 0,
   suspended_until INTEGER,          -- epoch ms; NULL = not suspended (unless indefinite)

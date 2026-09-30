@@ -27,6 +27,7 @@ import { decodeCursor } from '../lib/cursor'
 import { AppError } from '../services/errors'
 import { ValidationError } from '../lib/validation'
 import { parseSort, parseWindow } from './main'
+import { profilePath } from '../views/helpers'
 import { type AppEnv, formData, loginRedirect, setFlash, takeFlash, unread } from './helpers'
 import type { CommunityRow, UserRow } from '../types'
 
@@ -184,7 +185,7 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
               <h3>{t.community.moderators}</h3>
               <ul>
                 {moderators.map((m) => (
-                  <li><a href={`/u/${m.username}`}>u/{m.username}</a></li>
+                  <li><a href={profilePath(m.username)}>/tc/{m.username}</a></li>
                 ))}
               </ul>
             </div>

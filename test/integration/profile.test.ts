@@ -25,15 +25,15 @@ describe('US-005/US-007 profiles and karma', () => {
     await mod.json('/api/vote', { targetType: 'post', targetId: postId, value: 1 })
 
     const guest = new Agent(world.app)
-    const page = await guest.get(`/u/${username}`)
+    const page = await guest.get(`/tc/${username}`)
     const text = await page.text()
-    expect(text).toContain(`u/${username}`)
+    expect(text).toContain(`/tc/${username}`)
     expect(text).toContain('Katıldı: 1 Temmuz 2026')
     expect(text).toContain('Gönderi karma: 1')
     expect(text).toContain('Yorum karma: 0')
     expect(text).toContain('My contribution')
     // Yorumlar kendi sekmesinde gösterilir.
-    const commentsTab = await guest.get(`/u/${username}?tab=comments`)
+    const commentsTab = await guest.get(`/tc/${username}?tab=comments`)
     expect(await commentsTab.text()).toContain('And my comment')
   })
 
@@ -50,13 +50,13 @@ describe('US-005/US-007 profiles and karma', () => {
 
     // Outsider: karma counts, content hidden.
     const guest = new Agent(world.app)
-    const page = await guest.get(`/u/${username}`)
+    const page = await guest.get(`/tc/${username}`)
     const text = await page.text()
     expect(text).toContain('Gönderi karma: 1')
     expect(text).not.toContain('INNER-CIRCLE-POST')
 
     // Fellow member sees it.
-    const modView = await mod.get(`/u/${username}`)
+    const modView = await mod.get(`/tc/${username}`)
     expect(await modView.text()).toContain('INNER-CIRCLE-POST')
   })
 })
@@ -65,7 +65,7 @@ describe('US-006 profile editing', () => {
   test('display name and bio save; bio renders as plain text (no HTML injection)', async () => {
     const { agent, username } = await registerUser(world)
     await agent.post('/settings', { displayName: 'Ustazah A', bio: '<script>alert(1)</script> loves <b>teaching</b>' })
-    const page = await agent.get(`/u/${username}`)
+    const page = await agent.get(`/tc/${username}`)
     const text = await page.text()
     expect(text).toContain('Ustazah A')
     expect(text).toContain('&lt;script&gt;')

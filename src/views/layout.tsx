@@ -1,5 +1,6 @@
 import type { FC, Child } from 'hono/jsx'
 import { t } from '../i18n/tr'
+import { profilePath } from './helpers'
 import type { UserRow } from '../types'
 
 export interface OgTags {
@@ -81,7 +82,7 @@ const NavIcon: FC<{ name: 'home' | 'communities' | 'create' | 'inbox' | 'me' }> 
 }
 
 export const Layout: FC<LayoutProps> = ({ title, viewer, unread = 0, og, flash, active, children }) => {
-  const meHref = viewer ? `/u/${viewer.username}` : '/login'
+  const meHref = viewer ? profilePath(viewer.username) : '/login'
   return (
     <html lang="tr">
       <head>
@@ -171,7 +172,7 @@ export const Layout: FC<LayoutProps> = ({ title, viewer, unread = 0, og, flash, 
               <li><a href="/">{t.nav.home}</a></li>
               <li><a href="/communities">{t.nav.communities}</a></li>
               <li><a href="/notifications">{t.nav.notifications}</a></li>
-              {viewer && <li><a href={`/u/${viewer.username}`}>{t.nav.profile}</a></li>}
+              {viewer && <li><a href={profilePath(viewer.username)}>{t.nav.profile}</a></li>}
               {viewer && <li><a href="/settings">{t.nav.settings}</a></li>}
               {viewer?.is_admin === 1 && <li><a href="/admin">{t.nav.admin}</a></li>}
               <li><a href="/privacy">{t.footer.privacy}</a></li>

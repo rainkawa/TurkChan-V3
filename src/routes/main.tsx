@@ -7,7 +7,15 @@ import { ProfileView_, type ProfileTab } from '../views/profile'
 import { homeFeed, type FeedSort, type TopWindow } from '../services/feeds'
 import { listDirectory, createCommunity, membershipStates } from '../services/communities'
 import { search } from '../services/search'
-import { getProfile, updateProfile, moderatesAnyCommunity } from '../services/users'
+import {
+  getProfile,
+  updateProfile,
+  moderatesAnyCommunity,
+  changeUsername,
+  changePassword,
+  setProfileImage,
+} from '../services/users'
+import { requestUpload, receiveUpload } from '../services/uploads'
 import { getMyVotes } from '../services/votes'
 import { listNotifications, markAllRead, markRead } from '../services/notifications'
 import { getSettings } from '../services/settings'
@@ -284,7 +292,10 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
     )
   })
 
-  app.get('/u/:username', (c) => {
+  /** Eski /u/ adresleri: içerik bozulmasın diye kalıcı olarak yeni adrese gider. */
+  app.get('/u/:username', (c) => c.redirect(`/tc/${encodeURIComponent(c.req.param('username'))}`, 301))
+
+  app.get('/tc/:username', (c) => {
     const viewer = c.get('viewer')
     const profile = getProfile(ctx, viewer, c.req.param('username'))
     const now = ctx.now()
@@ -307,12 +318,12 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
     void isSelf
     return c.html(
       <Layout
-        title={`u/${profile.user.username}`}
+        title={`/tc/${profile.user.username}`}
         viewer={viewer}
         unread={unread(ctx, viewer)}
         flash={takeFlash(c)}
         active="me"
-        og={{ title: `u/${profile.user.username}`, description: profile.user.bio ?? t.ogDescription }}
+        og={{ title: `/tc/${profile.user.username}`, description: profile.user.bio ?? t.ogDescription }}
       >
         <ProfileView_
           ctx={ctx}
@@ -331,37 +342,174 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
     if (!viewer) return c.redirect('/login?next=%2Fsettings')
     return c.html(
       <Layout title={t.nav.settings} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)} active="me">
-        <div class="card form-narrow">
-          <h2>{t.profile.editProfile}</h2>
-          <form method="post" action="/settings">
+        <div class="settings-page">
+          <h1 class="settings-title">{t.settings.title}</h1>
+
+          <form class="settings-card" method="post" action="/settings" enctype="multipart/form-data">
+            {/* Profil resmi */}
+            <div class="settings-row">
+              <span class="settings-label">{t.settings.avatar}</span>
+              <div class="settings-media">
+                {viewer.avatar_key ? (
+                  <img class="settings-avatar" src={`/media/${viewer.avatar_key}`} alt={t.profile.avatarAlt} />
+                ) : (
+                  <span class="settings-avatar" style={`--c-bg:${communityColor(viewer.username)}`}>
+                    {communityInitials(viewer.username)}
+                  </span>
+                )}
+                <div class="settings-media-actions">
+                  <input
+                    class="visually-hidden"
+                    id="avatar"
+                    name="avatar"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                  />
+                  <label class="btn secondary small" for="avatar">{t.settings.changeAvatar}</label>
+                  {viewer.avatar_key && (
+                    <button class="btn ghost small" type="submit" name="removeAvatar" value="1">
+                      {t.settings.remove}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Kapak görseli */}
+            <div class="settings-row">
+              <span class="settings-label">{t.settings.cover}</span>
+              <div class="settings-media">
+                {viewer.cover_key ? (
+                  <img class="settings-cover" src={`/media/${viewer.cover_key}`} alt={t.profile.coverAlt} />
+                ) : (
+                  <span class="settings-cover empty">{t.settings.noCover}</span>
+                )}
+                <div class="settings-media-actions">
+                  <input
+                    class="visually-hidden"
+                    id="cover"
+                    name="cover"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                  />
+                  <label class="btn secondary small" for="cover">{t.settings.changeCover}</label>
+                  {viewer.cover_key && (
+                    <button class="btn ghost small" type="submit" name="removeCover" value="1">
+                      {t.settings.remove}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
             <div class="field">
-              <label for="displayName">{t.profile.displayName}</label>
+              <label for="username">{t.settings.username}</label>
+              <input id="username" name="username" type="text" minlength={3} maxlength={20} value={viewer.username} required />
+              <div class="hint">{t.auth.usernameHint}</div>
+            </div>
+
+            <div class="field">
+              <label for="displayName">{t.settings.displayName}</label>
               <input id="displayName" name="displayName" type="text" maxlength={40} value={viewer.display_name ?? ''} />
             </div>
+
             <div class="field">
-              <label for="bio">{t.profile.bio}</label>
-              <textarea id="bio" name="bio" maxlength={200}>{viewer.bio ?? ''}</textarea>
+              <label for="bio">{t.settings.bio}</label>
+              <textarea id="bio" name="bio" maxlength={200} rows={4}>{viewer.bio ?? ''}</textarea>
             </div>
-            <button class="btn" type="submit">{t.post.save}</button>
+
+            <button class="btn block" type="submit">{t.settings.saveChanges}</button>
           </form>
-          <hr />
-          <p>
-            <a href="/settings/delete-account" style="color:var(--danger)">{t.profile.deleteAccount}</a>
+
+          {/* Şifre değiştirme ayrı form: mevcut parola doğrulanır. */}
+          <form class="settings-card" method="post" action="/settings/password">
+            <h2 class="settings-card-title">{t.settings.changePassword}</h2>
+            <div class="field">
+              <label for="currentPassword">{t.settings.currentPassword}</label>
+              <input
+                id="currentPassword"
+                name="currentPassword"
+                type="password"
+                required
+                autocomplete="current-password"
+              />
+            </div>
+            <div class="field">
+              <label for="newPassword">{t.settings.newPassword}</label>
+              <input
+                id="newPassword"
+                name="newPassword"
+                type="password"
+                required
+                minlength={10}
+                autocomplete="new-password"
+              />
+              <div class="hint">{t.auth.passwordHint}</div>
+            </div>
+            <button class="btn secondary block" type="submit">{t.settings.changePassword}</button>
+          </form>
+
+          <p class="settings-danger">
+            <a href="/settings/delete-account">{t.profile.deleteAccount}</a>
           </p>
         </div>
       </Layout>,
     )
   })
 
+  /** Profil resmi / kapak yükleme + kullanıcı adı, görünen ad ve biyografi güncellemesi. */
   app.post('/settings', async (c) => {
+    const viewer = c.get('viewer')
+    if (!viewer) return c.redirect('/login')
+    let user = viewer
+    try {
+      const parsed = await c.req.parseBody()
+      const text = (key: string): string => (typeof parsed[key] === 'string' ? (parsed[key] as string) : '')
+
+      if (parsed.removeAvatar) {
+        user = setProfileImage(ctx, viewer, 'avatar', null)
+      }
+      if (parsed.removeCover) {
+        user = setProfileImage(ctx, viewer, 'cover', null)
+      }
+
+      for (const field of ['avatar', 'cover'] as const) {
+        const file = parsed[field]
+        if (file instanceof File && file.size > 0) {
+          const bytes = new Uint8Array(await file.arrayBuffer())
+          const slot = requestUpload(ctx, viewer)
+          await receiveUpload(ctx, slot.key, slot.token, bytes)
+          user = setProfileImage(ctx, viewer, field, slot.key)
+        }
+      }
+
+      if (text('username') && text('username') !== user.username) {
+        user = changeUsername(ctx, user, text('username'))
+      }
+      updateProfile(ctx, user, { displayName: text('displayName'), bio: text('bio') })
+      setFlash(c, 'ok', t.settings.saved)
+    } catch (err) {
+      if (err instanceof AppError || err instanceof ValidationError) setFlash(c, 'error', err.message)
+      else throw err
+    }
+    return c.redirect('/settings')
+  })
+
+  app.post('/settings/password', async (c) => {
     const viewer = c.get('viewer')
     if (!viewer) return c.redirect('/login')
     const body = await formData(c)
     try {
-      updateProfile(ctx, viewer, { displayName: body.displayName ?? '', bio: body.bio ?? '' })
-      setFlash(c, 'ok', t.profile.updated)
+      await changePassword(
+        ctx,
+        viewer,
+        body.currentPassword ?? '',
+        body.newPassword ?? '',
+        c.get('sessionToken'),
+      )
+      setFlash(c, 'ok', t.settings.passwordChanged)
     } catch (err) {
-      if (err instanceof ValidationError) setFlash(c, 'error', err.message)
+      if (err instanceof AppError || err instanceof ValidationError) setFlash(c, 'error', err.message)
       else throw err
     }
     return c.redirect('/settings')

@@ -1,6 +1,6 @@
 import type { FC } from 'hono/jsx'
 import { t, relativeTime } from '../i18n/tr'
-import { previewText, communityColor, communityInitials } from './helpers'
+import { previewText, communityColor, communityInitials, profilePath } from './helpers'
 import type { FeedItem } from '../services/feeds'
 import type { CommunityMembershipState } from '../services/communities'
 import type { CommentNode } from '../services/comments'
@@ -68,7 +68,7 @@ export const PostCard: FC<{
         {pinned && <span class="pin-tag">📌 {t.feed.pinned}</span>}
         <div class="meta">
           {showCommunity && <a href={`/c/${item.community_name}`}>c/{item.community_name}</a>}
-          <span>{item.author_username ? <a href={`/u/${item.author_username}`}>u/{item.author_username}</a> : t.post.deletedBody}</span>
+          <span>{item.author_username ? <a href={profilePath(item.author_username)}>/tc/{item.author_username}</a> : t.post.deletedBody}</span>
           <span>{relativeTime(item.created_at, now)}</span>
           {item.edited_at !== null && <span>({t.post.edited})</span>}
         </div>
@@ -157,7 +157,7 @@ export const SocialCard: FC<{
             <span class="social-card-community-name">c/{item.community_name}</span>
             <span class="social-card-time">
               {relativeTime(item.created_at, now)}
-              {item.edited_at !== null && ` · ${t.post.edited}`}
+              {item.edited_at !== null && ` · (${t.post.edited})`}
             </span>
           </span>
         </a>
@@ -207,7 +207,7 @@ export const SocialCard: FC<{
 
       <div class="social-card-author">
         {item.author_username ? (
-          <a href={`/u/${item.author_username}`}>u/{item.author_username}</a>
+          <a href={profilePath(item.author_username)}>/tc/{item.author_username}</a>
         ) : (
           <span class="placeholder">{t.post.deletedBody}</span>
         )}
@@ -327,7 +327,7 @@ export const CommentTreeView: FC<{
       <div class={`comment${props.highlightId === c.id ? ' highlight' : ''}`} data-depth={String(Math.min(c.depth, 8))} id={`comment-${c.id}`}>
         <details class="subtree" open={!collapsed}>
           <summary>
-            {node.authorUsername ? `u/${node.authorUsername}` : t.comment.deleted} ·{' '}
+            {node.authorUsername ? `/tc/${node.authorUsername}` : t.comment.deleted} ·{' '}
             {props.scoreHidden(c.created_at) && !node.hidden ? `· ${t.common.points}` : `${c.score} ${t.common.points}`} ·{' '}
             {relativeTime(c.created_at, props.now)}
             {c.edited_at !== null && ` (${t.post.edited})`}

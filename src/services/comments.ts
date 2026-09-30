@@ -72,7 +72,7 @@ export function createComment(
       notify(ctx, {
         userId: recipientId,
         type: 'reply',
-        title: `u/${user.username}, c/${community.name} topluluğundaki ${parent ? 'yorumunuza' : 'gönderinize'} yanıt verdi`,
+        title: `/tc/${user.username}, c/${community.name} topluluğundaki ${parent ? 'yorumunuza' : 'gönderinize'} yanıt verdi`,
         link: `/c/${community.name}/comments/${postId}/comment/${id}`,
         sourceCommentId: id,
       })

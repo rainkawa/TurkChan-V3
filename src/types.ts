@@ -6,6 +6,8 @@ export interface UserRow {
   password_hash: string
   display_name: string | null
   bio: string | null
+  avatar_key: string | null
+  cover_key: string | null
   is_admin: number
   deleted: number
   suspended_until: number | null

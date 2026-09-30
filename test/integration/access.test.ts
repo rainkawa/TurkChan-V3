@@ -86,7 +86,7 @@ describe('guest permissions', () => {
     expect(await (await guest.get('/')).text()).not.toContain('VAULT-SECRET-POST')
     expect(await (await guest.get('/search?q=VAULT')).text()).not.toContain('VAULT-SECRET-POST')
     expect(await (await guest.get('/communities')).text()).not.toContain('vault')
-    expect(await (await guest.get('/u/the_mod')).text()).not.toContain('VAULT-SECRET-POST')
+    expect(await (await guest.get('/tc/the_mod')).text()).not.toContain('VAULT-SECRET-POST')
   })
 })
 

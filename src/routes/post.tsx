@@ -3,7 +3,7 @@ import type { Context } from 'hono'
 import type { Ctx } from '../context'
 import { t } from '../i18n/tr'
 import { Layout } from '../views/layout'
-import { CommentTreeView, Markdown, VoteRail } from '../views/components'
+import { CommentTreeView, Markdown, VoteRail, CommunityAvatar } from '../views/components'
 import { getPostForViewer, editPostBody, deletePost, getPost } from '../services/posts'
 import {
   createComment,
@@ -20,7 +20,7 @@ import { listRules } from '../services/communities'
 import { isModerator, getCommunityById, canReadCommunity } from '../services/access'
 import { AppError, notFound } from '../services/errors'
 import { ValidationError } from '../lib/validation'
-import { relativeTime } from '../views/helpers'
+import { relativeTime, profilePath } from '../views/helpers'
 import { type AppEnv, formData, loginRedirect, setFlash, takeFlash, unread } from './helpers'
 
 function parseCommentSort(raw: string | undefined): CommentSort {
@@ -90,56 +90,128 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
               }
         }
       >
-        <article class="card post-full">
-          <div class="post-card" style="border:none;padding:0">
-            <VoteRail targetType="post" targetId={post.id} score={post.score} myVote={myPostVote} guest={!viewer} disabled={isOwn || contentHidden !== null} />
-            <div>
-              <div class="meta">
-                <a href={`/c/${community.name}`}>c/{community.name}</a>
-                <span>{authorUsername ? <a href={`/u/${authorUsername}`}>u/{authorUsername}</a> : t.post.deletedBody}</span>
-                <span>{relativeTime(post.created_at, now)}</span>
-                {post.edited_at !== null && <span>({t.post.edited})</span>}
-                {post.pinned_at !== null && <span class="pin-tag">📌 {t.feed.pinned}</span>}
-              </div>
-              <h1 class="post-title">{contentHidden === 'removed' ? t.post.removedBody : contentHidden === 'deleted' ? t.post.deletedBody : post.title}</h1>
-              <div class="post-body">{bodyBlock}</div>
-              <div class="post-actions">
-                {isOwn && contentHidden === null && post.type === 'text' && <a href={`/posts/${post.id}/edit`}>{t.post.edit}</a>}
-                {isOwn && contentHidden === null && (
-                  <form method="post" action={`/posts/${post.id}/delete`} style="display:inline" data-confirm={t.post.deleteConfirm}>
-                    <button class="linklike" type="submit">{t.post.delete}</button>
-                  </form>
-                )}
-                {viewer && !isOwn && contentHidden === null && <a href={`/report/post/${post.id}`}>{t.post.report}</a>}
-                {isMod && contentHidden === null && (
-                  <>
-                    <form method="post" action={`/mod/remove/post/${post.id}`} style="display:inline" data-confirm={t.post.removePostConfirm}>
-                      <button class="linklike" type="submit">{t.common.remove}</button>
+        <article class="social-card post-detail">
+          {/* Kompakt üst satır: topluluk · kullanıcı · zaman · üç nokta */}
+          <header class="social-card-head">
+            <a class="social-card-community" href={`/c/${community.name}`}>
+              <CommunityAvatar name={community.name} />
+              <span class="social-card-community-meta">
+                <span class="social-card-community-name">c/{community.name}</span>
+                <span class="social-card-time">
+                  {authorUsername ? (
+                    <a href={profilePath(authorUsername)}>/tc/{authorUsername}</a>
+                  ) : (
+                    t.post.deletedBody
+                  )}
+                  {' · '}
+                  {relativeTime(post.created_at, now)}
+                  {post.edited_at !== null ? ` · (${t.post.edited})` : ''}
+                </span>
+              </span>
+            </a>
+            <div class="social-card-head-actions">
+              <details class="overflow-menu">
+                <summary aria-label={t.card.more} title={t.card.more}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="5" cy="12" r="2" fill="currentColor" />
+                    <circle cx="12" cy="12" r="2" fill="currentColor" />
+                    <circle cx="19" cy="12" r="2" fill="currentColor" />
+                  </svg>
+                </summary>
+                <div class="overflow-panel">
+                  {isOwn && contentHidden === null && post.type === 'text' && (
+                    <a href={`/posts/${post.id}/edit`}>{t.post.edit}</a>
+                  )}
+                  {isOwn && contentHidden === null && (
+                    <form method="post" action={`/posts/${post.id}/delete`} data-confirm={t.post.deleteConfirm}>
+                      <button class="danger-link" type="submit">{t.post.delete}</button>
                     </form>
-                    {post.pinned_at === null ? (
-                      <form method="post" action={`/posts/${post.id}/pin`} style="display:inline">
-                        <button class="linklike" type="submit">{t.common.pin}</button>
+                  )}
+                  {viewer && !isOwn && contentHidden === null && <a href={`/report/post/${post.id}`}>{t.card.report}</a>}
+                  <button type="button" data-share={`/c/${community.name}/comments/${post.id}`}>{t.card.share}</button>
+                  {contentHidden === null && (
+                    <button type="button" data-save-post={post.id} data-save-title={post.title}
+                      data-save-href={`/c/${community.name}/comments/${post.id}`} data-save-community={community.name}>
+                      {t.card.save}
+                    </button>
+                  )}
+                  {/* Moderasyon seçenekleri yalnızca yetkiliye görünür. */}
+                  {isMod && contentHidden === null && (
+                    <>
+                      <form method="post" action={`/mod/remove/post/${post.id}`} data-confirm={t.post.removePostConfirm}>
+                        <button class="danger-link" type="submit">{t.common.remove}</button>
                       </form>
-                    ) : (
-                      <form method="post" action={`/posts/${post.id}/unpin`} style="display:inline">
-                        <button class="linklike" type="submit">{t.common.unpin}</button>
-                      </form>
-                    )}
-                  </>
-                )}
-                {viewer?.is_admin === 1 && contentHidden === 'removed' && (
-                  <form method="post" action={`/mod/restore/post/${post.id}`} style="display:inline">
-                    <button class="linklike" type="submit">{t.common.restore}</button>
-                  </form>
-                )}
-              </div>
+                      {post.pinned_at === null ? (
+                        <form method="post" action={`/posts/${post.id}/pin`}>
+                          <button type="submit">{t.common.pin}</button>
+                        </form>
+                      ) : (
+                        <form method="post" action={`/posts/${post.id}/unpin`}>
+                          <button type="submit">{t.common.unpin}</button>
+                        </form>
+                      )}
+                    </>
+                  )}
+                  {viewer?.is_admin === 1 && contentHidden === 'removed' && (
+                    <form method="post" action={`/mod/restore/post/${post.id}`}>
+                      <button type="submit">{t.common.restore}</button>
+                    </form>
+                  )}
+                </div>
+              </details>
             </div>
+          </header>
+
+          {post.pinned_at !== null && <span class="pin-tag">📌 {t.feed.pinned}</span>}
+
+          <h1 class="post-detail-title">
+            {contentHidden === 'removed'
+              ? t.post.removedBody
+              : contentHidden === 'deleted'
+                ? t.post.deletedBody
+                : post.title}
+          </h1>
+
+          <div class="post-detail-body">{bodyBlock}</div>
+
+          {/* Aksiyonlar: oy, yorum, paylaş, kaydet — dikey öncelikli düzen */}
+          <div class="social-card-actions post-detail-actions">
+            <VoteRail
+              targetType="post"
+              targetId={post.id}
+              score={post.score}
+              myVote={myPostVote}
+              guest={!viewer}
+              disabled={isOwn || contentHidden !== null}
+              layout="horizontal"
+            />
+            <a class="action-btn" href="#comments">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M20 12a7.5 7.5 0 0 1-11 6.6L4 20l1.4-4.6A7.5 7.5 0 1 1 20 12Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+              </svg>
+              <span>{post.comment_count} {t.feed.comments}</span>
+            </a>
+            <button class="action-btn" type="button" data-share={`/c/${community.name}/comments/${post.id}`}>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 15V4m0 0L8 8m4-4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                <path d="M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+              </svg>
+              <span>{t.card.share}</span>
+            </button>
+            {contentHidden === null && (
+              <button class="action-btn" type="button" data-save-post={post.id} data-save-title={post.title}
+                data-save-href={`/c/${community.name}/comments/${post.id}`} data-save-community={community.name}>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M7 4h10v16l-5-4-5 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+                </svg>
+                <span data-save-label>{t.card.save}</span>
+              </button>
+            )}
           </div>
         </article>
 
-        <div class="card" style="margin-top:1rem">
+        <div class="comments-block" id="comments">
           <div class="sort-tabs">
-            <span style="font-size:0.8rem;color:var(--ink-faint);padding:0.3rem 0">{t.comment.sortLabel}:</span>
             {(['best', 'new', 'top'] as const).map((s) => (
               <a href={`/c/${community.name}/comments/${post.id}?sort=${s}`} class={sort === s ? 'active' : ''}>
                 {s === 'best' ? t.feed.best : s === 'new' ? t.feed.new : t.feed.top}

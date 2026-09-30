@@ -20,7 +20,7 @@ import { communityModLog } from '../services/modlog'
 import { getPost } from '../services/posts'
 import { getComment } from '../services/comments'
 import { AppError, notFound } from '../services/errors'
-import { relativeTime } from '../views/helpers'
+import { relativeTime, profilePath } from '../views/helpers'
 import { type AppEnv, formData, loginRedirect, setFlash, takeFlash, unread } from './helpers'
 
 export function modRoutes(ctx: Ctx): Hono<AppEnv> {
@@ -191,7 +191,7 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
           {pending.map((p) => (
             <div class="dir-item">
               <div>
-                <a class="name" href={`/u/${p.username}`}>u/{p.username}</a>
+                <a class="name" href={profilePath(p.username)}>/tc/{p.username}</a>
                 <p class="desc">
                   {t.community.requestedAgo} {relativeTime(p.created_at, now)}
                 </p>
@@ -212,7 +212,7 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
           <h3>{t.community.moderators}</h3>
           {moderators.map((m) => (
             <div class="dir-item">
-              <a class="name" href={`/u/${m.username}`}>u/{m.username}</a>
+              <a class="name" href={profilePath(m.username)}>/tc/{m.username}</a>
               <form method="post" action={`/c/${community.name}/mod/moderators/${m.user_id}/remove`} style="display:inline" data-confirm={t.post.removeModeratorConfirm}>
                 <button class="btn secondary small" type="submit">{t.community.moderatorRemove}</button>
               </form>
@@ -232,7 +232,7 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
           {bans.map((b) => (
             <div class="dir-item">
               <div>
-                <span class="name">u/{b.username}</span>
+                <span class="name">/tc/{b.username}</span>
                 <p class="desc">
                   {b.expires_at === null ? t.community.permanent : `${t.community.until} ${new Date(b.expires_at).toISOString().slice(0, 10)}`}
                   {b.reason ? ` — ${b.reason}` : ''}
@@ -292,7 +292,7 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
       if (!target) throw notFound('Kullanıcı bulunamadı.')
       const duration = body.duration === 'permanent' ? null : Number(body.duration)
       banUser(ctx, viewer, community, target.id, duration, body.reason || null)
-      setFlash(c, 'ok', `u/${target.username} ${t.community.bannedFlash}`)
+      setFlash(c, 'ok', `/tc/${target.username} ${t.community.bannedFlash}`)
     } catch (err) {
       if (err instanceof AppError) setFlash(c, 'error', err.message)
       else throw err
@@ -322,7 +322,7 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
       const target = getUserForModeration(ctx, body.username ?? '')
       if (!target) throw notFound('Kullanıcı bulunamadı.')
       appointModerator(ctx, viewer, community, target.id)
-      setFlash(c, 'ok', `u/${target.username} ${t.community.nowModerator}`)
+      setFlash(c, 'ok', `/tc/${target.username} ${t.community.nowModerator}`)
     } catch (err) {
       if (err instanceof AppError) setFlash(c, 'error', err.message)
       else throw err
@@ -378,7 +378,7 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
                 {entries.map((e) => (
                   <tr>
                     <td>{relativeTime(e.created_at, now)}</td>
-                    <td>u/{usernames.get(e.actor_id)}</td>
+                    <td>/tc/{usernames.get(e.actor_id)}</td>
                     <td>{e.action}</td>
                     <td>{e.target_type ? `${e.target_type}:${e.target_id}` : '—'}</td>
                     <td>{[e.reason, e.detail].filter(Boolean).join(' · ') || '—'}</td>

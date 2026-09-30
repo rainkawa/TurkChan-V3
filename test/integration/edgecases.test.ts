@@ -129,7 +129,7 @@ describe('markdown preview API', () => {
 describe('US-043 graceful missing content', () => {
   test('unavailable-content pages always offer a way back home', async () => {
     const guest = new Agent(world.app)
-    for (const url of ['/c/never_existed', '/c/never_existed/comments/aaaaaaaaaaaaa', '/u/nobody_here']) {
+    for (const url of ['/c/never_existed', '/c/never_existed/comments/aaaaaaaaaaaaa', '/tc/nobody_here']) {
       const res = await guest.get(url)
       expect([403, 404]).toContain(res.status)
       const text = await res.text()
