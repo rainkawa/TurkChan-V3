@@ -47,6 +47,9 @@ function migrate(db: DatabaseSync): void {
   if (!notificationColumns.has('actor_id')) {
     db.exec('ALTER TABLE notifications ADD COLUMN actor_id TEXT')
   }
+  // CHECK kısıtı ALTER ile değiştirilemez; yeni bildirim türü eklenince tablo
+  // yeniden kurulur (veriler kopyalanır).
+  ensureNotificationTypes(db)
 
   // Board etiketleri ve medya/spoiler alanları sonraki sürümlerde eklendi.
   const postColumns = new Set(
@@ -56,16 +59,9 @@ function migrate(db: DatabaseSync): void {
     ['media_kind', "ALTER TABLE posts ADD COLUMN media_kind TEXT NOT NULL DEFAULT 'none'"],
     ['spoiler', 'ALTER TABLE posts ADD COLUMN spoiler INTEGER NOT NULL DEFAULT 0'],
     ['flair_id', 'ALTER TABLE posts ADD COLUMN flair_id TEXT'],
-    // Anonim paylaşım, thread modu ve istatistik alanları.
+    // Anonim paylaşım ve istatistik alanları.
     ['is_anonymous', 'ALTER TABLE posts ADD COLUMN is_anonymous INTEGER NOT NULL DEFAULT 0'],
     ['anon_name', 'ALTER TABLE posts ADD COLUMN anon_name TEXT'],
-    ['is_thread', 'ALTER TABLE posts ADD COLUMN is_thread INTEGER NOT NULL DEFAULT 0'],
-    ['thread_sticky', 'ALTER TABLE posts ADD COLUMN thread_sticky INTEGER NOT NULL DEFAULT 0'],
-    ['thread_locked', 'ALTER TABLE posts ADD COLUMN thread_locked INTEGER NOT NULL DEFAULT 0'],
-    ['thread_archived', 'ALTER TABLE posts ADD COLUMN thread_archived INTEGER NOT NULL DEFAULT 0'],
-    ['bumped_at', 'ALTER TABLE posts ADD COLUMN bumped_at INTEGER'],
-    ['bump_count', 'ALTER TABLE posts ADD COLUMN bump_count INTEGER NOT NULL DEFAULT 0'],
-    ['reply_count', 'ALTER TABLE posts ADD COLUMN reply_count INTEGER NOT NULL DEFAULT 0'],
     ['view_count', 'ALTER TABLE posts ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0'],
   ] as const) {
     if (!postColumns.has(column)) db.exec(ddl)
@@ -75,10 +71,20 @@ function migrate(db: DatabaseSync): void {
     (db.prepare('PRAGMA table_info(comments)').all() as unknown as Array<{ name: string }>).map((c) => c.name),
   )
   for (const [column, ddl] of [
-    ['thread_no', 'ALTER TABLE comments ADD COLUMN thread_no INTEGER'],
-    ['reply_to_comment_id', 'ALTER TABLE comments ADD COLUMN reply_to_comment_id TEXT'],
+    ['spoiler', 'ALTER TABLE comments ADD COLUMN spoiler INTEGER NOT NULL DEFAULT 0'],
+    ['is_anonymous', 'ALTER TABLE comments ADD COLUMN is_anonymous INTEGER NOT NULL DEFAULT 0'],
+    ['anon_name', 'ALTER TABLE comments ADD COLUMN anon_name TEXT'],
   ] as const) {
     if (!commentColumns.has(column)) db.exec(ddl)
+  }
+
+  // Kullanımdan kalkan thread modu sütunları: eski kurulumlarda kalmış olabilir.
+  // SQLite 3.35+ DROP COLUMN destekler; desteklenmese yoksayılır.
+  for (const column of ['is_thread', 'thread_sticky', 'thread_locked', 'thread_archived', 'bumped_at', 'bump_count', 'reply_count']) {
+    if (postColumns.has(column)) dropColumnIfSupported(db, 'posts', column)
+  }
+  for (const column of ['thread_no', 'reply_to_comment_id']) {
+    if (commentColumns.has(column)) dropColumnIfSupported(db, 'comments', column)
   }
 
   const userColumns = new Set(
@@ -86,6 +92,60 @@ function migrate(db: DatabaseSync): void {
   )
   if (!userColumns.has('anon_by_default')) {
     db.exec('ALTER TABLE users ADD COLUMN anon_by_default INTEGER NOT NULL DEFAULT 0')
+  }
+}
+
+/**
+ * `notifications.type` CHECK kısıtı yeni bir tür içermiyorsa tabloyu yeniden
+ * kurar. SQLite CHECK'i ALTER ile değiştiremez; standart güvenli yol: yeni
+ * tablo kur → verileri kopyala → eskiyi düşür → yeniden adlandır.
+ */
+function ensureNotificationTypes(db: DatabaseSync): void {
+  const row = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'notifications'")
+    .get() as { sql: string } | undefined
+  if (!row) return
+  const types = new Set(
+    (row.sql.match(/type IN \(([^)]*)\)/)?.[1] ?? '')
+      .split(',')
+      .map((s) => s.trim().replace(/^'|'$/g, ''))
+      .filter(Boolean),
+  )
+  if (types.has('mention')) return
+
+  db.exec('PRAGMA foreign_keys = OFF')
+  transaction(db, () => {
+    db.exec(`CREATE TABLE notifications_migrated (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      actor_id TEXT,
+      type TEXT NOT NULL CHECK (type IN ('reply','mention','mod_removal','mod_ban','membership')),
+      actor_hidden INTEGER NOT NULL DEFAULT 0,
+      title TEXT NOT NULL,
+      link TEXT NOT NULL,
+      source_comment_id TEXT,
+      read INTEGER NOT NULL DEFAULT 0,
+      withdrawn INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    )`)
+    db.exec(
+      `INSERT INTO notifications_migrated
+         (id, user_id, actor_id, type, actor_hidden, title, link, source_comment_id, read, withdrawn, created_at)
+       SELECT id, user_id, actor_id, type, actor_hidden, title, link, source_comment_id, read, withdrawn, created_at
+         FROM notifications`,
+    )
+    db.exec('DROP TABLE notifications')
+    db.exec('ALTER TABLE notifications_migrated RENAME TO notifications')
+  })
+  db.exec('PRAGMA foreign_keys = ON')
+}
+
+/** SQLite DROP COLUMN desteklemiyorsa göç yine de engellenmemeli. */
+function dropColumnIfSupported(db: DatabaseSync, table: string, column: string): void {
+  try {
+    db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`)
+  } catch {
+    // Eski SQLite: sütun kalır ama kullanılmaz; uygulama yine açılır.
   }
 }
 

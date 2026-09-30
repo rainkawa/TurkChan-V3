@@ -8,7 +8,6 @@ import { getPostForViewer, editPostBody, deletePost, getPost, updatePostMeta } f
 import { listFlairs } from '../services/flairs'
 import { listPostMedia } from '../services/posts'
 import { postStats, recordView } from '../services/stats'
-import { canSeeThread, setThreadFlag, threadState } from '../services/threads'
 import { MediaGallery, SingleMedia } from '../views/components'
 import {
   createComment,
@@ -16,6 +15,9 @@ import {
   deleteComment,
   getComment,
   getCommentTree,
+  commentMediaByPost,
+  commentMentionNamesByPost,
+  updateCommentMeta,
   parseCommentSort as parseCommentSortRaw,
   type CommentNode,
   type CommentSort,
@@ -28,6 +30,7 @@ import { AppError, notFound } from '../services/errors'
 import { ValidationError } from '../lib/validation'
 import { relativeTime, formatDate } from '../views/helpers'
 import { embedSrcFor } from '../lib/media'
+import { requestUpload, receiveUpload } from '../services/uploads'
 
 /** Kırık bağlantılarda detay sayfasının patlamaması için güvenli alan adı. */
 function safeHost(raw: string): string {
@@ -40,7 +43,7 @@ function safeHost(raw: string): string {
 import { UserByline } from '../views/rank'
 import { authorRanksFor } from '../services/users'
 import { isAdminPower } from '../services/ranks'
-import { type AppEnv, dmUnread, formData, loginRedirect, safeNext, setFlash, takeFlash, unread } from './helpers'
+import { type AppEnv, collectFiles, dmUnread, formData, loginRedirect, safeNext, setFlash, takeFlash, unread } from './helpers'
 
 function parseCommentSort(raw: string | undefined): CommentSort {
   return parseCommentSortRaw(raw)
@@ -80,31 +83,21 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
     const now = ctx.now()
     const { post, community, authorUsername, contentHidden } = view
     const authorRank = authorRanks.get(post.author_id) ?? null
-    // Arşivlenmiş thread yalnızca moderatörlere/yöneticilere açıktır.
-    if (!canSeeThread(ctx, viewer, post)) throw notFound(t.errors.notFoundBody)
     const isMod = isModerator(ctx, viewer, community.id)
     const postFlairs = listFlairs(ctx, community.id)
     const media = listPostMedia(ctx, postId)
+    const commentMedia = commentMediaByPost(ctx, postId)
+    const commentMentions = commentMentionNamesByPost(ctx, postId)
     const stats = postStats(ctx, post)
-    const thread = threadState(ctx, post)
     // Görüntülenmeyi yalnızca erişebilen kullanıcılar için say.
     if (contentHidden === null) {
       recordView(ctx, post, viewer, c.req.header('x-forwarded-for') ?? null)
     }
     const postFlair = post.flair_id ? postFlairs.find((f) => f.id === post.flair_id) ?? null : null
-    // Thread modunda her yanıt bir önceki yanıtı alıntılar.
-    const byThreadNo = new Map<number, string>()
-    for (const node of tree) {
-      if (node.comment.thread_no) byThreadNo.set(node.comment.thread_no, node.comment.body)
-    }
-    const quoteFor = (node: CommentNode): string | null => {
-      if (!thread.isThread || !node.comment.thread_no || node.comment.thread_no <= 1) return null
-      const prev = byThreadNo.get(node.comment.thread_no - 1)
-      return prev ? prev.slice(0, 160) : null
-    }
     const isOwn = viewer?.id === post.author_id
-    // Kilitli thread'e yanıt verilemez.
-    const canReply = Boolean(viewer) && !community.archived && contentHidden === null && thread.canReply
+    const canReply = Boolean(viewer) && !community.archived && contentHidden === null
+    // Anonim kutusu kullanıcının varsayılan tercihiyle başlar.
+    const anonDefault = viewer?.anon_by_default === 1
     const hideMinutes = community.hide_comment_scores_minutes
     const scoreHidden = (createdAt: number) => hideMinutes > 0 && now - createdAt < hideMinutes * 60 * 1000
 
@@ -220,7 +213,7 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
                 <span class="social-card-time">
                   {authorUsername ? (
                     post.is_anonymous === 1 ? (
-                      <span class="anon-author" title={t.post.anonymousHint}>
+                      <span class="anon-author" title={t.post.anonBylineHint}>
                         {t.post.anonByline} · <b>{post.anon_name}</b>
                       </span>
                     ) : (
@@ -327,22 +320,13 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
                 : post.title}
           </h1>
 
-          {/* Anonim / thread rozetleri */}
+          {/* Anonim rozeti */}
           <div class="post-badges">
             {post.is_anonymous === 1 && (
-              <span class="post-badge anon" title={t.post.anonymousHint}>
+              <span class="post-badge anon" title={t.post.anonBylineHint}>
                 🕶 {t.post.anonByline} · <b>{post.anon_name}</b>
               </span>
             )}
-            {thread.isThread && (
-              <span class="post-badge thread" title={t.thread.modeHint}>
-                🧵 {t.thread.mode} · {post.reply_count} {t.thread.replies}
-                {post.bump_count > 0 && ` · ${post.bump_count} ${t.thread.bumps}`}
-              </span>
-            )}
-            {thread.sticky && <span class="post-badge sticky" title={t.thread.stickyHint}>📌 {t.thread.sticky}</span>}
-            {thread.locked && <span class="post-badge locked" title={t.thread.lockedHint}>🔒 {t.thread.locked}</span>}
-            {thread.archived && <span class="post-badge archived" title={t.thread.archivedHint}>🗄 {t.thread.archived}</span>}
           </div>
 
           {/* Kimlik, kalıcı bağlantı, tarihler ve istatistik */}
@@ -413,45 +397,6 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
           </div>
         </article>
 
-        {/* Thread uyarısı ve yönetici kontrolleri */}
-        {thread.isThread && contentHidden === null && (
-          <div class={`thread-banner${thread.locked ? ' is-locked' : ''}`}>
-            <div class="thread-banner-text">
-              <strong>🧵 {t.thread.mode}</strong> — {t.thread.modeHint}
-              <span class="thread-counts">
-                {post.reply_count} {t.thread.replies} · {post.bump_count} {t.thread.bumps}
-              </span>
-              {post.bumped_at !== null && (
-                <span class="thread-bumped">{t.thread.bumps}: {relativeTime(post.bumped_at, now)}</span>
-              )}
-            </div>
-            {thread.locked && <p class="thread-locked-note">🔒 {t.thread.lockedHint}</p>}
-            {isMod && (
-              <div class="thread-controls">
-                <form method="post" action={`/posts/${post.id}/thread`} style="display:inline">
-                  <input type="hidden" name="action" value={thread.sticky ? 'unsticky' : 'sticky'} />
-                  <input type="hidden" name="back" value={`/c/${community.name}/comments/${post.id}`} />
-                  <button class="btn secondary small" type="submit">{thread.sticky ? t.thread.unpin : t.thread.pin}</button>
-                </form>
-                <form method="post" action={`/posts/${post.id}/thread`} style="display:inline">
-                  <input type="hidden" name="action" value={thread.locked ? 'unlock' : 'lock'} />
-                  <input type="hidden" name="back" value={`/c/${community.name}/comments/${post.id}`} />
-                  <button class="btn secondary small" type="submit">{thread.locked ? t.thread.unlock : t.thread.lock}</button>
-                </form>
-                {isAdminPower(viewer) && (
-                  <form method="post" action={`/posts/${post.id}/thread`} style="display:inline">
-                    <input type="hidden" name="action" value={thread.archived ? 'unarchive' : 'archive'} />
-                    <input type="hidden" name="back" value={`/c/${community.name}/comments/${post.id}`} />
-                    <button class="btn secondary small" type="submit">
-                      {thread.archived ? t.thread.unarchive : t.thread.archive}
-                    </button>
-                  </form>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
         <div class="comments-block" id="comments">
           <div class="sort-tabs">
             {(['best', 'top', 'new'] as const).map((s) => (
@@ -461,7 +406,13 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
             ))}
           </div>
           {canReply ? (
-            <form class="comment-form" method="post" action={`/c/${community.name}/comments/${post.id}/comment`} id="reply">
+            <form
+              class="comment-form"
+              method="post"
+              action={`/c/${community.name}/comments/${post.id}/comment`}
+              id="reply"
+              enctype="multipart/form-data"
+            >
               {highlightCommentId && <input type="hidden" name="parentId" value={highlightCommentId} />}
               {highlightCommentId && (
                 <p class="hint">
@@ -470,8 +421,24 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
                 </p>
               )}
               <div class="field">
-                <textarea name="body" placeholder={t.comment.placeholder} required maxlength={10000}></textarea>
+                <textarea name="body" placeholder={t.comment.placeholder} maxlength={10000}></textarea>
               </div>
+              <div class="field">
+                <label for="comment-files">{t.comment.addMedia}</label>
+                <input id="comment-files" type="file" name="media" accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm" multiple />
+                <div class="hint">{t.comment.mediaHint}</div>
+              </div>
+              <div class="field post-extra-fields">
+                <label class="checkbox">
+                  <input type="checkbox" name="spoiler" value="1" />
+                  <span>{t.comment.spoilerLabel}</span>
+                </label>
+                <label class="checkbox">
+                  <input type="checkbox" name="anonymous" value="1" checked={anonDefault} />
+                  <span>{t.comment.anonymousLabel}</span>
+                </label>
+              </div>
+              <p class="hint">{t.comment.mentionHint}</p>
               <button class="btn" type="submit">{t.comment.submit}</button>
             </form>
           ) : !viewer ? (
@@ -491,8 +458,8 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
             authorRanks={authorRanks}
             scoreHidden={scoreHidden}
             highlightId={highlightCommentId}
-            threadMode={thread.isThread}
-            quoteOf={(node) => quoteFor(node)}
+            mediaByComment={commentMedia}
+            mentionsByComment={commentMentions}
           />
         </div>
       </Layout>,
@@ -507,38 +474,7 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
     if (!post) return c.notFound()
     const community = getCommunityById(ctx, post.community_id)
     if (!community) return c.notFound()
-    // Arşivlenmiş thread yalnızca moderatörlere açık.
-    if (!canSeeThread(ctx, c.get('viewer'), post)) return c.notFound()
     return c.redirect(`/c/${community.name}/comments/${post.id}`, 301)
-  })
-
-  /** Thread yönetimi: sabitle / kilitle / arşivle. */
-  app.post('/posts/:id/thread', async (c) => {
-    const viewer = c.get('viewer')
-    if (!viewer) return loginRedirect(c)
-    const body = await formData(c)
-    const action = body.action ?? ''
-    const map: Record<string, 'thread_sticky' | 'thread_locked' | 'thread_archived'> = {
-      sticky: 'thread_sticky',
-      unsticky: 'thread_sticky',
-      lock: 'thread_locked',
-      unlock: 'thread_locked',
-      archive: 'thread_archived',
-      unarchive: 'thread_archived',
-    }
-    const flag = map[action]
-    if (!flag) {
-      setFlash(c, 'error', t.errors.genericBody)
-      return c.redirect('/')
-    }
-    try {
-      setThreadFlag(ctx, viewer, c.req.param('id'), flag, action === 'sticky' || action === 'lock' || action === 'archive')
-      setFlash(c, 'ok', t.settings.saved)
-    } catch (err) {
-      if (err instanceof AppError) setFlash(c, 'error', err.message)
-      else throw err
-    }
-    return c.redirect(body.back ? safeNext(body.back) : '/')
   })
 
   /** Permalink view: highlight the comment; render its ancestor context (US-019). */
@@ -555,19 +491,59 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
     if (!viewer) return loginRedirect(c)
     const postId = c.req.param('postId')
     const name = c.req.param('name')
-    const body = await formData(c)
+    const redirectBack = `/c/${name}/comments/${postId}`
     try {
+      // multipart: gövde + yorum medyası aynı istekte gelir.
+      const parsed = await c.req.formData()
+      const keys: string[] = []
+      for (const file of collectFiles(parsed, 'media')) {
+        const bytes = new Uint8Array(await file.arrayBuffer())
+        const slot = requestUpload(ctx, viewer)
+        await receiveUpload(ctx, slot.key, slot.token, bytes)
+        keys.push(slot.key)
+      }
+      const text = (parsed.get('body') as string) ?? ''
+      if (text.trim() === '' && keys.length === 0) {
+        throw new ValidationError('body', 'Yorum boş olamaz.')
+      }
       const comment = createComment(ctx, viewer, postId, {
-        body: body.body ?? '',
-        parentId: body.parentId || null,
+        body: text,
+        parentId: ((parsed.get('parentId') as string) ?? '') || null,
+        mediaKeys: keys,
+        spoiler: parsed.get('spoiler') === '1',
+        anonymous: parsed.get('anonymous') === '1',
       })
       return c.redirect(`/c/${name}/comments/${postId}/comment/${comment.id}`)
     } catch (err) {
       if (err instanceof AppError || err instanceof ValidationError) {
         setFlash(c, 'error', err.message)
-        return c.redirect(`/c/${name}/comments/${postId}`)
+        return c.redirect(redirectBack)
       }
       throw err
+    }
+  })
+
+  /** Yazarın kendi yorumunun spoiler / anonim ayarını günceller. */
+  app.post('/comments/:id/meta', async (c) => {
+    const viewer = c.get('viewer')
+    if (!viewer) return loginRedirect(c)
+    const body = await formData(c)
+    try {
+      const comment = updateCommentMeta(ctx, viewer, c.req.param('id'), {
+        ...(body.spoiler !== undefined ? { spoiler: body.spoiler === '1' } : {}),
+        ...(body.anonymous !== undefined ? { anonymous: body.anonymous === '1' } : {}),
+      })
+      setFlash(c, 'ok', t.comment.settingsSaved)
+      const post = getPost(ctx, comment.post_id)
+      const community = post ? getCommunityById(ctx, post.community_id) : null
+      const target = community
+        ? `/c/${community.name}/comments/${comment.post_id}/comment/${comment.id}`
+        : '/'
+      return c.redirect(body.back ? safeNext(body.back) : target)
+    } catch (err) {
+      if (err instanceof AppError || err instanceof ValidationError) setFlash(c, 'error', err.message)
+      else throw err
+      return c.redirect(body.back ? safeNext(body.back) : '/')
     }
   })
 

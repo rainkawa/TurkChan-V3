@@ -416,7 +416,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
                   {p.author_username && (
                     <p class="desc">
                       {p.anon === 1 ? (
-                        <span class="anon-author" title={t.post.anonymousHint}>
+                        <span class="anon-author" title={t.post.anonBylineHint}>
                           {t.post.anonByline} · <b>{p.author_username}</b>
                         </span>
                       ) : (

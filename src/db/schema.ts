@@ -129,14 +129,6 @@ CREATE TABLE IF NOT EXISTS posts (
   -- Anonim paylaşım: gerçek yazar yalnızca yöneticilere görünür.
   is_anonymous INTEGER NOT NULL DEFAULT 0,
   anon_name TEXT,
-  -- Thread modu
-  is_thread INTEGER NOT NULL DEFAULT 0,
-  thread_sticky INTEGER NOT NULL DEFAULT 0,
-  thread_locked INTEGER NOT NULL DEFAULT 0,
-  thread_archived INTEGER NOT NULL DEFAULT 0,
-  bumped_at INTEGER,                -- son thread yanıtı (bump sıralaması)
-  bump_count INTEGER NOT NULL DEFAULT 0,
-  reply_count INTEGER NOT NULL DEFAULT 0,
   -- İstatistik
   view_count INTEGER NOT NULL DEFAULT 0
 );
@@ -159,6 +151,8 @@ CREATE TABLE IF NOT EXISTS post_views (
   viewed_at INTEGER NOT NULL,
   PRIMARY KEY (post_id, viewer_key)
 );
+
+
 
 -- Board etiketleri (flair): her board kendi etiket kümesini yönetir.
 CREATE TABLE IF NOT EXISTS board_flairs (
@@ -196,9 +190,28 @@ CREATE TABLE IF NOT EXISTS comments (
   deleted INTEGER NOT NULL DEFAULT 0,
   edited_at INTEGER,
   created_at INTEGER NOT NULL,
-  -- Thread modu: sıra numarası ve yanıtlanan yorum.
-  thread_no INTEGER,                 -- 1..n, thread gönderilerinde
-  reply_to_comment_id TEXT REFERENCES comments(id)
+  spoiler INTEGER NOT NULL DEFAULT 0,      -- 1 = "Göster"e kadar gizli
+  is_anonymous INTEGER NOT NULL DEFAULT 0, -- anonim yorum
+  anon_name TEXT
+);
+
+-- Yoruma eklenen medya (görsel / GIF / video). Sıra pozisyonla korunur.
+CREATE TABLE IF NOT EXISTS comment_media (
+  id TEXT PRIMARY KEY,
+  comment_id TEXT NOT NULL REFERENCES comments(id),
+  position INTEGER NOT NULL,
+  media_key TEXT NOT NULL,
+  mime TEXT,
+  kind TEXT NOT NULL,                -- image | gif | video
+  created_at INTEGER NOT NULL
+);
+
+-- Yorumda geçen @kullanıcı bahsi (bildirim için).
+CREATE TABLE IF NOT EXISTS comment_mentions (
+  comment_id TEXT NOT NULL REFERENCES comments(id),
+  user_id TEXT NOT NULL REFERENCES users(id),
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (comment_id, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS votes (
@@ -242,7 +255,7 @@ CREATE TABLE IF NOT EXISTS notifications (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id),
   actor_id TEXT,                      -- bildirimi tetikleyen kullanıcı (rozet gösterimi için)
-  type TEXT NOT NULL CHECK (type IN ('reply','mod_removal','mod_ban','membership')),
+  type TEXT NOT NULL CHECK (type IN ('reply','mention','mod_removal','mod_ban','membership')),
   actor_hidden INTEGER NOT NULL DEFAULT 0,
   title TEXT NOT NULL,
   link TEXT NOT NULL,
@@ -340,7 +353,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS communities_fts USING fts5(
 /* -------------------------------------------------------------------------- */
 /*
  * Indexler ayrı tutulur: mevcut bir veritabanında CREATE TABLE IF NOT EXISTS
- * yeni kolonları eklemez. Indexler `posts.is_thread` gibi yeni kolonlara
+ * yeni kolonları eklemez. Indexler `posts.view_count` gibi yeni kolonlara
  * bağlandığı için, migrate() kolonları ekledikten SONRA oluşturulmalıdır;
  * aksi halde uygulama açılışta "no such column" hatasıyla çöker.
  */
@@ -352,13 +365,14 @@ CREATE INDEX IF NOT EXISTS idx_memberships_community ON memberships(community_id
 CREATE INDEX IF NOT EXISTS idx_posts_community ON posts(community_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_author ON posts(author_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_url ON posts(community_id, url);
-CREATE INDEX IF NOT EXISTS idx_posts_thread ON posts(community_id, is_thread, bumped_at DESC);
 CREATE INDEX IF NOT EXISTS idx_post_media_post ON post_media(post_id, position);
 CREATE INDEX IF NOT EXISTS idx_flairs_community ON board_flairs(community_id, position);
 CREATE INDEX IF NOT EXISTS idx_affinity_user ON community_affinity(user_id, affinity DESC);
 CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id, path);
 CREATE INDEX IF NOT EXISTS idx_comments_author ON comments(author_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_comments_thread ON comments(post_id, thread_no);
+
+CREATE INDEX IF NOT EXISTS idx_comment_media_comment ON comment_media(comment_id, position);
+CREATE INDEX IF NOT EXISTS idx_comment_mentions_user ON comment_mentions(user_id);
 CREATE INDEX IF NOT EXISTS idx_votes_target ON votes(target_type, target_id);
 CREATE INDEX IF NOT EXISTS idx_reports_queue ON reports(community_id, status, created_at);
 CREATE INDEX IF NOT EXISTS idx_mod_actions_community ON mod_actions(community_id, created_at DESC);

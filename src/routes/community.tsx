@@ -125,12 +125,10 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
     }
 
     const sort = parseSort(c.req.query('sort'))
-    const threadsOnlyRequested = c.req.query('threads') === '1'
     const window = parseWindow(c.req.query('t'))
     const cursor = decodeCursor(c.req.query('after'))
     const flairId = c.req.query('flair') ?? null
-    const threadsOnly = threadsOnlyRequested
-    const page = communityFeed(ctx, viewer, community, sort, window, cursor, 25, flairId, threadsOnly)
+    const page = communityFeed(ctx, viewer, community, sort, window, cursor, 25, flairId)
     const allIds = [...page.pinned, ...page.items].map((i) => i.id)
     const myVotes = getMyVotes(ctx, viewer, 'post', allIds)
     const rules = listRules(ctx, community.id)
@@ -208,19 +206,6 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
         <div class="layout with-sidebar">
           <section>
             <SortTabs basePath={`/c/${community.name}`} sort={sort} window={window} extraQuery={extraQuery} />
-            <div class="feed-filters">
-              <a
-                class={`filter-chip${threadsOnly ? ' active' : ''}`}
-                href={`/c/${community.name}?sort=${sort}&t=${window}${extraQuery}${threadsOnly ? '' : '&threads=1'}`}
-              >
-                🧵 {threadsOnly ? t.thread.threadsOnlyOn : t.thread.threadsOnly}
-              </a>
-              {threadsOnly && (
-                <a class={`filter-chip${sort === 'bump' ? ' active' : ''}`} href={`/c/${community.name}?sort=bump&t=all&threads=1`}>
-                  ⬆ {t.thread.sortByBump}
-                </a>
-              )}
-            </div>
             <FeedFilterBar
               basePath={`/c/${community.name}`}
               sort={sort}
@@ -414,10 +399,6 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
                 <input type="checkbox" name="anonymous" value="1" checked={anonDefault} />
                 <span>{t.post.anonymous}</span>
               </label>
-              <label class="checkbox">
-                <input type="checkbox" name="isThread" value="1" />
-                <span>{t.thread.mode}</span>
-              </label>
               {flairs.length > 0 && (
                 <div class="field">
                   <label for="flair">{t.feed.flairPick}</label>
@@ -455,7 +436,6 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
           spoiler: body.spoiler === '1',
           flairId: body.flairId ?? null,
           anonymous: body.anonymous === '1',
-          isThread: body.isThread === '1',
         })
         if (duplicate) {
           // Non-blocking duplicate warning (US-014).
@@ -482,7 +462,6 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
           spoiler: parsed.get('spoiler') === '1',
           flairId: (parsed.get('flairId') as string) || null,
           anonymous: parsed.get('anonymous') === '1',
-          isThread: parsed.get('isThread') === '1',
         })
         return c.redirect(`/c/${community.name}/comments/${post.id}`)
       }
@@ -493,7 +472,6 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
         spoiler: body.spoiler === '1',
         flairId: body.flairId ?? null,
         anonymous: body.anonymous === '1',
-        isThread: body.isThread === '1',
       })
       return c.redirect(`/c/${community.name}/comments/${post.id}`)
     } catch (err) {

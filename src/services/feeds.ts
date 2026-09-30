@@ -2,7 +2,7 @@ import type { Ctx } from '../context'
 import type { CommunityRow, PostRow, Viewer } from '../types'
 import { type Cursor, cursorPredicate, encodeCursor } from '../lib/cursor'
 import { getSettings } from './settings'
-import { readableCommunitiesClause, isModerator } from './access'
+import { readableCommunitiesClause } from './access'
 
 /**
  * Akış sıralamaları:
@@ -13,16 +13,15 @@ import { readableCommunitiesClause, isModerator } from './access'
  *
  * `top` eski bağlantılar için `best` takma adıdır.
  */
-export type FeedSort = 'hot' | 'new' | 'best' | 'bump'
+export type FeedSort = 'hot' | 'new' | 'best'
 export type TopWindow = 'day' | 'week' | 'month' | 'all'
 
-export const FEED_SORTS: FeedSort[] = ['hot', 'new', 'best', 'bump']
+export const FEED_SORTS: FeedSort[] = ['hot', 'new', 'best']
 
 /** Sıralamayı çözer; tanınmayan ve eski değerler güvenli bir varsayılana düşer. */
 export function parseFeedSort(raw: string | undefined | null): FeedSort {
   if (raw === 'new') return 'new'
   if (raw === 'best' || raw === 'top') return 'best'
-  if (raw === 'bump') return 'bump'
   return 'hot'
 }
 
@@ -137,7 +136,7 @@ interface RankSpec {
   values: (row: FeedItem) => number[]
   /**
    * İmleç karşılaştırmasında kullanılan ifadeler. ORDER BY'de `rank` dışında
-   * ek kolon varsa (örn. thread_sticky) buraya eklenmelidir; aksi halde sonsuz
+   * ek kolon varsa buraya eklenmelidir; aksi halde sonsuz
    * kaydırma sayfalar arasında atlar veya tekrarlar.
    */
   cursorExprs?: string[]
@@ -154,15 +153,6 @@ interface RankSpec {
  */
 function rankSpec(sort: FeedSort, decay: number, personalize: boolean, affinitySql: string): RankSpec {
   const affinity = personalize ? affinitySql : '1'
-  // Thread listesi: sabitlenen thread'ler en üstte, ardından en son hareket eden.
-  if (sort === 'bump') {
-    return {
-      expr: 'COALESCE(p.bumped_at, p.created_at)',
-      orderBy: 'p.thread_sticky DESC, rank DESC, p.id DESC',
-      values: (row) => [row.rank],
-      cursorExprs: ['p.thread_sticky', 'COALESCE(p.bumped_at, p.created_at)'],
-    }
-  }
   if (sort === 'new') {
     return {
       expr: 'p.created_at',
@@ -197,8 +187,6 @@ interface FeedQueryOptions {
   viewer: Viewer
   /** Etikete göre filtreleme. */
   flairId?: string | null
-  /** Yalnızca thread gönderilerini getir. */
-  threadsOnly?: boolean
 }
 
 function runFeedQuery(ctx: Ctx, viewer: Viewer, options: FeedQueryOptions): FeedPage {
@@ -210,8 +198,6 @@ function runFeedQuery(ctx: Ctx, viewer: Viewer, options: FeedQueryOptions): Feed
     'p.deleted = 0',
     'p.removed = 0',
     'p.auto_hidden = 0',
-    // Arşivlenmiş thread'ler yalnızca moderatörlere görünür.
-    `(p.thread_archived = 0 OR ${isModerator(ctx, options.viewer, options.communityId ?? '') ? '1' : '0'} = 1)`,
     readable.clause,
   ]
   const params: (string | number)[] = [...readable.params]
@@ -229,9 +215,6 @@ function runFeedQuery(ctx: Ctx, viewer: Viewer, options: FeedQueryOptions): Feed
   if (options.flairId) {
     where.push('p.flair_id = ?')
     params.push(options.flairId)
-  }
-  if (options.threadsOnly) {
-    where.push('p.is_thread = 1')
   }
   if (WINDOWED_SORTS.includes(options.sort) && options.window !== 'all') {
     where.push('p.created_at > ?')
@@ -307,10 +290,9 @@ function runFeedQuery(ctx: Ctx, viewer: Viewer, options: FeedQueryOptions): Feed
          JOIN users u ON u.id = p.author_id
          WHERE p.community_id = ? AND p.pinned_at IS NOT NULL
            AND p.deleted = 0 AND p.removed = 0 AND p.auto_hidden = 0
-           AND (p.thread_archived = 0 OR ? = 1)
          ORDER BY p.pinned_at ASC LIMIT 3`,
       )
-      .all(options.communityId, isModerator(ctx, options.viewer, options.communityId) ? 1 : 0) as unknown as FeedItem[]
+      .all(options.communityId) as unknown as FeedItem[]
   }
 
   return { items, nextCursor, pinned }
@@ -329,7 +311,6 @@ export function communityFeed(
   cursor: Cursor | null,
   limit = 25,
   flairId: string | null = null,
-  threadsOnly = false,
 ): FeedPage {
   return runFeedQuery(ctx, viewer, {
     communityId: community.id,
@@ -341,7 +322,6 @@ export function communityFeed(
     personalize: false,
     viewer,
     flairId,
-    ...(threadsOnly ? { threadsOnly: true } : {}),
   })
 }
 

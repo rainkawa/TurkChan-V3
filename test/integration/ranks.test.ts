@@ -95,7 +95,7 @@ describe('rank rozetleri arayüzde', () => {
 
 describe('kısıtlama (ban) rütbesi', () => {
   test('askıya alınan kullanıcı Yasaklı görünür, süre bitince rütbesine döner', async () => {
-    const { admin, author, username } = await setupAuthor()
+    const { admin, username } = await setupAuthor()
     const userId = (world.ctx.db.prepare('SELECT id FROM users WHERE username_lower = ?').get(username) as {
       id: string
     }).id

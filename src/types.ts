@@ -113,14 +113,6 @@ export interface PostRow {
   // Anonim paylaşım
   is_anonymous: number
   anon_name: string | null
-  // Thread modu
-  is_thread: number
-  thread_sticky: number
-  thread_locked: number
-  thread_archived: number
-  bumped_at: number | null
-  bump_count: number
-  reply_count: number
   // İstatistik
   view_count: number
 }
@@ -141,9 +133,11 @@ export interface CommentRow {
   deleted: number
   edited_at: number | null
   created_at: number
-  /** Thread gönderilerinde 1..n yanıt sırası. */
-  thread_no: number | null
-  reply_to_comment_id: string | null
+  /** 1 = yorum "Göster"e kadar gizli. */
+  spoiler: number
+  /** Anonim yorum paylaşımı. */
+  is_anonymous: number
+  anon_name: string | null
 }
 
 export interface ReportRow {
@@ -177,7 +171,7 @@ export interface NotificationRow {
   id: string
   user_id: string
   actor_id: string | null
-  type: 'reply' | 'mod_removal' | 'mod_ban' | 'membership'
+  type: 'reply' | 'mention' | 'mod_removal' | 'mod_ban' | 'membership'
   actor_hidden: number
   title: string
   link: string

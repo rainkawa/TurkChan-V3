@@ -1,6 +1,6 @@
 /**
  * Demo seed: an admin, a moderator, members, two communities with pinned
- * schedule/FAQ posts, threads, and votes — the "seeded content" launch gate.
+ * schedule/FAQ posts and votes — the "seeded content" launch gate.
  *
  * Usage: npm run seed  (safe to re-run; skips if users already exist)
  * Default accounts (change in production!):

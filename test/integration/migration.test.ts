@@ -18,16 +18,8 @@ import { SCHEMA_SQL } from '../../src/db/schema'
 const LATE_COLUMNS = [
   'is_anonymous',
   'anon_name',
-  'is_thread',
-  'thread_sticky',
-  'thread_locked',
-  'thread_archived',
-  'bumped_at',
-  'bump_count',
-  'reply_count',
   'view_count',
-  'thread_no',
-  'reply_to_comment_id',
+  'spoiler',
   'anon_by_default',
 ]
 
@@ -41,7 +33,7 @@ function legacyTablesSql(): string {
     const m = line.match(/^\s{2}([a-z_]+)\s+[A-Z]/)
     if (m && LATE_COLUMNS.includes(m[1] as string)) return false
     // Yalnızca yeni kolonları açıklayan yorum satırları.
-    if (/^\s*-- (Anonim paylaşım|Thread modu|İstatistik)/.test(line)) return false
+    if (/^\s*-- (Anonim paylaşım|İstatistik|Yorumda geçen|Yoruma eklenen)/.test(line)) return false
     return true
   })
   // Son kolonun sondaki virgülü kalmasın.
@@ -65,9 +57,9 @@ function buildLegacyDatabase(path: string): void {
     new Set(
       (db.prepare(`PRAGMA table_info(${table})`).all() as unknown as Array<{ name: string }>).map((c) => c.name),
     )
-  expect(cols('posts').has('is_thread')).toBe(false)
   expect(cols('posts').has('view_count')).toBe(false)
   expect(cols('users').has('anon_by_default')).toBe(false)
+  expect(cols('comments').has('spoiler')).toBe(false)
 
   // Eski sürümde veri de olabilir; göçün veriyi koruması gerekir.
   db.prepare(
@@ -99,11 +91,13 @@ describe('şema göçü', () => {
           (db.prepare(`PRAGMA table_info(${table})`).all() as unknown as Array<{ name: string }>).map((c) => c.name),
         )
       // Yeni kolonlar eklendi.
-      for (const c of ['is_thread', 'bumped_at', 'view_count', 'is_anonymous', 'anon_name']) {
+      for (const c of ['view_count', 'is_anonymous', 'anon_name']) {
         expect(cols('posts').has(c), `posts.${c} eksik`).toBe(true)
       }
       expect(cols('users').has('anon_by_default')).toBe(true)
-      expect(cols('comments').has('thread_no')).toBe(true)
+      for (const c of ['spoiler', 'is_anonymous', 'anon_name']) {
+        expect(cols('comments').has(c), `comments.${c} eksik`).toBe(true)
+      }
 
       // Yeni tablolar kuruldu.
       const tables = new Set(
@@ -113,6 +107,8 @@ describe('şema göçü', () => {
       )
       expect(tables.has('post_media')).toBe(true)
       expect(tables.has('post_views')).toBe(true)
+      expect(tables.has('comment_media')).toBe(true)
+      expect(tables.has('comment_mentions')).toBe(true)
 
       // Index'ler de kuruldu (migrate sonrası çalışmalıydı).
       const indexes = new Set(
@@ -120,19 +116,18 @@ describe('şema göçü', () => {
           (i) => i.name,
         ),
       )
-      expect(indexes.has('idx_posts_thread')).toBe(true)
-      expect(indexes.has('idx_comments_thread')).toBe(true)
+      expect(indexes.has('idx_comment_media_comment')).toBe(true)
+      expect(indexes.has('idx_comment_mentions_user')).toBe(true)
 
       // Mevcut veri korundu.
       const post = db.prepare('SELECT title FROM posts WHERE id = ?').get('p1') as { title: string }
       expect(post.title).toBe('ESKI-POST')
       // Yeni kolonlar makul varsayılanlarla doldu.
-      const full = db.prepare('SELECT is_thread, view_count, reply_count FROM posts WHERE id = ?').get('p1') as {
-        is_thread: number
+      const full = db.prepare('SELECT view_count, is_anonymous FROM posts WHERE id = ?').get('p1') as {
         view_count: number
-        reply_count: number
+        is_anonymous: number
       }
-      expect(full).toEqual({ is_thread: 0, view_count: 0, reply_count: 0 })
+      expect(full).toEqual({ view_count: 0, is_anonymous: 0 })
       db.close()
     } finally {
       rmSync(dir, { recursive: true, force: true })

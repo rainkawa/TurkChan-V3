@@ -8,7 +8,6 @@ import { ConsoleMailer } from './lib/mailer'
 import { RateLimiter } from './lib/ratelimit'
 import { LocalObjectStorage } from './services/storage'
 import { purgeExpiredCommunities } from './services/admin'
-import { autoArchiveThreads } from './services/threads'
 
 const config = loadConfig()
 const db = openDatabase(config.dbPath)
@@ -26,10 +25,9 @@ const ctx: Ctx = {
 const app = createApp(ctx)
 app.use('/static/*', serveStatic({ root: './public', rewriteRequestPath: (p) => p.replace(/^\/static/, '') }))
 
-/** Daily maintenance: purge soft-deleted communities and archive old threads. */
+/** Daily maintenance: purge soft-deleted communities. */
 function runMaintenance(): void {
   purgeExpiredCommunities(ctx)
-  autoArchiveThreads(ctx)
 }
 
 runMaintenance()

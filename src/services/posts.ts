@@ -8,7 +8,7 @@ import { badRequest, forbidden, notFound, rateLimited, unauthorized } from './er
 import { canReadCommunity, getCommunityById, isModerator, requireParticipant } from './access'
 import { AFFINITY_STEP, bumpAffinity } from './feeds'
 import { getFlair } from './flairs'
-import { mediaKindForUrl, MAX_VIDEOS_PER_POST } from '../lib/media'
+import { mediaKindForUrl, uploadKindFromMime, MAX_VIDEOS_PER_POST } from '../lib/media'
 import { generateAnonName } from '../lib/anonymous'
 import type { PostMediaRow, UploadKind } from '../types'
 import { joinCommunity } from './communities'
@@ -56,7 +56,7 @@ export function createTextPost(
   ctx: Ctx,
   viewer: Viewer,
   community: CommunityRow,
-  input: { title: string; body: string; spoiler?: boolean; flairId?: string | null; anonymous?: boolean; isThread?: boolean },
+  input: { title: string; body: string; spoiler?: boolean; flairId?: string | null; anonymous?: boolean },
 ): PostRow {
   const user = ensureCanPost(ctx, viewer, community)
   checkPostRateLimit(ctx, user)
@@ -70,11 +70,11 @@ export function createTextPost(
     ctx.db
       .prepare(
         `INSERT INTO posts (id, community_id, author_id, type, title, body, spoiler, flair_id,
-                            is_anonymous, anon_name, is_thread, bumped_at, created_at)
-         VALUES (?, ?, ?, 'text', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                            is_anonymous, anon_name, created_at)
+         VALUES (?, ?, ?, 'text', ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(id, community.id, user.id, title, body, input.spoiler ? 1 : 0, flairId,
-        anon ? 1 : 0, anon, input.isThread ? 1 : 0, input.isThread ? now : null, now)
+        anon ? 1 : 0, anon, now)
     syncPostFts(ctx, getPost(ctx, id) as PostRow)
   })
   bumpAffinity(ctx, user.id, community.id, AFFINITY_STEP.post)
@@ -88,17 +88,16 @@ export function createTextPost(
  * kullanıcının varsayılan tercihi kullanılır. Kutu varsayılan tercihten
  * işaretli geldiği için, işareti kaldırmak o gönderi için anonimliği kapatır.
  */
-function resolveAnonymous(ctx: Ctx, user: UserRow, requested?: boolean): string | null {
+export function resolveAnonymous(ctx: Ctx, user: UserRow, requested?: boolean): string | null {
   const enabled = requested === undefined ? user.anon_by_default === 1 : requested
   if (!enabled) return null
-  const name = generateAnonName()
-  // Çok düşük olasılıkla çakışırsa yeni ad üret.
+  // Rastgele ad neredeyse hiç çakışmaz; yine de 5 kez yeniden üretilir.
   for (let i = 0; i < 5; i++) {
+    const name = generateAnonName()
     const clash = ctx.db.prepare('SELECT 1 AS n FROM users WHERE username_lower = ?').get(name.toLowerCase())
-    if (!clash) break
-    return generateAnonName()
+    if (!clash) return name
   }
-  return name
+  return generateAnonName()
 }
 
 /** Gönderinin medya listesi (sırayla). */
@@ -120,7 +119,6 @@ export function createMediaPost(
     spoiler?: boolean
     flairId?: string | null
     anonymous?: boolean
-    isThread?: boolean
   },
 ): PostRow {
   const user = ensureCanPost(ctx, viewer, community)
@@ -165,12 +163,12 @@ export function createMediaPost(
     ctx.db
       .prepare(
         `INSERT INTO posts (id, community_id, author_id, type, title, body, image_key, media_kind, spoiler, flair_id,
-                            is_anonymous, anon_name, is_thread, bumped_at, created_at)
-         VALUES (?, ?, ?, 'image', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                            is_anonymous, anon_name, created_at)
+         VALUES (?, ?, ?, 'image', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(id, community.id, user.id, title, body, items[0]?.key ?? null, primaryKind ?? 'image',
         input.spoiler ? 1 : 0, flairId,
-        anon ? 1 : 0, anon, input.isThread ? 1 : 0, input.isThread ? now : null, now)
+        anon ? 1 : 0, anon, now)
     const ins = ctx.db.prepare(
       'INSERT INTO post_media (id, post_id, position, media_key, mime, kind, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
     )
@@ -183,14 +181,6 @@ export function createMediaPost(
   })
   bumpAffinity(ctx, user.id, community.id, AFFINITY_STEP.post)
   return getPost(ctx, id) as PostRow
-}
-
-function uploadKindFromMime(mime: string | null): UploadKind | null {
-  if (!mime) return null
-  if (mime.startsWith('image/gif')) return 'gif'
-  if (mime.startsWith('video/')) return 'video'
-  if (mime.startsWith('image/')) return 'image'
-  return null
 }
 
 /** Gönderi etiketi: varlığını doğrular, yoksa null. */
@@ -216,7 +206,7 @@ export async function createLinkPost(
   ctx: Ctx,
   viewer: Viewer,
   community: CommunityRow,
-  input: { title: string; url: string; body?: string; spoiler?: boolean; flairId?: string | null; anonymous?: boolean; isThread?: boolean },
+  input: { title: string; url: string; body?: string; spoiler?: boolean; flairId?: string | null; anonymous?: boolean },
 ): Promise<{ post: PostRow; duplicateOf: PostRow | null }> {
   const user = ensureCanPost(ctx, viewer, community)
   checkPostRateLimit(ctx, user)
@@ -239,8 +229,8 @@ export async function createLinkPost(
     ctx.db
       .prepare(
         `INSERT INTO posts (id, community_id, author_id, type, title, body, url, link_preview_title, link_preview_image,
-                            media_kind, spoiler, flair_id, is_anonymous, anon_name, is_thread, bumped_at, created_at)
-         VALUES (?, ?, ?, 'link', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                            media_kind, spoiler, flair_id, is_anonymous, anon_name, created_at)
+         VALUES (?, ?, ?, 'link', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -256,8 +246,6 @@ export async function createLinkPost(
         flairId,
         anon ? 1 : 0,
         anon,
-        input.isThread ? 1 : 0,
-        input.isThread ? now : null,
         now,
       )
     syncPostFts(ctx, getPost(ctx, id) as PostRow)

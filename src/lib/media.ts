@@ -98,6 +98,15 @@ function isWebm(bytes: Uint8Array | undefined): boolean {
   return bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3
 }
 
+/** Yüklemelerde kaydedilen MIME değerinden medya türü. */
+export function uploadKindFromMime(mime: string | null): UploadKind | null {
+  if (!mime) return null
+  if (mime.startsWith('image/gif')) return 'gif'
+  if (mime.startsWith('video/')) return 'video'
+  if (mime.startsWith('image/')) return 'image'
+  return null
+}
+
 /** Doğrudan medya bağlantısı oynatılabilir bir dosya mı? */
 export function mediaKindForUrl(rawUrl: string | null | undefined): MediaKind {
   if (!rawUrl) return 'none'

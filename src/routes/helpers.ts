@@ -103,3 +103,16 @@ export async function formData(c: C): Promise<Record<string, string>> {
   }
   return out
 }
+
+/**
+ * multipart gövdesindeki tek veya çoklu dosya alanını dosya listesine çevirir.
+ * `parseBody()` birden çok dosyada yalnızca ilkini döndürdüğü için `formData()`
+ * üzerinden `getAll()` kullanılır.
+ */
+export function collectFiles(form: FormData, field: string): File[] {
+  const out: File[] = []
+  for (const value of form.getAll(field)) {
+    if (value instanceof File && value.size > 0) out.push(value)
+  }
+  return out
+}

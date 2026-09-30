@@ -97,8 +97,8 @@ export function getProfile(ctx: Ctx, viewer: Viewer, username: string): ProfileV
   if (!user) return null
 
   const readable = readableCommunitiesClause(ctx, viewer, 'c')
-  // Anonim gönderiler profil dönemimlerinde hiç görünmez: aksi halde gerçek
-  // yazar kimliği sızar. Yalnızca yönetim paneli (admin.tsx) bunları listeler.
+  // Anonim gönderi ve yorumlar profil dönemimlerinde hiç görünmez: aksi halde
+  // gerçek yazar kimliği sızar. Yalnızca yönetim paneli (admin.tsx) bunları listeler.
   const posts = ctx.db
     .prepare(
       `SELECT p.*, c.name AS community_name FROM posts p JOIN communities c ON c.id = p.community_id
@@ -111,7 +111,8 @@ export function getProfile(ctx: Ctx, viewer: Viewer, username: string): ProfileV
     .prepare(
       `SELECT cm.*, c.name AS community_name, p.title AS post_title
        FROM comments cm JOIN posts p ON p.id = cm.post_id JOIN communities c ON c.id = p.community_id
-       WHERE cm.author_id = ? AND cm.deleted = 0 AND cm.removed = 0 AND cm.auto_hidden = 0
+       WHERE cm.author_id = ? AND cm.is_anonymous = 0
+         AND cm.deleted = 0 AND cm.removed = 0 AND cm.auto_hidden = 0
          AND p.deleted = 0 AND p.removed = 0 AND ${readable.clause}
        ORDER BY cm.created_at DESC LIMIT 50`,
     )

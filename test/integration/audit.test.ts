@@ -6,7 +6,7 @@
  */
 import { beforeEach, describe, expect, test } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { createCommunityVia, createPostVia, createTestWorld, registerAdmin, registerUser, type TestWorld } from '../testUtils'
+import { createCommentVia, createCommunityVia, createPostVia, createTestWorld, registerAdmin, registerUser, type TestWorld } from '../testUtils'
 
 let world: TestWorld
 
@@ -171,23 +171,28 @@ describe('rota duman testi', () => {
     expect(css).toContain('.home-layout > *, .layout > * { min-width: 0; }')
   })
 
-  test('yeni rotalar (permalink, thread, admin istatistik) temiz üretilir', async () => {
+  test('yeni rotalar (permalink, anonim yorum, admin istatistik) temiz üretilir', async () => {
     const admin = await registerAdmin(world)
     await createCommunityVia(admin.agent, 'newroutes')
     const res = await admin.agent.post('/c/newroutes/submit?type=text', {
-      title: 'NEW-THREAD',
+      title: 'NEW-POST',
       body: '',
-      isThread: '1',
       anonymous: '1',
     })
     const postId = (res.headers.get('location') ?? '').match(/comments\/([a-z0-9]+)/)?.[1] as string
     expect(postId).toBeTruthy()
 
+    // Yorum yolu da (medya/spoiler/mention/anonim kutularıyla) denenir.
+    await createCommentVia(admin.agent, 'newroutes', postId, 'merhaba @admin dünya', null, {
+      spoiler: '1',
+      anonymous: '1',
+    })
+
     const paths = [
       '/',
       `/c/newroutes/comments/${postId}`,
       `/p/${postId}`,
-      '/c/newroutes?threads=1&sort=bump',
+      '/c/newroutes?sort=new',
       '/c/newroutes/submit?type=gif',
       '/c/newroutes/submit?type=video',
       '/c/newroutes/submit?type=image',

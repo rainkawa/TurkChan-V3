@@ -25,7 +25,7 @@ import { siteAdminLog } from '../services/modlog'
 import { getSettings, updateSettings, type SiteSettings } from '../services/settings'
 import { getComment } from '../services/comments'
 import { AppError, notFound } from '../services/errors'
-import { relativeTime, formatDate, modActionLabel, modDetailLabel, modTargetLabel } from '../views/helpers'
+import { relativeTime, formatDate, modActionLabel, modDetailLabel, modTargetLabel, previewText } from '../views/helpers'
 import { topViewedPosts } from '../services/stats'
 import { UserByline } from '../views/rank'
 import { RANKS, STAFF_ROLES, STAFF_ROLE_LABELS, rankBadgeLabel, rankInfoFor, type UserRank } from '../services/ranks'
@@ -37,6 +37,27 @@ import { validatePassword, ValidationError } from '../lib/validation'
 import { requestUpload, receiveUpload } from '../services/uploads'
 import { type AppEnv, dmUnread, formData, loginRedirect, setFlash, takeFlash, unread } from './helpers'
 import { readFile } from 'node:fs/promises'
+
+/** Yönetim panelindeki anonim gönderi satırı. */
+interface AnonPostRow {
+  id: string
+  title: string
+  anon_name: string
+  created_at: number
+  real_author: string
+  community_name: string
+}
+
+/** Yönetim panelindeki anonim yorum satırı. */
+interface AnonCommentRow {
+  id: string
+  anon_name: string
+  body: string
+  post_id: string
+  created_at: number
+  real_author: string
+  community_name: string
+}
 
 /**
  * Kullanıcı yönetim formu: kullanıcı adı, görünen ad, biyografi, profil/kapak
@@ -339,7 +360,7 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
         </>
       )
     } else if (tab === 'anonymous') {
-      // Anonim gönderilerin gerçek yazarını yalnızca yönetim paneli görür.
+      // Anonim gönderi ve yorumların gerçek yazarını yalnızca yönetim paneli görür.
       const rows = ctx.db
         .prepare(
           `SELECT p.id, p.title, p.anon_name, p.created_at, u.username AS real_author, c.name AS community_name
@@ -350,49 +371,97 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
             ORDER BY p.created_at DESC
             LIMIT 200`,
         )
-        .all() as unknown as Array<{
-        id: string
-        title: string
-        anon_name: string
-        created_at: number
-        real_author: string
-        community_name: string
-      }>
+        .all() as unknown as AnonPostRow[]
+      const commentRows = ctx.db
+        .prepare(
+          `SELECT m.id, m.anon_name, m.created_at, m.body, m.post_id,
+                  u.username AS real_author, c.name AS community_name
+             FROM comments m
+             JOIN users u ON u.id = m.author_id
+             JOIN posts p ON p.id = m.post_id
+             JOIN communities c ON c.id = p.community_id
+            WHERE m.is_anonymous = 1 AND m.deleted = 0 AND p.deleted = 0
+            ORDER BY m.created_at DESC
+            LIMIT 200`,
+        )
+        .all() as unknown as AnonCommentRow[]
       content = (
-        <div class="card">
-          <h2>{t.admin.anonymous}</h2>
-          <p class="hint">{t.admin.anonymousHint}</p>
-          {rows.length === 0 && <p class="placeholder">{t.admin.noAnonymous}</p>}
-          {rows.length > 0 && (
-            <div class="table-wrap">
-              <table class="data">
-                <thead>
-                  <tr>
-                    <th>{t.post.title}</th>
-                    <th>c/{t.admin.community}</th>
-                    <th>{t.admin.anonName}</th>
-                    <th>{t.admin.realAuthor}</th>
-                    <th>{t.post.createdAt}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r) => (
+        <>
+          <div class="card">
+            <h2>{t.admin.anonymous}</h2>
+            <p class="hint">{t.admin.anonymousHint}</p>
+            {rows.length === 0 && <p class="placeholder">{t.admin.noAnonymous}</p>}
+            {rows.length > 0 && (
+              <div class="table-wrap">
+                <table class="data">
+                  <thead>
                     <tr>
-                      <td>
-                        <a href={`/c/${r.community_name}/comments/${r.id}`}>{r.title}</a>
-                        <div class="hint post-id">{r.id}</div>
-                      </td>
-                      <td>c/{r.community_name}</td>
-                      <td><code>{r.anon_name}</code></td>
-                      <td><a href={`/tc/${r.real_author}`}>/tc/{r.real_author}</a></td>
-                      <td>{formatDate(r.created_at)}</td>
+                      <th>{t.admin.anonType}</th>
+                      <th>{t.post.title}</th>
+                      <th>c/{t.admin.community}</th>
+                      <th>{t.admin.anonName}</th>
+                      <th>{t.admin.realAuthor}</th>
+                      <th>{t.post.createdAt}</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+                  </thead>
+                  <tbody>
+                    {rows.map((r) => (
+                      <tr>
+                        <td>{t.admin.anonKindPost}</td>
+                        <td>
+                          <a href={`/c/${r.community_name}/comments/${r.id}`}>{r.title}</a>
+                          <div class="hint post-id">{r.id}</div>
+                        </td>
+                        <td>c/{r.community_name}</td>
+                        <td><code>{r.anon_name}</code></td>
+                        <td><a href={`/tc/${r.real_author}`}>/tc/{r.real_author}</a></td>
+                        <td>{formatDate(r.created_at)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+          <div class="card">
+            <h2>{t.admin.anonymousComments}</h2>
+            {commentRows.length === 0 ? (
+              <p class="placeholder">{t.admin.noAnonymous}</p>
+            ) : (
+              <div class="table-wrap">
+                <table class="data">
+                  <thead>
+                    <tr>
+                      <th>{t.admin.anonType}</th>
+                      <th>{t.feed.comments}</th>
+                      <th>c/{t.admin.community}</th>
+                      <th>{t.admin.anonName}</th>
+                      <th>{t.admin.realAuthor}</th>
+                      <th>{t.post.createdAt}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {commentRows.map((r) => (
+                      <tr>
+                        <td>{t.admin.anonKindComment}</td>
+                        <td>
+                          <a href={`/c/${r.community_name}/comments/${r.post_id}/comment/${r.id}`}>
+                            {previewText(r.body) || t.comment.deleted}
+                          </a>
+                          <div class="hint post-id">{r.id}</div>
+                        </td>
+                        <td>c/{r.community_name}</td>
+                        <td><code>{r.anon_name}</code></td>
+                        <td><a href={`/tc/${r.real_author}`}>/tc/{r.real_author}</a></td>
+                        <td>{formatDate(r.created_at)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
       )
     } else if (tab === 'stats') {
       const viewed = topViewedPosts(ctx, 50)
@@ -462,6 +531,15 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
             <div class="field">
               <label for="votesPerMinute">{t.admin.votesPerMinute}</label>
               <input id="votesPerMinute" name="votesPerMinute" type="number" min={1} value={String(settings.votesPerMinute)} />
+            </div>
+            <div class="field">
+              <label for="mediaPerPost">{t.admin.mediaPerPost}</label>
+              <input id="mediaPerPost" name="mediaPerPost" type="number" min={1} value={String(settings.mediaPerPost)} />
+            </div>
+            <div class="field">
+              <label for="mediaPerComment">{t.admin.mediaPerComment}</label>
+              <input id="mediaPerComment" name="mediaPerComment" type="number" min={1} value={String(settings.mediaPerComment)} />
+              <div class="hint">{t.admin.mediaPerCommentHint}</div>
             </div>
             <div class="field">
               <label for="reportsPerHour">{t.admin.reportsPerHour}</label>
@@ -724,7 +802,15 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
     if (body.communityCreation && ['member', 'admin'].includes(body.communityCreation)) {
       patch.communityCreation = body.communityCreation as SiteSettings['communityCreation']
     }
-    for (const key of ['hotDecaySeconds', 'postsPer10Min', 'commentsPer10Min', 'votesPerMinute', 'reportsPerHour'] as const) {
+    for (const key of [
+      'hotDecaySeconds',
+      'postsPer10Min',
+      'commentsPer10Min',
+      'votesPerMinute',
+      'reportsPerHour',
+      'mediaPerPost',
+      'mediaPerComment',
+    ] as const) {
       const value = Number(body[key])
       if (Number.isFinite(value) && value >= 1) patch[key] = Math.trunc(value)
     }

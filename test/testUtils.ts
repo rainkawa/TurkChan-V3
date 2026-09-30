@@ -209,15 +209,34 @@ export async function createCommentVia(
   community: string,
   postId: string,
   body: string,
-  parentId?: string,
+  parentId?: string | null,
+  extra?: Record<string, string>,
 ): Promise<string> {
-  const form: Record<string, string> = { body }
+  const form: Record<string, string> = { body, ...(extra ?? {}) }
   if (parentId) form.parentId = parentId
   const res = await agent.post(`/c/${community}/comments/${postId}/comment`, form)
   const location = res.headers.get('location') ?? ''
   const match = location.match(/comment\/([a-z0-9]+)/)
   if (res.status !== 302 || !match) throw new Error(`comment creation failed: ${res.status} → ${location}`)
   return match[1] as string
+}
+
+/** multipart yorum gönderisi: gövde + dosyalar (görsel/GIF/video). */
+export async function createCommentWithFilesVia(
+  agent: Agent,
+  community: string,
+  postId: string,
+  body: string,
+  files: Array<{ field?: string; filename: string; contentType: string; data: Uint8Array }>,
+  extra?: Record<string, string>,
+): Promise<Response> {
+  const form = new FormData()
+  form.set('body', body)
+  for (const [key, value] of Object.entries(extra ?? {})) form.set(key, value)
+  for (const file of files) {
+    form.append(file.field ?? 'media', new File([file.data], file.filename, { type: file.contentType }))
+  }
+  return agent.request(`/c/${community}/comments/${postId}/comment`, { method: 'POST', body: form })
 }
 
 export async function bodyText(res: Response): Promise<string> {

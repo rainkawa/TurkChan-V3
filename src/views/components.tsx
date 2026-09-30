@@ -114,7 +114,7 @@ export const PostCard: FC<{
           <span class="user-byline">
             {item.author_username ? (
               item.anon === 1 ? (
-                <span class="anon-author" title={t.post.anonymousHint}>
+                <span class="anon-author" title={t.post.anonBylineHint}>
                   {t.post.anonByline} · <b>{item.author_username}</b>
                 </span>
               ) : (
@@ -428,7 +428,7 @@ export const SocialCard: FC<{
           <span class="user-byline">
             {item.anon === 1 ? (
               // Anonim gönderilerde gerçek hesaba link verilmez, rütbe gizlenir.
-              <span class="anon-author" title={t.post.anonymousHint}>
+              <span class="anon-author" title={t.post.anonBylineHint}>
                 {t.post.anonByline} · <b>{item.author_username}</b>
               </span>
             ) : (
@@ -616,8 +616,13 @@ export const SortTabs: FC<{ basePath: string; sort: string; window?: string; ext
   </nav>
 )
 
-export const Markdown: FC<{ source: string }> = ({ source }) => (
-  <div class="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(source) }} />
+export const Markdown: FC<{ source: string; mentions?: string[] }> = ({ source, mentions }) => (
+  <div
+    class="md"
+    dangerouslySetInnerHTML={{
+      __html: renderMarkdown(source, mentions && mentions.length > 0 ? mentions : undefined),
+    }}
+  />
 )
 
 const countReplies = (node: CommentNode): number =>
@@ -637,10 +642,10 @@ export const CommentTreeView: FC<{
   maxRendered?: number
   /** Yazar rütbeleri (author_id ile eşleşir). */
   authorRanks?: Map<string, UserRank>
-  /** Thread modunda yanıtlar sıralı zincir hâlinde çizilir. */
-  threadMode?: boolean
-  /** Önceki yanıtın kısa metni (alıntı bloğu). */
-  quoteOf?: (node: CommentNode) => string | null
+  /** Yorumlara eklenmiş medya (yorum kimliğiyle eşleşir). */
+  mediaByComment?: Map<string, Array<{ key: string; kind: 'image' | 'gif' | 'video'; mime: string | null }>>
+  /** Yorumda geçen @bahisler (yorum kimliğiyle eşleşir). */
+  mentionsByComment?: Map<string, string[]>
 }> = (props) => {
   let rendered = 0
   const limit = props.maxRendered ?? 50
@@ -666,15 +671,25 @@ export const CommentTreeView: FC<{
       )
     }
 
+    const media = props.mediaByComment?.get(c.id) ?? []
+    const mentions = props.mentionsByComment?.get(c.id) ?? []
+    const commentPermalink = `/c/${props.communityName}/comments/${props.postId}/comment/${c.id}`
+
     return (
       <div
-        class={`comment${props.highlightId === c.id ? ' highlight' : ''}${props.threadMode && c.thread_no ? ' thread-reply' : ''}`}
+        class={`comment${props.highlightId === c.id ? ' highlight' : ''}${c.is_anonymous === 1 ? ' is-anonymous' : ''}`}
         data-depth={String(Math.min(c.depth, 8))}
         id={`comment-${c.id}`}
       >
         <details class="subtree" open={!collapsed}>
           <summary>
-            {node.authorUsername ? (
+            {c.is_anonymous === 1 && node.hidden === null ? (
+              <span class="user-byline">
+                <span class="anon-author" title={t.post.anonBylineHint}>
+                  {t.post.anonByline} · <b>{c.anon_name}</b>
+                </span>
+              </span>
+            ) : node.authorUsername ? (
               <span class="user-byline">
                 <a href={profilePath(node.authorUsername)}>/tc/{node.authorUsername}</a>
                 <RankBadges info={props.authorRanks?.get(c.author_id) ?? null} />
@@ -685,18 +700,10 @@ export const CommentTreeView: FC<{
             {props.scoreHidden(c.created_at) && !node.hidden ? `· ${t.common.points}` : `${c.score} ${t.common.points}`} ·{' '}
             {relativeTime(c.created_at, props.now)}
             {c.edited_at !== null && ` (${t.post.edited})`}
+            {c.spoiler === 1 && node.hidden === null && ` · ${t.comment.spoilerLabel}`}
             {replyCount > 0 && ` · ${replyCount} ${t.comment.replies}`}
           </summary>
           <div class="comment-main">
-            {props.threadMode && c.thread_no && (
-              <div class="thread-heading">
-                <span class="thread-reply-no">#{c.thread_no}</span>
-                {c.thread_no > 1 && <span class="thread-heading-text">{t.thread.replyTo}</span>}
-              </div>
-            )}
-            {props.threadMode && props.quoteOf?.(node) && (
-              <p class="thread-quote">{props.quoteOf(node)}</p>
-            )}
             <VoteRail
               targetType="comment"
               targetId={c.id}
@@ -709,10 +716,23 @@ export const CommentTreeView: FC<{
             <div>
               {hiddenBody ? (
                 <p class="placeholder">{hiddenBody}</p>
-              ) : (
-                <div class="body">
-                  <Markdown source={c.body} />
+              ) : c.spoiler === 1 ? (
+                // Spoiler: gövde ve ekler "Göster"e kadar gizlenir.
+                <div class="social-card-spoiler comment-spoiler" data-spoiler="1">
+                  <button class="spoiler-reveal" type="button" data-spoiler-toggle aria-expanded="false">
+                    <span class="spoiler-hint">{t.feed.spoilerHidden}</span>
+                    <span class="spoiler-cta">{t.feed.spoilerReveal}</span>
+                  </button>
+                  <div class="spoiler-body" hidden>
+                    {c.body ? <div class="body"><Markdown source={c.body} mentions={mentions} /></div> : null}
+                    {media.length > 0 && <MediaGallery items={media} title={c.body || t.post.image} compact />}
+                  </div>
                 </div>
+              ) : (
+                <>
+                  {c.body ? <div class="body"><Markdown source={c.body} mentions={mentions} /></div> : null}
+                  {media.length > 0 && <MediaGallery items={media} title={c.body || t.post.image} compact />}
+                </>
               )}
               <div class="comment-actions">
                 {props.canReply && node.hidden === null && (
@@ -725,6 +745,20 @@ export const CommentTreeView: FC<{
                 {isOwn && node.hidden === null && (
                   <>
                     <a href={`/comments/${c.id}/edit`}>{t.post.edit}</a>
+                    <form method="post" action={`/comments/${c.id}/meta`} style="display:inline">
+                      <input type="hidden" name="spoiler" value={c.spoiler === 1 ? '0' : '1'} />
+                      <input type="hidden" name="back" value={commentPermalink} />
+                      <button class="linklike" type="submit">
+                        {c.spoiler === 1 ? `🔓 ${t.comment.spoilerLabel}` : `🔒 ${t.comment.spoilerLabel}`}
+                      </button>
+                    </form>
+                    <form method="post" action={`/comments/${c.id}/meta`} style="display:inline">
+                      <input type="hidden" name="anonymous" value={c.is_anonymous === 1 ? '0' : '1'} />
+                      <input type="hidden" name="back" value={commentPermalink} />
+                      <button class="linklike" type="submit">
+                        {c.is_anonymous === 1 ? `👤 ${t.comment.anonymousLabel} ✓` : `👤 ${t.comment.anonymousLabel}`}
+                      </button>
+                    </form>
                     <form method="post" action={`/comments/${c.id}/delete`} style="display:inline" data-confirm={t.post.deleteCommentConfirm}>
                       <button class="linklike" type="submit">
                         {t.post.delete}
