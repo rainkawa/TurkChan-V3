@@ -26,7 +26,7 @@ describe('başlık çubuğu', () => {
     // Satır 1: kelime logosu, ortalanmış.
     expect(html).toContain('app-header-brand')
     expect(html).toContain('class="wordmark"')
-    expect(html).toContain('/static/logo.svg')
+    expect(html).toContain('/static/logo-384.png')
     // Küçük favicon/monogram marka alanı kaldırıldı.
     expect(html).not.toContain('home-brand-name')
     expect(html).not.toContain('class="brand home-brand"')
@@ -48,7 +48,7 @@ describe('başlık çubuğu', () => {
     expect(html.indexOf('app-header-brand')).toBeLessThan(html.indexOf('app-header-inner'))
   })
 
-  test('logo dosyası ölçeklenebilir ve geçerli SVG', () => {
+  test('logo kaynağı geçerli ve ölçeklenebilir SVG', () => {
     // Test dünyası statik dosya servisi kurmaz (serveStatic yalnızca
     // server.ts'te bağlıdır), bu yüzden dosyanın kendisi doğrulanır.
     const svg = readFileSync(new URL('../../public/logo.svg', import.meta.url), 'utf8')
@@ -68,11 +68,48 @@ describe('başlık çubuğu', () => {
     expect(svg.split('<path').length - 1).toBeGreaterThan(100)
   })
 
-  test('logo dosyası gereksiz büyük değil (mobil performans)', () => {
-    const bytes = readFileSync(new URL('../../public/logo.svg', import.meta.url)).length
-    // Header'da ~120px genişlikte gösterilen bir logo için 1,5 MB sınırı
-    // aşmamalı; VTracer çıktısı optimize edilmiştir.
-    expect(bytes, `logo ${Math.round(bytes / 1024)} KB`).toBeLessThan(1_500_000)
+  test('header logosu hafif raster olarak sunulur (mobil performans)', () => {
+    // VTracer kaynağı 875 KB ve 182 bin koordinat içeriyor; header'da
+    // 36px yükseklikte gösterilen bir görsel için taşınamayacak kadar
+    // ağırdır. 2× retina için rasterlaştırılmış sürüm sunulur.
+    const png = readFileSync(new URL('../../public/logo-384.png', import.meta.url))
+    // PNG imzası — dosya gerçekten görüntü, düz metin değil.
+    expect([...png.subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10])
+    // ~92 CSS px genişlikte 2× → 184px; 384px güvenli pay bırakır.
+    const w = png.readUInt32BE(16)
+    const h = png.readUInt32BE(20)
+    expect(w).toBeGreaterThanOrEqual(384)
+    expect(w / h).toBeCloseTo(2001 / 786, 1)
+    // 100 KB sınırı: 875 KB vektörün 23 katı küçük.
+    expect(png.length, `logo ${Math.round(png.length / 1024)} KB`).toBeLessThan(100_000)
+  })
+
+  test('logo img öznitelikleri intrinsic boyutla eşleşiyor', async () => {
+    // `height:100%` + `width:auto` kapsayıcının yüksekliği belirsizken
+    // (inline-flex, `align-items:center`) 0×0 çizilmesine yol açıyordu;
+    // sabit yükseklik hem boyutu hem oranı garanti eder.
+    const css = readFileSync(new URL('../../public/style.css', import.meta.url), 'utf8')
+    const rule = css.match(/\.wordmark img\s*\{([^}]*)\}/)?.[1] ?? ''
+    expect(rule, '.wordmark img kuralı yok').not.toBe('')
+    // Yorum satırları deklarasyon sayılmasın; `max-height:100%` de
+    // eşleşmesin diye satır başından deklarasyon aranır.
+    const decls = rule.replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(decls).not.toMatch(/(^|[;\s])height:\s*100%/)
+    expect(decls).toMatch(/(^|[;\s])height:\s*var\(--wordmark-h/)
+    expect(decls).toMatch(/(^|[;\s])width:\s*auto/)
+
+    // `img` öznitelikleri intrinsic boyutla aynı olmalı: yanlış değer
+    // tarayıcıda logo'yu esnetir (ya da 0×0'e düşürür).
+    const { agent } = await registerUser(world)
+    const html = await (await agent.get('/')).text()
+    const tag = html.match(/<img[^>]*logo-384\.png[^>]*>/)?.[0] ?? ''
+    expect(tag, 'header logosu bulunamadı').not.toBe('')
+    const w = Number(tag.match(/\bwidth="(\d+)"/)?.[1])
+    const h = Number(tag.match(/\bheight="(\d+)"/)?.[1])
+    expect(w).toBeGreaterThan(0)
+    expect(h).toBeGreaterThan(0)
+    // Gerçek en-boy oranı (2001×786 kaynak).
+    expect(w / h).toBeCloseTo(2001 / 786, 1)
   })
 
   test('statik varlıklar sürüm parametreli sunulur (cache busting)', async () => {
@@ -82,7 +119,7 @@ describe('başlık çubuğu', () => {
     const html = await (await agent.get('/')).text()
     expect(html).toMatch(/href="\/static\/style\.css\?v=\d+"/)
     expect(html).toMatch(/src="\/static\/app\.js\?v=\d+"/)
-    expect(html).toMatch(/src="\/static\/logo\.svg\?v=\d+"/)
+    expect(html).toMatch(/src="\/static\/logo-384\.png\?v=\d+"/)
   })
 
   test('logo ortalanmış kapsayıcıda', async () => {

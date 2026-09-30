@@ -25,7 +25,7 @@ function assetVersion(file: string): string {
 }
 const CSS_VERSION = assetVersion('public/style.css')
 const JS_VERSION = assetVersion('public/app.js')
-const LOGO_VERSION = assetVersion('public/logo.svg')
+const LOGO_VERSION = assetVersion('public/logo-384.png')
 
 export interface OgTags {
   title: string
@@ -165,7 +165,13 @@ export const Layout: FC<LayoutProps> = ({
           */}
           <div class="app-header-brand">
             <a class="wordmark" href="/" aria-label={t.siteName}>
-              <img src={`/static/logo.svg?v=${LOGO_VERSION}`} alt={t.siteName} width="150" height="40" />
+              <img
+                src={`/static/logo-384.png?v=${LOGO_VERSION}`}
+                alt={t.siteName}
+                width="92"
+                height="36"
+                decoding="async"
+              />
             </a>
           </div>
 

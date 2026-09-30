@@ -97,6 +97,8 @@ svg:not([width]):not([class]) { max-height: 2.5rem; }
 :root {
   --header-brand-h: 48px;
   --header-h: 44px;
+  /* Kelime logosunun yüksekliği (genişlik 2001:786 oranından gelir). */
+  --wordmark-h: 36px;
   /* Toplam sticky yükseklik: içerik boşluğu bununla hesaplanır. */
   --header-total-h: calc(var(--header-brand-h) + var(--header-h));
 }
@@ -126,10 +128,15 @@ svg:not([width]):not([class]) { max-height: 2.5rem; }
 }
 .wordmark img {
   display: block;
-  /* Logo 2001×786 (geniş kelime logosu). Yükseklik sınırlayıcı, genişlik
-     orandan gelir; `max-width` dar ekranda taşmayı engeller. */
-  width: auto; height: 100%;
-  max-width: 100%; max-height: 100%;
+  /* Logo 2001×786 oranında (geniş kelime logosu). Yükseklik SABİT olmalı:
+     `height:100%` kapsayıcının yüksekliği belirsizken (inline-flex,
+     `align-items:center`) yüzde çözülemez ve görsel 0×0 boyutunda çizilir.
+     Genişlik `auto` ile intrinsic orandan gelir; `max-width` dar ekranı
+     korur, `max-height` yüksek ekranlarda taşmayı engeller. */
+  width: auto;
+  height: var(--wordmark-h);
+  max-width: 100%;
+  max-height: 100%;
   object-fit: contain;
 }
 .wordmark:hover { text-decoration: none; }

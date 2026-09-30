@@ -95,14 +95,25 @@ function securityHeaders(ctx: Ctx): Record<string, string> {
 /**
  * Gövdeden CSRF jetonunu okur.
  *
- * `parseBody()` multipart gövdelerde dosyaları da ayriştirdiği için yalnızca
- * URL-encoded ve JSON gövdelerde kullanılır; multipart formlarda jeton
- * `x-csrf-token` başlığından gelir (bkz. public/app.js).
+ * `parseBody()` multipart gövdelerde dosyaları da ayriştırır ama gövdeyi
+ * önbelleğe alır; bu yüzden URL-encoded ve multipart gövdelerde güvenle
+ * kullanılabilir. multipart ÖNEMLİ: gönderi formu dosya yükleme için
+ * `multipart/form-data` kullanır ve tarayıcı onu `x-csrf-token` başlığı
+ * olmadan gönderir — jeton gizli `_csrf` alanından okunmalıdır.
  */
 async function readCsrfFromBody(c: Context<AppEnv>): Promise<string | null> {
   const contentType = (c.req.header('content-type') ?? '').toLowerCase()
   try {
-    if (contentType.includes('application/x-www-form-urlencoded')) {
+    if (
+      contentType.includes('application/x-www-form-urlencoded') ||
+      contentType.includes('multipart/form-data')
+    ) {
+      // multipart DAHA OKUNMALI: gönderi formu dosya yükleme için
+      // `enctype="multipart/form-data"` kullanır ve tarayıcı bu formu
+      // `x-csrf-token` BAŞLIĞI olmadan gönderir (başlık yalnızca `fetch()`
+      // çağrılarında eklenir). Jeton gizli `_csrf` alanından gelir.
+      // `parseBody()` gövdeyi önbelleğe alır; rota aynı değeri yeniden
+      // okuduğunda dosyalar ikinci kez yüklenmez.
       const parsed = await c.req.parseBody()
       const value = parsed[CSRF_FIELD]
       return typeof value === 'string' ? value : null

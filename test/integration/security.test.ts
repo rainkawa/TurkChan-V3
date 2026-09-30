@@ -5,6 +5,7 @@
  * "zaten çalışıyor" varsayımı üzerine yazılmaz.
  */
 import { describe, expect, it } from 'vitest'
+import { createCanvas } from '@napi-rs/canvas'
 import {
   Agent,
   createCommentVia,
@@ -22,6 +23,15 @@ const XSS_ATTR = '"><script>alert(1)</script>'
 const SQLI = "' OR 1=1 --"
 const SQLI2 = "1; DROP TABLE users; --"
 const TRAVERSAL = '../../etc/passwd'
+
+/** Gerçek bir PNG üretir; imza denetimi (magic byte) bypass edilmesin. */
+function pngBytes(w: number, h: number): Uint8Array {
+  const canvas = createCanvas(w, h)
+  const ctx = canvas.getContext('2d')
+  ctx.fillStyle = '#3366cc'
+  ctx.fillRect(0, 0, w, h)
+  return new Uint8Array(canvas.toBuffer('image/png'))
+}
 
 describe('güvenlik', () => {
   // ---------------------------------------------------------------- CSRF ---
@@ -58,6 +68,64 @@ describe('güvenlik', () => {
       const html = await (await agent.get('/settings')).text()
       expect(html).toMatch(/name="_csrf" value="[A-Za-z0-9_-]{43}"/)
       expect(html).toMatch(/<meta name="csrf-token"/)
+    })
+
+    it('multipart gönderide gizli _csrf alanı kabul edilir (dosya yükleme)', async () => {
+      // Gerçek tarayıcı davranışı: `enctype="multipart/form-data"` formu
+      // `x-csrf-token` BAŞLIĞI olmadan gönderir, jeton gizli alandan gelir.
+      // Test agent'ı her isteğe başlık eklediği için bu yol ham
+      // `world.app.request()` ile yoktan üretiliyor.
+      const world = createTestWorld()
+      const { agent } = await registerAdmin(world)
+      await createCommunityVia(agent, 'dosya', 'public')
+
+      const formHtml = await (await agent.get('/c/dosya/submit?type=image')).text()
+      const token = formHtml.match(/name="_csrf" value="([^"]+)"/)?.[1]
+      expect(token, 'gönderi formunda _csrf alanı yok').toBeTruthy()
+
+      const fd = new FormData()
+      fd.set('_csrf', token!)
+      fd.set('title', 'Dosyalı gönderi')
+      fd.set('body', 'içerik')
+      fd.set('type', 'image')
+      fd.set('image', new File([pngBytes(64, 48)], 'a.png', { type: 'image/png' }))
+
+      const res = await world.app.request('/c/dosya/submit?type=image', {
+        method: 'POST',
+        body: fd,
+        headers: { cookie: agent.cookieHeader() },
+        redirect: 'manual',
+      })
+      expect(res.status, 'multipart gönderi CSRF yüzünden reddedildi').not.toBe(403)
+
+      const home = await (await agent.get('/')).text()
+      expect(home).toContain('Dosyalı gönderi')
+    })
+
+    it('multipart gönderide JETONSUZ istek yine reddedilir', async () => {
+      // Yukarıdaki düzeltme korumayı gevşetmemeli: multipart gövdede
+      // _csrf yoksa istek reddedilmelidir.
+      const world = createTestWorld()
+      const { agent } = await registerAdmin(world)
+      await createCommunityVia(agent, 'dosya2', 'public')
+
+      const fd = new FormData()
+      fd.set('_csrf', 'none')
+      fd.set('title', 'Saldırı gönderisi')
+      fd.set('body', 'içerik')
+      fd.set('type', 'image')
+      fd.set('image', new File([pngBytes(64, 48)], 'a.png', { type: 'image/png' }))
+
+      const res = await world.app.request('/c/dosya2/submit?type=image', {
+        method: 'POST',
+        body: fd,
+        headers: { cookie: agent.cookieHeader() },
+        redirect: 'manual',
+      })
+      expect(res.status).toBe(403)
+
+      const home = await (await agent.get('/')).text()
+      expect(home).not.toContain('Saldırı gönderisi')
     })
   })
 

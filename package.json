@@ -10,6 +10,7 @@
     "seed": "tsx src/db/seed.ts",
     "backup": "tsx src/scripts/backup.ts",
     "rank:assets": "node scripts/generate-rank-assets.mjs",
+    "logo:raster": "node scripts/build-logo-raster.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
@@ -22,6 +23,7 @@
     "markdown-it": "^14.1.0"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^22.13.0",
     "lucide-static": "^1.49.0",
