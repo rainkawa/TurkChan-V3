@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="80.83" height="24" viewBox="0 0 80.83 24" role="img" aria-label="Moderator">
+  <title>Moderator</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E6EDF7"/>
+      <stop offset="1" stop-color="#D1DEEF"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".55"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset=".5" stop-color="#ffffff" stop-opacity=".9"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="chip"><rect x=".5" y=".5" width="79.83" height="23" rx="7"/></clipPath>
+  </defs>
+  <style>
+    .sheen { animation: sheen 2.8s linear infinite; }
+    .pulse { animation: pulse 2.8s ease-in-out infinite; }
+    @keyframes sheen {
+      0% { transform: translateX(-20px); opacity: 0 }
+      20%, 80% { opacity: .55 }
+      100% { transform: translateX(114.83px); opacity: 0 }
+    }
+    @keyframes pulse { 0%, 100% { opacity: 0 } 50% { opacity: .55 } }
+    @media (prefers-reduced-motion: reduce) { .sheen, .pulse { animation: none } }
+  </style>
+  <g clip-path="url(#chip)">
+    <rect x=".5" y=".5" width="79.83" height="23" rx="7" fill="url(#bg)"/>
+    <rect x=".5" y=".5" width="79.83" height="11.5" fill="url(#gloss)"/>
+    <g class="sheen" opacity="0"><rect x="-10" y="-8" width="12" height="40" fill="url(#sheen)" transform="skewX(-18)"/></g>
+  </g>
+  <rect x=".5" y=".5" width="79.83" height="23" rx="7" fill="none" stroke="#A5BAD8" stroke-width="1"/>
+  <rect class="pulse" x=".8" y=".8" width="78.23" height="22.4" rx="6.2" fill="none" stroke="#3B82F6" stroke-width="1.4" opacity="0"/>
+  <g transform="translate(4.5 5.5) scale(0.5416667)" fill="none" stroke="#2559AE" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+  </g>
+  <text x="22" y="16" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="700" letter-spacing=".01em" fill="#1C3A61" textLength="53.33" lengthAdjust="spacingAndGlyphs">Moderator</text>
+</svg>

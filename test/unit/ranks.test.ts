@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, test } from 'vitest'
@@ -15,6 +15,7 @@ import {
   RANK_ASSET_DIR,
   rankBadgeFor,
   STAFF_ROLES,
+  STAFF_ROLE_LABELS,
   type StaffRole,
   type UserRank,
 } from '../../src/services/ranks'
@@ -80,33 +81,20 @@ describe('rank rozet görselleri', () => {
   test('her rütbenin ve yetkinin bir görsel dosyası var', () => {
     expect(RANK_ASSET_DIR).toBe('/static/assets/ranks')
     expect(RANKS.map((r) => rankAsset(r.id))).toEqual([
-      '/static/assets/ranks/new-user.png',
-      '/static/assets/ranks/active-user.png',
-      '/static/assets/ranks/super-user.png',
-      '/static/assets/ranks/angel.gif',
-      '/static/assets/ranks/legend.gif',
-      '/static/assets/ranks/god.gif',
+      '/static/assets/ranks/new-user.svg',
+      '/static/assets/ranks/active-user.svg',
+      '/static/assets/ranks/super-user.svg',
+      '/static/assets/ranks/angel.svg',
+      '/static/assets/ranks/legend.svg',
+      '/static/assets/ranks/god.svg',
     ])
     expect(STAFF_ROLES.map((r) => staffRoleAsset(r))).toEqual([
-      '/static/assets/ranks/moderator.gif',
-      '/static/assets/ranks/super-moderator.gif',
-      '/static/assets/ranks/co-admin.gif',
-      '/static/assets/ranks/admin.gif',
+      '/static/assets/ranks/moderator.svg',
+      '/static/assets/ranks/super-moderator.svg',
+      '/static/assets/ranks/co-admin.svg',
+      '/static/assets/ranks/admin.svg',
     ])
-    expect(BANNED_ASSET).toBe('/static/assets/ranks/banned.png')
-  })
-
-  test('ilk üç karma rütbesi statik PNG, üstleri ve tüm yetkiler GIF', () => {
-    for (const rank of ['new_user', 'active_user', 'super_user'] as const) {
-      expect(rankAsset(rank).endsWith('.png')).toBe(true)
-    }
-    for (const rank of ['angel', 'legend', 'god'] as const) {
-      expect(rankAsset(rank).endsWith('.gif')).toBe(true)
-    }
-    for (const role of STAFF_ROLES) {
-      expect(staffRoleAsset(role).endsWith('.gif')).toBe(true)
-    }
-    expect(BANNED_ASSET.endsWith('.png')).toBe(true)
+    expect(BANNED_ASSET).toBe('/static/assets/ranks/banned.svg')
   })
 
   test('görsel dosyalar depoda mevcut', () => {
@@ -120,6 +108,51 @@ describe('rank rozet görselleri', () => {
       expect(url.startsWith(`${RANK_ASSET_DIR}/`), url).toBe(true)
       expect(existsSync(join(publicDir, url.replace('/static/', ''))), url).toBe(true)
     }
+  })
+
+  test('her rozet ikon + metin içerir, animasyonlu olanlarda keyframes var', () => {
+    const publicDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'public')
+    const read = (url: string) => readFileSync(join(publicDir, url.replace('/static/', '')), 'utf8')
+    const labelOf = (svg: string) => /<text[^>]*>([^<]+)<\/text>/.exec(svg)?.[1] ?? ''
+    const files = [
+      ...RANKS.map((r) => rankAsset(r.id)),
+      ...STAFF_ROLES.map((r) => staffRoleAsset(r)),
+      BANNED_ASSET,
+    ]
+    for (const url of files) {
+      const svg = read(url)
+      expect(svg.startsWith('<svg'), url).toBe(true)
+      expect(svg, url).toContain('<path') // ikon
+      expect(labelOf(svg).length, url).toBeGreaterThan(1) // yazı
+      expect(svg, url).toMatch(/viewBox="0 0 [\d.]+ 24"/) // yükseklik sabit 24
+    }
+    // Statik: new/active/super user ve banned. Diğerleri kendi animasyonunu taşır.
+    const staticFiles = ['new-user', 'active-user', 'super-user', 'banned']
+    for (const name of staticFiles) {
+      expect(read(`${RANK_ASSET_DIR}/${name}.svg`), name).not.toContain('@keyframes')
+    }
+    for (const url of files.filter((f) => !staticFiles.some((name) => f.includes(`${name}.svg`)))) {
+      const svg = read(url)
+      expect(svg, url).toContain('@keyframes sheen')
+      expect(svg, url).toContain('prefers-reduced-motion')
+    }
+  })
+
+  test('rozet yazıları görselde görünen adlarla aynı', () => {
+    expect(RANKS.map((r) => rankLabel(r.id))).toEqual([
+      'New User',
+      'Active User',
+      'Super User',
+      'Angel',
+      'Legend',
+      'God',
+    ])
+    expect(STAFF_ROLES.map((r) => STAFF_ROLE_LABELS[r])).toEqual([
+      'Moderator',
+      'Super Moderator',
+      'Co-Admin',
+      'Admin',
+    ])
   })
 
   test('yönetim yetkisi varsa yalnızca yetki rozeti seçilir', () => {
@@ -139,7 +172,7 @@ describe('rank rozet görselleri', () => {
     // Kısıtlama kalktığında aynı kullanıcı yeniden Legend olur.
     const after = rankBadgeFor(base({ rank: 'legend', karma: 400 }))
     expect(after.kind).toBe('karma')
-    expect(after.src).toBe('/static/assets/ranks/legend.gif')
+    expect(after.src).toBe('/static/assets/ranks/legend.svg')
 
     // Kısıtlı yönetici de Yasaklı görünür; yetki mantığı ayrı katmanda çalışır.
     const bannedStaff = rankBadgeFor(base({ rank: 'god', karma: 900, staffRole: 'admin', banned: true }))
@@ -148,7 +181,7 @@ describe('rank rozet görselleri', () => {
 
   test('etiketler görselle eşleşir', () => {
     expect(rankBadgeFor(base({ rank: 'angel', karma: 210 })).label).toBe('Angel')
-    expect(rankBadgeFor(base({ rank: 'legend', karma: 400, staffRole: 'co_admin' })).label).toBe('Yardımcı Yönetici')
+    expect(rankBadgeFor(base({ rank: 'legend', karma: 400, staffRole: 'co_admin' })).label).toBe('Co-Admin')
     expect(rankBadgeFor(base({ banned: true })).label).toBe('Yasaklı')
   })
 })

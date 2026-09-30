@@ -74,10 +74,10 @@ export const STAFF_ROLES = ['moderator', 'super_moderator', 'co_admin', 'admin']
 export type StaffRole = (typeof STAFF_ROLES)[number]
 
 export const STAFF_ROLE_LABELS: Record<StaffRole, string> = {
-  moderator: 'Moderatör',
-  super_moderator: 'Süper Moderatör',
-  co_admin: 'Yardımcı Yönetici',
-  admin: 'Yönetici',
+  moderator: 'Moderator',
+  super_moderator: 'Super Moderator',
+  co_admin: 'Co-Admin',
+  admin: 'Admin',
 }
 
 /** Rozet/sıralama için yetki gücü: yüksek sayı = daha geniş yetki. */
@@ -218,29 +218,31 @@ export function rankBadgeLabel(info: UserRank): string {
 /**
  * Kullanıcı adının yanında gösterilen tek rozet görselinin kaynağı.
  *
- * Görseller `public/assets/ranks/` altında durur ve `scripts/generate-rank-assets.mjs`
- * ile üretilir. Statik olanlar PNG, animasyonlu olanlar GIF'tir.
+ * Görseller `public/assets/ranks/` altında durur ve `npm run rank:assets`
+ * (scripts/generate-rank-assets.mjs) ile üretilir. Hepsi SVG’dir: ikon + rütbe
+ * yazısı taşıyan tek tip bir çip, Angel/Legend/God ve yönetim yetkileri kendi
+ * animasyonunu SVG içinde çalıştırır (her DPI’da net, ~2 KB).
  */
 export const RANK_ASSET_DIR = '/static/assets/ranks'
 
 const RANK_ASSET_FILES: Record<RankId, string> = {
-  new_user: 'new-user.png',
-  active_user: 'active-user.png',
-  super_user: 'super-user.png',
-  angel: 'angel.gif',
-  legend: 'legend.gif',
-  god: 'god.gif',
+  new_user: 'new-user.svg',
+  active_user: 'active-user.svg',
+  super_user: 'super-user.svg',
+  angel: 'angel.svg',
+  legend: 'legend.svg',
+  god: 'god.svg',
 }
 
 const STAFF_ROLE_ASSET_FILES: Record<StaffRole, string> = {
-  moderator: 'moderator.gif',
-  super_moderator: 'super-moderator.gif',
-  co_admin: 'co-admin.gif',
-  admin: 'admin.gif',
+  moderator: 'moderator.svg',
+  super_moderator: 'super-moderator.svg',
+  co_admin: 'co-admin.svg',
+  admin: 'admin.svg',
 }
 
-/** Kısıtlama rozeti: koyu gri, statik PNG. */
-export const BANNED_ASSET = `${RANK_ASSET_DIR}/banned.png`
+/** Kısıtlama rozeti: koyu gri, statik. */
+export const BANNED_ASSET = `${RANK_ASSET_DIR}/banned.svg`
 
 export function rankAsset(id: RankId): string {
   return `${RANK_ASSET_DIR}/${RANK_ASSET_FILES[id]}`

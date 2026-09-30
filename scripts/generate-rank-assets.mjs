@@ -1,191 +1,73 @@
 /**
- * TurkChan rütbe görselleri üreticisi.
+ * TurkChan rank rozet seti üreticisi.
  *
- * Statik PNG'ler (new/active/super user, banned) ve animasyonlu GIF'ler
- * (angel, legend, god, moderator, super-moderator, co-admin, admin) üretilir.
- * PNG sıkıştırması node:zlib ile, GIF kodlaması ise tarayıcı uyumluğu için
- * omggif ile yapılır (devDependency).
+ * Her rütbe / yetki için tek tip bir rozet çizilir: yuvarlatılmış dikdörtgen
+ * zemin (dikey degrade + üst parlaklık), solda Lucide ikonu, sağda rütbe adı.
+ * Statik olanlar düz SVG, animasyonlu olanlar (Angel, Legend, God ve dört yönetim
+ * yetkisi) SVG içinde kendi CSS animasyonunu taşır: yavaş bir ışık huzmesi ve
+ * nabız gibi bir kenarlık. SVG olduğu için her DPI'da net, dosyalar da ~2 KB.
  *
- * Kullanım:  node scripts/generate-rank-assets.mjs
- * Çıktı:     public/assets/ranks/*.png | *.gif  (depoda saklanır)
+ * İkonlar: Lucide (ISC) — `npm run rank:assets` ile yeniden üretilebilir.
  *
- * Görseller 64x64 üretilir; arayüzde 18–30px arası gösterildiği için yüksek
- * DPI ekranlarda net kalır. GIF'ler sonsuz döngüde ve saydam kenarlıdır.
+ * Kullanım:  npm run rank:assets
+ * Çıktı:     public/assets/ranks/*.svg  (depoda saklanır)
  */
-import { deflateSync } from 'node:zlib'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { GifWriter } from 'omggif'
 
-const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'assets', 'ranks')
-const SIZE = 64
-const FRAMES = 8
-const DELAY_MS = 80 // kare başına ~0.64 sn'lik döngü
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+const OUT_DIR = join(ROOT, 'public', 'assets', 'ranks')
+const ICON_DIR = join(ROOT, 'node_modules', 'lucide-static', 'icons')
 
 /* ------------------------------------------------------------------ */
-/* PNG yazıcı (yalnızca node:zlib)                                       */
+/* Rozet geometrisi (mantıksal px = ekranda 1 birim)                  */
 /* ------------------------------------------------------------------ */
 
-const CRC_TABLE = (() => {
-  const table = new Int32Array(256)
-  for (let n = 0; n < 256; n += 1) {
-    let c = n
-    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
-    table[n] = c
-  }
-  return table
-})()
-
-function crc32(buf) {
-  let c = 0xffffffff
-  for (const byte of buf) c = CRC_TABLE[(c ^ byte) & 255] ^ (c >>> 8)
-  return (c ^ 0xffffffff) >>> 0
-}
-
-function chunk(type, data) {
-  const length = Buffer.alloc(4)
-  length.writeUInt32BE(data.length, 0)
-  const body = Buffer.concat([Buffer.from(type, 'ascii'), data])
-  const crc = Buffer.alloc(4)
-  crc.writeUInt32BE(crc32(body), 0)
-  return Buffer.concat([length, body, crc])
-}
-
-/**
- * Palet indeksli tuvalden RGBA PNG üretir.
- * İndeks 0 saydamdır; diğerleri `palette` renkleridir.
- */
-export function encodePng(palette, indices) {
-  const raw = Buffer.alloc(SIZE * (SIZE * 4 + 1))
-  let o = 0
-  for (let y = 0; y < SIZE; y += 1) {
-    raw[o] = 0 // filtre: none
-    o += 1
-    for (let x = 0; x < SIZE; x += 1) {
-      const idx = indices[y * SIZE + x]
-      const c = idx === 0 ? [0, 0, 0, 0] : [...palette[idx - 1], 255]
-      raw[o] = c[0]
-      raw[o + 1] = c[1]
-      raw[o + 2] = c[2]
-      raw[o + 3] = c[3]
-      o += 4
-    }
-  }
-  const ihdr = Buffer.alloc(13)
-  ihdr.writeUInt32BE(SIZE, 0)
-  ihdr.writeUInt32BE(SIZE, 4)
-  ihdr[8] = 8 // bit depth
-  ihdr[9] = 6 // RGBA
-  return Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    chunk('IHDR', ihdr),
-    chunk('IDAT', deflateSync(raw, { level: 9 })),
-    chunk('IEND', Buffer.alloc(0)),
-  ])
-}
-
-/** Karelerden sonsuz döngülü GIF üretir (omggif). */
-/**
- * Karelerden sonsuz döngülü GIF üretir.
- * `palette` omggif'in beklediği biçimde 0xRRGGBB tamsayı dizisidir ve
- * uzunluğu 2'nin kuvveti olmalıdır; 0. indeks saydam renk içindir.
- */
-export function encodeGif(palette, frames) {
-  // omggif önceden ayrılmış bir arabelleğe yazar; üst sınır güvenli olsun.
-  const capacity = 8 * 1024 + frames.length * SIZE * SIZE * 2
-  const buf = new Uint8Array(capacity)
-  const writer = new GifWriter(buf, SIZE, SIZE, { loop: 0 })
-  for (const frame of frames) {
-    writer.addFrame(0, 0, SIZE, SIZE, frame, {
-      palette,
-      delay: DELAY_MS,
-      disposal: 2, // her kare arka plana döner: kareler üst üste binmez
-      transparent: 0, // saydam palet indeksi (omggif'te alan adı bu)
-    })
-  }
-  const length = writer.end()
-  return Buffer.from(buf.slice(0, length))
-}
+const HEIGHT = 24 // rozet yüksekliği
+const RADIUS = 7 // köşe yarıçapı
+const ICON_BOX = 13 // ikon kutusu kenarı
+const ICON_X = 4.5
+const ICON_Y = (HEIGHT - ICON_BOX) / 2
+const GAP = 4.5 // ikon ile yazı arası
+const PAD_X = 5 // sol/sağ iç boşluk
+const FONT_SIZE = 10.5
+const BASELINE = 16 // dikey optik ortalama
+const FONT_STACK = "system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
 
 /* ------------------------------------------------------------------ */
-/* Çizim yardımcıları (palet indeksi üzerinde çalışır)                  */
+/* Yazı genişliği tahmini (Helvetica-Bold AFM genişlikleri)            */
 /* ------------------------------------------------------------------ */
 
-function canvas() {
-  return new Uint8Array(SIZE * SIZE)
+const GLYPH_WIDTHS = {
+  ' ': 278, '-': 333, '.': 333, "'": 238, ',': 278,
+  A: 722, B: 722, C: 722, D: 722, E: 667, F: 611, G: 778, H: 722, I: 278, J: 556, K: 722, L: 611,
+  M: 833, N: 722, O: 778, P: 667, Q: 778, R: 722, S: 667, T: 611, U: 722, V: 667, W: 944, X: 667,
+  Y: 667, Z: 611,
+  a: 556, b: 611, c: 556, d: 611, e: 556, f: 333, g: 611, h: 611, i: 278, j: 278, k: 556, l: 278,
+  m: 889, n: 611, o: 611, p: 611, q: 611, r: 389, s: 556, t: 333, u: 611, v: 556, w: 778, x: 556,
+  y: 556, z: 500,
+  0: 556, 1: 556, 2: 556, 3: 556, 4: 556, 5: 556, 6: 556, 7: 556, 8: 556, 9: 556,
 }
 
-function plot(buf, x, y, idx) {
-  const px = Math.round(x)
-  const py = Math.round(y)
-  if (px < 0 || py < 0 || px >= SIZE || py >= SIZE) return
-  buf[py * SIZE + px] = idx
+/** Harf aralığı dahil yaklaşık metin genişliği (viewBox'ı buna göre kurarız). */
+function textWidth(label) {
+  let units = 0
+  for (const ch of label) units += GLYPH_WIDTHS[ch] ?? 600
+  return (units / 1000) * FONT_SIZE + label.length * FONT_SIZE * 0.01
 }
 
-function disc(buf, cx, cy, r, idx) {
-  for (let y = Math.floor(cy - r); y <= Math.ceil(cy + r); y += 1) {
-    for (let x = Math.floor(cx - r); x <= Math.ceil(cx + r); x += 1) {
-      const dx = x - cx
-      const dy = y - cy
-      if (dx * dx + dy * dy <= r * r) plot(buf, x, y, idx)
-    }
-  }
-}
+const round = (n) => Math.round(n * 100) / 100
 
-function ring(buf, cx, cy, rOuter, rInner, idx) {
-  for (let y = Math.floor(cy - rOuter); y <= Math.ceil(cy + rOuter); y += 1) {
-    for (let x = Math.floor(cx - rOuter); x <= Math.ceil(cx + rOuter); x += 1) {
-      const dx = x - cx
-      const dy = y - cy
-      const d = Math.sqrt(dx * dx + dy * dy)
-      if (d <= rOuter && d >= rInner) plot(buf, x, y, idx)
-    }
-  }
-}
+/* ------------------------------------------------------------------ */
+/* İkonlar (Lucide, 24x24 çizgi ikonları)                             */
+/* ------------------------------------------------------------------ */
 
-function star(buf, cx, cy, rOuter, rInner, points, rotation, idx) {
-  for (let y = Math.floor(cy - rOuter) - 1; y <= Math.ceil(cy + rOuter) + 1; y += 1) {
-    for (let x = Math.floor(cx - rOuter) - 1; x <= Math.ceil(cx + rOuter) + 1; x += 1) {
-      const dx = x - cx
-      const dy = y - cy
-      const d = Math.sqrt(dx * dx + dy * dy)
-      if (d > rOuter) continue
-      const a = Math.atan2(dy, dx) - rotation
-      const seg = (Math.PI * 2) / points
-      const local = ((a % seg) + seg) % seg
-      const r = rInner + (rOuter - rInner) * Math.abs(Math.cos((local / seg) * Math.PI))
-      if (d <= r) plot(buf, x, y, idx)
-    }
-  }
-}
-
-function sparkle(buf, cx, cy, vertical, horizontal, idx) {
-  for (let y = Math.floor(cy - vertical); y <= Math.ceil(cy + vertical); y += 1) {
-    for (let x = Math.floor(cx - horizontal); x <= Math.ceil(cx + horizontal); x += 1) {
-      const dx = (x - cx) / horizontal
-      const dy = (y - cy) / vertical
-      if (dx * dx + dy * dy <= 1) plot(buf, x, y, idx)
-    }
-  }
-}
-
-function line(buf, x0, y0, x1, y1, width, idx) {
-  const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0)) * 2
-  for (let i = 0; i <= steps; i += 1) {
-    plot(buf, x0 + ((x1 - x0) * i) / steps, y0 + ((y1 - y0) * i) / steps, width, idx)
-    disc(buf, x0 + ((x1 - x0) * i) / steps, y0 + ((y1 - y0) * i) / steps, width, idx)
-  }
-}
-
-/** Kalkan silueti: üst geniş, alt sivri. */
-function shield(buf, cx, cy, scale, width, idx) {
-  for (let y = -20; y <= 20; y += 1) {
-    const halfWidth = y < 2 ? 15 : 15 * Math.sqrt(Math.max(0, 1 - ((y - 2) / 18) ** 2))
-    for (let x = -halfWidth; x <= halfWidth; x += 1) {
-      if (Math.abs(x) <= halfWidth - width) plot(buf, cx + x, cy + y * scale, idx)
-    }
-  }
+/** SVG içinden sadece çizim elemanlarını çıkarır (lisans yorumu atlanır). */
+function iconBody(name) {
+  const svg = readFileSync(join(ICON_DIR, `${name}.svg`), 'utf8')
+  const body = svg.slice(svg.indexOf('>', svg.indexOf('<svg')) + 1, svg.lastIndexOf('</svg>'))
+  return body.replace(/<!--[\s\S]*?-->/g, '').replace(/\s+/g, ' ').trim()
 }
 
 /* ------------------------------------------------------------------ */
@@ -193,221 +75,176 @@ function shield(buf, cx, cy, scale, width, idx) {
 /* ------------------------------------------------------------------ */
 
 /**
- * Her rütbe için palet ve kare çizimi. Palet sırası: 0 saydam, ardından 1..n
- * renkler (omggif paletin tamamını ister; eksikler siyah olur).
+ * `type: 'static'` → düz rozet, `type: 'animated'` → ışık huzmesi + nabız.
+ * Renkler: zemin degrade (from/to), kenarlık, yazı, ikon ve nabız rengi.
  */
 const RANKS = [
   {
     file: 'new-user',
-    type: 'png',
+    type: 'static',
     label: 'New User',
-    colors: ['#f4f1e8', '#ddd5c2', '#4f4a3b', '#b7ac93'],
-    draw(buf) {
-      disc(buf, 32, 32, 29, 1)
-      ring(buf, 32, 32, 29, 26, 2)
-      disc(buf, 32, 32, 11, 2)
-      disc(buf, 32, 32, 6, 3)
-    },
+    icon: 'sprout',
+    colors: { from: '#EEF1F6', to: '#E1E7F0', border: '#C7D1E0', text: '#46536A', icon: '#64748B', glow: '#94A3B8' },
   },
   {
     file: 'active-user',
-    type: 'png',
+    type: 'static',
     label: 'Active User',
-    colors: ['#efeade', '#d6cdb6', '#494536', '#a79b80'],
-    draw(buf) {
-      disc(buf, 32, 32, 29, 1)
-      ring(buf, 32, 32, 29, 26, 2)
-      disc(buf, 32, 26, 5, 3)
-      disc(buf, 32, 38, 5, 3)
-      disc(buf, 22, 32, 4, 2)
-      disc(buf, 42, 32, 4, 2)
-    },
+    icon: 'zap',
+    colors: { from: '#E0F5F2', to: '#C9E9E5', border: '#95D5CD', text: '#0F5B54', icon: '#0F766E', glow: '#14B8A6' },
   },
   {
     file: 'super-user',
-    type: 'png',
+    type: 'static',
     label: 'Super User',
-    colors: ['#ebe3cf', '#cfc4a5', '#443f2c', '#9c916f'],
-    draw(buf) {
-      disc(buf, 32, 32, 29, 1)
-      ring(buf, 32, 32, 29, 26, 2)
-      star(buf, 32, 32, 17, 7, 3, -Math.PI / 2, 2)
-      disc(buf, 32, 32, 4, 3)
-    },
+    icon: 'star',
+    colors: { from: '#E9EBFD', to: '#D7DCFB', border: '#AEB5F0', text: '#332C9E', icon: '#4F46E5', glow: '#6366F1' },
   },
   {
     file: 'angel',
-    type: 'gif',
+    type: 'animated',
     label: 'Angel',
-    colors: ['#ffffff', '#e3e3e3', '#f7d774', '#fff6d6', '#cfcfcf'],
-    draw(buf, frame) {
-      const t = (frame / FRAMES) * Math.PI * 2
-      disc(buf, 32, 32, 29, 1)
-      ring(buf, 32, 32, 29, 26, 2)
-      sparkle(buf, 20, 32, 15, 10, 4) // kanat izleri
-      sparkle(buf, 44, 32, 15, 10, 4)
-      star(buf, 32, 32, 14 + Math.sin(t) * 1.5, 5, 4, t / 4, 3) // nabız parıltısı
-      sparkle(buf, 32, 32, 4, 22, 4, 4)
-    },
+    icon: 'feather',
+    colors: { from: '#FEF4DA', to: '#FBE5AF', border: '#EDC877', text: '#8A5B06', icon: '#C2740A', glow: '#F59E0B' },
   },
   {
     file: 'legend',
-    type: 'gif',
+    type: 'animated',
     label: 'Legend',
-    colors: ['#dceafd', '#a9c9f3', '#12448f', '#6ea6ee', '#0b3a70'],
-    draw(buf, frame) {
-      const t = (frame / FRAMES) * Math.PI * 2
-      disc(buf, 32, 32, 29, 1)
-      ring(buf, 32, 32, 29, 26, 2)
-      for (let i = 0; i < 3; i += 1) {
-        const a = t + (i * Math.PI * 2) / 3
-        sparkle(buf, 32 + Math.cos(a) * 21, 32 + Math.sin(a) * 21, 5, 5, 4)
-      }
-      star(buf, 32, 32, 15, 6, 5, -Math.PI / 2, 2)
-      star(buf, 32, 32, 15 - Math.abs(Math.sin(t)) * 2, 6, 5, -Math.PI / 2, 3)
-    },
+    icon: 'trophy',
+    colors: { from: '#F1E8FE', to: '#E1D1FC', border: '#C3A2F3', text: '#631DA0', icon: '#8B2FD0', glow: '#A855F7' },
   },
   {
     file: 'god',
-    type: 'gif',
+    type: 'animated',
     label: 'God',
-    colors: ['#ecdefc', '#c9aef6', '#5b21b6', '#a678f0', '#3b0f80'],
-    draw(buf, frame) {
-      const t = (frame / FRAMES) * Math.PI * 2
-      disc(buf, 32, 32, 29, 1)
-      ring(buf, 32, 32, 29, 26, 2)
-      for (let i = 0; i < 8; i += 1) {
-        const a = t + (i * Math.PI * 2) / 8
-        line(buf, 32 + Math.cos(a) * 19, 32 + Math.sin(a) * 19, 32 + Math.cos(a) * 25, 32 + Math.sin(a) * 25, 1.2, 3)
-      }
-      star(buf, 32, 32, 16, 7, 6, t / 6, 2)
-      star(buf, 32, 32, 12, 5, 6, t / 6, 4)
-    },
+    icon: 'gem',
+    colors: { from: '#FDE5EA', to: '#F8C8D3', border: '#EE9DB0', text: '#981036', icon: '#D31146', glow: '#F43F5E' },
   },
   {
     file: 'moderator',
-    type: 'gif',
+    type: 'animated',
     label: 'Moderator',
-    colors: ['#cfe4d8', '#94c3aa', '#14532d', '#4f8f68'],
-    draw(buf) {
-      disc(buf, 32, 32, 29, 1)
-      ring(buf, 32, 32, 29, 26, 2)
-      shield(buf, 32, 32, 1.6, 2, 3)
-      line(buf, 32, 22, 32, 42, 1.4, 2)
-      line(buf, 24, 32, 40, 32, 1.4, 2)
-      disc(buf, 32, 32, 3, 2)
-    },
+    icon: 'shield',
+    colors: { from: '#E6EDF7', to: '#D1DEEF', border: '#A5BAD8', text: '#1C3A61', icon: '#2559AE', glow: '#3B82F6' },
   },
   {
     file: 'super-moderator',
-    type: 'gif',
+    type: 'animated',
     label: 'Super Moderator',
-    colors: ['#d7f7e4', '#7fd8a4', '#166534', '#3fbe74'],
-    draw(buf, frame) {
-      const t = (frame / FRAMES) * Math.PI * 2
-      disc(buf, 32, 32, 29, 1)
-      ring(buf, 32, 32, 29, 26, 2)
-      shield(buf, 32, 32, 1.6, 2, 3)
-      star(buf, 32, 31, 11, 4.5, 5, -Math.PI / 2 + t / 10, 2)
-      disc(buf, 32, 31, 2.5, 3)
-    },
+    icon: 'shield-check',
+    colors: { from: '#DBF8E9', to: '#BDEED4', border: '#7CD6A4', text: '#05543D', icon: '#047857', glow: '#10B981' },
   },
   {
     file: 'co-admin',
-    type: 'gif',
+    type: 'animated',
     label: 'Co-Admin',
-    colors: ['#f6dde1', '#dda9b4', '#7b1d2c', '#c4737f'],
-    draw(buf, frame) {
-      const t = (frame / FRAMES) * Math.PI * 2
-      disc(buf, 32, 32, 29, 1)
-      ring(buf, 32, 32, 29, 26, 2)
-      shield(buf, 32, 32, 1.6, 2, 3)
-      star(buf, 32, 31, 12, 5, 4, t / 4, 2)
-      star(buf, 32, 31, 8, 3, 4, t / 4, 3)
-    },
+    icon: 'user-cog',
+    colors: { from: '#FCE4EB', to: '#F7C8D7', border: '#EC9FB7', text: '#981036', icon: '#BE123C', glow: '#F43F5E' },
   },
   {
     file: 'admin',
-    type: 'gif',
+    type: 'animated',
     label: 'Admin',
-    colors: ['#fbdedc', '#f0aaa5', '#991b1b', '#dd6b63'],
-    draw(buf, frame) {
-      const t = (frame / FRAMES) * Math.PI * 2
-      disc(buf, 32, 32, 29, 1)
-      ring(buf, 32, 32, 29, 26, 2)
-      shield(buf, 32, 32, 1.6, 2, 3)
-      line(buf, 21, 24, 21, 34, 1.6, 2)
-      line(buf, 32, 21, 32, 31, 1.6, 2)
-      line(buf, 43, 24, 43, 34, 1.6, 2)
-      line(buf, 20, 33, 44, 33, 1.8, 2)
-      disc(buf, 21, 23, 2.2, 2)
-      disc(buf, 32, 20, 2.2, 2)
-      disc(buf, 43, 23, 2.2, 2)
-      disc(buf, 32, 38, 3 + Math.sin(t) * 0.8, 3)
-    },
+    icon: 'crown',
+    colors: { from: '#FDE2DE', to: '#F7C0B8', border: '#EB9082', text: '#7A1A17', icon: '#B91C1C', glow: '#EF4444' },
   },
   {
     file: 'banned',
-    type: 'png',
+    type: 'static',
     label: 'Yasaklı',
-    colors: ['#43484f', '#7c828b', '#f4f5f6', '#2b2f35'],
-    draw(buf) {
-      disc(buf, 32, 32, 29, 1)
-      ring(buf, 32, 32, 29, 26, 2)
-      ring(buf, 32, 32, 20, 17, 3)
-      line(buf, 19, 19, 45, 45, 2.6, 4)
-    },
+    icon: 'ban',
+    colors: { from: '#3C434C', to: '#262B32', border: '#5A636E', text: '#E9ECF0', icon: '#C7CED7', glow: '#6B7280' },
   },
 ]
 
 /* ------------------------------------------------------------------ */
-/* Üretim                                                                */
+/* SVG üretimi                                                          */
 /* ------------------------------------------------------------------ */
 
-const hexToRgb = (hex) => [
-  parseInt(hex.slice(1, 3), 16),
-  parseInt(hex.slice(3, 5), 16),
-  parseInt(hex.slice(5, 7), 16),
-]
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
-/**
- * Kodlayıcı palet uzunluğının 2'nin kuvveti olmasını ister.
- * 0. indeks saydam olduğundan paletin başına ölü bir renk eklenir.
- */
-function gifPalette(rank) {
-  // omggif paleti 0xRRGGBB tam sayı dizisi ister; 0. indeks saydam.
-  const full = [0, ...rank.colors.map((hex) => parseInt(hex.slice(1), 16))]
-  let size = 4
-  while (size < full.length) size *= 2
-  while (full.length < size) full.push(0)
-  return full
+/** Rütlere göre üretilen SVG metni. */
+export function renderBadge(rank) {
+  const animated = rank.type === 'animated'
+  const c = rank.colors
+  const text = textWidth(rank.label)
+  const width = round(PAD_X * 2 + ICON_BOX + GAP + text * 1.02)
+  const inner = round(width - 1)
+  const iconScale = round((ICON_BOX / 24) * 100000) / 100000
+  const sheenTravel = round(width + 34)
+
+  // Animasyon kapalı kaldığında (reduced motion / eski tarayıcı) hiçbir şey
+  // görünmesin diye parlama ve nabız öğeleri opaklık 0 ile başlar; anahtar
+  // kareleri sadece animasyon sırasında değerleri değiştirir.
+  const style = animated
+    ? `  <style>
+    .sheen { animation: sheen 2.8s linear infinite; }
+    .pulse { animation: pulse 2.8s ease-in-out infinite; }
+    @keyframes sheen {
+      0% { transform: translateX(-20px); opacity: 0 }
+      20%, 80% { opacity: .55 }
+      100% { transform: translateX(${sheenTravel}px); opacity: 0 }
+    }
+    @keyframes pulse { 0%, 100% { opacity: 0 } 50% { opacity: .55 } }
+    @media (prefers-reduced-motion: reduce) { .sheen, .pulse { animation: none } }
+  </style>
+`
+    : ''
+
+  const sheen = animated
+    ? `<g class="sheen" opacity="0"><rect x="-10" y="-8" width="12" height="${HEIGHT + 16}" fill="url(#sheen)" transform="skewX(-18)"/></g>`
+    : ''
+
+  const pulse = animated
+    ? `<rect class="pulse" x=".8" y=".8" width="${round(inner - 1.6)}" height="${HEIGHT - 1.6}" rx="${round(RADIUS - 0.8)}" fill="none" stroke="${c.glow}" stroke-width="1.4" opacity="0"/>`
+    : ''
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${HEIGHT}" viewBox="0 0 ${width} ${HEIGHT}" role="img" aria-label="${esc(rank.label)}">
+  <title>${esc(rank.label)}</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="${c.from}"/>
+      <stop offset="1" stop-color="${c.to}"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".55"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset=".5" stop-color="#ffffff" stop-opacity=".9"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="chip"><rect x=".5" y=".5" width="${inner}" height="${HEIGHT - 1}" rx="${RADIUS}"/></clipPath>
+  </defs>
+${style}  <g clip-path="url(#chip)">
+    <rect x=".5" y=".5" width="${inner}" height="${HEIGHT - 1}" rx="${RADIUS}" fill="url(#bg)"/>
+    <rect x=".5" y=".5" width="${inner}" height="${HEIGHT / 2 - 0.5}" fill="url(#gloss)"/>
+    ${sheen}
+  </g>
+  <rect x=".5" y=".5" width="${inner}" height="${HEIGHT - 1}" rx="${RADIUS}" fill="none" stroke="${c.border}" stroke-width="1"/>
+  ${pulse}
+  <g transform="translate(${ICON_X} ${ICON_Y}) scale(${iconScale})" fill="none" stroke="${c.icon}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    ${iconBody(rank.icon)}
+  </g>
+  <text x="${round(ICON_X + ICON_BOX + GAP)}" y="${BASELINE}" font-family="${FONT_STACK}" font-size="${FONT_SIZE}" font-weight="700" letter-spacing=".01em" fill="${c.text}" textLength="${round(text * 1.02)}" lengthAdjust="spacingAndGlyphs">${esc(rank.label)}</text>
+</svg>
+`
 }
 
-/** Doğrulama araçları için dışa açılanlar. */
 export const rankAssets = RANKS
-export const FRAME_COUNT = FRAMES
-
-export function buildFrame(rank, index) {
-  const buf = canvas()
-  rank.draw(buf, index)
-  return buf
-}
 
 export function generateAll() {
   mkdirSync(OUT_DIR, { recursive: true })
   for (const rank of RANKS) {
-    if (rank.type === 'png') {
-      const palette = rank.colors.map(hexToRgb)
-      writeFileSync(join(OUT_DIR, `${rank.file}.png`), encodePng(palette, buildFrame(rank, 0)))
-      console.log(`${rank.file}.png  (${rank.label})`)
-    } else {
-      const frames = []
-      for (let f = 0; f < FRAMES; f += 1) frames.push(buildFrame(rank, f))
-      writeFileSync(join(OUT_DIR, `${rank.file}.gif`), encodeGif(gifPalette(rank), frames))
-      console.log(`${rank.file}.gif  (${rank.label}, ${FRAMES} kare)`)
-    }
+    const file = join(OUT_DIR, `${rank.file}.svg`)
+    const svg = renderBadge(rank)
+    writeFileSync(file, svg, 'utf8')
+    const kb = (Buffer.byteLength(svg) / 1024).toFixed(1)
+    console.log(`${rank.file}.svg  (${rank.label} · ${rank.icon} · ${rank.type} · ${kb} KB)`)
   }
-  console.log(`\n${RANKS.length} rütbe görseli üretildi → ${OUT_DIR}`)
+  console.log(`\n${RANKS.length} rozet üretildi → ${OUT_DIR}`)
 }
 
 // Doğrudan çalıştırıldığında üret; içe aktarıldığında yalnızca fonksiyonlar.

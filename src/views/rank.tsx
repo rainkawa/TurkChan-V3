@@ -15,6 +15,8 @@ export const RankBadges: FC<{ info?: UserRank | null; class?: string }> = ({ inf
   if (!info) return null
   const badge = rankBadgeFor(info)
   const prefix = badge.kind === 'staff' ? t.rank.roleLabel : t.rank.label
+  // width/height verilmez: SVG kendi en-boy oranını bildirir ve CSS yalnızca
+  // yüksekliği belirler; kare bir kutu rozeti küçültmez.
   return (
     <span class={`rank-badges ${cls}`.trim()}>
       <span
@@ -22,7 +24,7 @@ export const RankBadges: FC<{ info?: UserRank | null; class?: string }> = ({ inf
         data-rank={badge.variant}
         title={`${prefix}: ${badge.label}`}
       >
-        <img class="rank-img" src={badge.src} alt={badge.label} width={64} height={64} loading="lazy" decoding="async" />
+        <img class="rank-img" src={badge.src} alt={badge.label} loading="lazy" decoding="async" />
         <span class="rank-badge-text">{badge.label}</span>
       </span>
     </span>
