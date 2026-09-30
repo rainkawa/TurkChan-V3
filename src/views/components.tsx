@@ -98,7 +98,7 @@ export const PostCard: FC<{
   )
 }
 
-export const CommunityAvatar: FC<{ name: string; size?: number }> = ({ name, size = 40 }) => (
+export const CommunityAvatar: FC<{ name: string; size?: number }> = ({ name, size = 36 }) => (
   <span
     class="c-avatar"
     style={`--c-size:${String(size)}px;--c-bg:${communityColor(name)}`}

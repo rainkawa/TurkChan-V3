@@ -28,7 +28,7 @@ describe('US-005/US-007 profiles and karma', () => {
     const page = await guest.get(`/u/${username}`)
     const text = await page.text()
     expect(text).toContain(`u/${username}`)
-    expect(text).toContain('Katıldı 2026-07-01')
+    expect(text).toContain('Katıldı: 1 Temmuz 2026')
     expect(text).toContain('Gönderi karma: 1')
     expect(text).toContain('Yorum karma: 0')
     expect(text).toContain('My contribution')

@@ -31,13 +31,24 @@ export function compactNumber(value: number): string {
   return new Intl.NumberFormat('tr-TR', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
 }
 
-/** Hesap yaşını kısa biçimde döndürür: "2 y", "7 ay", "12 g". */
-export function accountAge(createdAt: number, now: number): string {
+/** Hesap yaşını kısa biçimde döndürür: "2 y", "7 ay", "12 g". */export function accountAge(createdAt: number, now: number): string {
   const ms = Math.max(0, now - createdAt)
   const days = Math.floor(ms / 86_400_000)
   if (days >= 365) return `${Math.floor(days / 365)} y`
   if (days >= 30) return `${Math.floor(days / 30)} ay`
   return `${Math.max(1, days)} g`
+}
+
+const TR_MONTHS = [
+  'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
+  'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık',
+] as const
+
+/** Kısa Türkçe uzun tarih: "1 Temmuz 2026". */
+export function formatDateTr(ms: number): string {
+  const d = new Date(ms)
+  const month = TR_MONTHS[d.getUTCMonth()] ?? ''
+  return `${d.getUTCDate()} ${month} ${d.getUTCFullYear()}`
 }
 
 /** Topluluk adından sabit bir avatar rengi türetir (isimden deterministik). */

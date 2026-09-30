@@ -250,7 +250,7 @@ button { font-family: inherit; }
    ========================================================================== */
 .page {
   max-width: 46rem; margin: 0 auto;
-  padding: var(--space-3) var(--space-3) calc(var(--bottom-nav-h) + var(--safe-b) + var(--space-6));
+  padding: 8px 8px calc(var(--bottom-nav-h) + var(--safe-b) + var(--space-6));
 }
 .home-layout { display: grid; grid-template-columns: 1fr; gap: var(--space-4); }
 .home-side { display: none; }
@@ -275,7 +275,7 @@ button { font-family: inherit; }
 /* Kompakt filtre chip'leri. */
 .sort-tabs {
   display: flex; gap: 6px; overflow-x: auto;
-  margin-bottom: 10px; padding: 0 0 2px;
+  margin-bottom: 8px; padding: 0 0 2px;
   -webkit-overflow-scrolling: touch; scrollbar-width: none;
 }
 .sort-tabs::-webkit-scrollbar { display: none; }
@@ -315,13 +315,14 @@ button { font-family: inherit; }
 .social-feed {
   display: flex; flex-direction: column;
   /* Sıkı akış: ekrana daha fazla gönderi sığsın. */
-  gap: 8px;
+  gap: 7px;
 }
 .social-card {
   background: var(--surface-raised);
   border: 1px solid var(--line);
-  border-radius: 18px;
-  padding: 11px 13px 4px;
+  border-radius: 16px;
+  /* İç boşluklar sıkı: kart gereksiz yere ekran kaplamasın. */
+  padding: 8px 11px 2px;
   display: flex; flex-direction: column;
   transition: border-color var(--dur) var(--ease);
 }
@@ -329,16 +330,16 @@ button { font-family: inherit; }
 .social-card.pinned { border-color: color-mix(in srgb, var(--amber) 45%, var(--line)); }
 
 .social-card-head {
-  display: flex; align-items: center; gap: 9px;
-  margin-bottom: 7px;
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 5px;
 }
 .social-card-community {
-  display: flex; align-items: center; gap: 9px;
+  display: flex; align-items: center; gap: 8px;
   min-width: 0; flex: 1; color: var(--ink);
 }
 .c-avatar {
   flex: 0 0 auto;
-  width: var(--c-size, 40px); height: var(--c-size, 40px);
+  width: var(--c-size, 36px); height: var(--c-size, 36px);
   display: inline-flex; align-items: center; justify-content: center;
   background: var(--c-bg, var(--brand)); color: #fff;
   border-radius: 50%;
@@ -356,15 +357,15 @@ button { font-family: inherit; }
 
 .join-form { display: inline; margin: 0; }
 .join-pill {
-  padding: 0.3rem 0.85rem;
+  padding: 0.28rem 0.75rem;
   border: 1px solid var(--brand); border-radius: var(--radius-pill);
   background: var(--brand-soft); color: var(--brand-strong);
-  font-size: 0.8rem; font-weight: 800; cursor: pointer;
+  font-size: 0.78rem; font-weight: 800; cursor: pointer;
   white-space: nowrap;
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .join-pill:hover { background: var(--brand); color: #fff; }
-.join-pill.small { padding: 0.25rem 0.7rem; font-size: 0.75rem; }
+.join-pill.small { padding: 0.2rem 0.6rem; font-size: 0.72rem; }
 .join-pill.pending {
   background: var(--surface-sunken); color: var(--ink-faint);
   border-color: var(--line); cursor: default; font-weight: 700;
@@ -373,7 +374,7 @@ button { font-family: inherit; }
 .overflow-menu { position: relative; }
 .overflow-menu > summary {
   list-style: none; cursor: pointer;
-  width: 32px; height: 32px;
+  width: 30px; height: 30px;
   display: inline-flex; align-items: center; justify-content: center;
   border-radius: var(--radius-pill); color: var(--ink-faint);
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
@@ -402,9 +403,9 @@ button { font-family: inherit; }
 .pin-tag { color: var(--amber); font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; }
 
 .social-card-title {
-  margin: 0 0 3px;
+  margin: 0;
   font-family: var(--font-display);
-  font-size: 1.05rem; font-weight: 800; line-height: 1.28;
+  font-size: 1.02rem; font-weight: 800; line-height: 1.25;
   letter-spacing: -0.015em;
   overflow-wrap: anywhere;
 }
@@ -412,56 +413,57 @@ button { font-family: inherit; }
 .social-card-title a:hover { color: var(--brand-strong); }
 
 .social-card-preview {
-  margin: 0 0 6px;
-  color: var(--ink-soft); font-size: 0.875rem; line-height: 1.45;
+  margin: 3px 0 0;
+  color: var(--ink-soft); font-size: 0.855rem; line-height: 1.4;
   overflow-wrap: anywhere;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   overflow: hidden;
 }
 .social-card-link {
   display: flex; flex-direction: column; gap: 1px;
-  margin: 0 0 6px;
-  padding: 7px 10px;
+  margin: 5px 0 0;
+  padding: 6px 9px;
   border: 1px solid var(--line); border-left: 3px solid var(--brand);
   border-radius: var(--radius-sm);
   background: var(--surface-sunken);
-  color: var(--ink); font-size: 0.85rem; font-weight: 600;
+  color: var(--ink); font-size: 0.83rem; font-weight: 600;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.social-card-link-host { font-size: 0.73rem; color: var(--ink-faint); font-weight: 500; }
+.social-card-link-host { font-size: 0.72rem; color: var(--ink-faint); font-weight: 500; }
 
 .social-card-media {
-  display: block; margin: 2px 0 6px;
-  border-radius: 14px; overflow: hidden;
+  display: block; margin: 5px 0 0;
+  border-radius: 12px; overflow: hidden;
   background: var(--surface-sunken);
 }
 .social-card-media img {
   width: 100%;
   /* Mobilde ekranı düzgün doldursun, oranı bozmasın. */
-  aspect-ratio: 16 / 10; object-fit: cover;
-  max-height: 340px;
+  aspect-ratio: 16 / 9; object-fit: cover;
+  max-height: 300px;
 }
 
-.social-card-author { margin-bottom: 4px; font-size: 0.8rem; }
+/* Başlık → içerik → kullanıcı arasında gereksiz dikey boşluk yok. */
+.social-card-author { margin: 5px 0 0; font-size: 0.78rem; line-height: 1.3; }
 .social-card-author a { color: var(--ink-soft); font-weight: 700; }
 
-/* Aksiyon çubuğu: tek satır, dengeli dağıtım. */
+/* Aksiyon çubuğu: kartın en altında tek ve kompakt satır. */
 .social-card-actions {
   display: flex; align-items: center;
-  gap: 0; margin: 0 -4px;
-  padding-top: 2px;
+  gap: 0; margin: 4px -4px 0;
+  padding-top: 1px;
   border-top: 1px solid var(--line);
 }
 .action-btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
   /* Dokunması kolay hedef. */
-  min-height: 40px; padding: 0 9px;
-  border: 0; border-radius: 10px;
+  min-height: 38px; padding: 0 7px;
+  border: 0; border-radius: 9px;
   background: none; color: var(--ink-faint);
-  font-size: 0.78rem; font-weight: 700; line-height: 1; cursor: pointer;
+  font-size: 0.76rem; font-weight: 700; line-height: 1; cursor: pointer;
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
-.action-btn svg { width: 18px; height: 18px; flex: 0 0 auto; }
+.action-btn svg { width: 17px; height: 17px; flex: 0 0 auto; }
 .action-btn > span { line-height: 1; }
 .action-btn:hover { background: var(--surface-sunken); color: var(--ink); }
 .action-btn.is-saved { color: var(--brand); }
@@ -471,7 +473,7 @@ button { font-family: inherit; }
    ========================================================================== */
 .vote-rail { display: flex; align-items: center; user-select: none; }
 .vote-rail.vertical { flex-direction: column; gap: 0.1rem; }
-.vote-rail.horizontal { gap: 0; margin-right: auto; padding: 0 2px; }
+.vote-rail.horizontal { gap: 0; margin-right: auto; padding: 0 1px; }
 .vote-btn {
   border: 0; background: transparent; cursor: pointer;
   color: var(--ink-faint);
@@ -479,7 +481,7 @@ button { font-family: inherit; }
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease), transform var(--dur) var(--ease);
 }
 .vote-rail.vertical .vote-btn { padding: 0.15rem 0.4rem; font-size: 1rem; line-height: 1; }
-.vote-rail.horizontal .vote-btn { padding: 0.45rem 0.3rem; font-size: 0.9rem; line-height: 1; }
+.vote-rail.horizontal .vote-btn { padding: 0.4rem 0.25rem; font-size: 0.85rem; line-height: 1; }
 .vote-btn:hover { background: var(--surface-sunken); }
 .vote-rail.vertical .vote-btn:hover { transform: scale(1.1); }
 .vote-btn[data-active="1"] { color: var(--up); }
@@ -496,13 +498,15 @@ button { font-family: inherit; }
 .profile { margin: calc(var(--space-3) * -1) calc(var(--space-3) * -1) 0; }
 
 .profile-cover { position: relative; }
-/* Kapak ekranın üst ~%28'ini kaplar. */
+/* Kapak: tam genişlik, kısa ve yoğun. */
 .profile-cover-bg {
-  height: clamp(150px, 30vh, 260px);
+  height: 200px;
   background:
     radial-gradient(120% 120% at 15% 10%, color-mix(in srgb, var(--brand) 85%, #000) 0%, transparent 60%),
     linear-gradient(135deg, var(--brand-ink) 0%, var(--brand) 55%, #14b8a6 100%);
 }
+@media (max-width: 380px) { .profile-cover-bg { height: 180px; } }
+@media (min-width: 900px) { .profile-cover-bg { height: 220px; } }
 /* Butonların okunurluğu için koyu gradient kaplama. */
 .profile-cover-scrim {
   position: absolute; inset: 0;
@@ -533,61 +537,67 @@ button { font-family: inherit; }
 .profile-menu .overflow-panel { top: calc(100% + 6px); background: var(--surface-raised); }
 .profile-menu .overflow-panel a { color: var(--ink); }
 
-/* Avatar: yarısı kapakta, yarısı aşağıdaki açık alanda. */
+/* Avatar: kapak ile beyaz alanın birleştiği noktada, 108px. */
 .profile-avatar {
   position: relative; z-index: 3;
-  width: 96px; height: 96px;
-  margin: -48px auto 0;
+  width: 108px; height: 108px;
+  margin: -54px auto 0;
   display: flex; align-items: center; justify-content: center;
   background: var(--c-bg, var(--brand)); color: #fff;
   border: 4px solid var(--surface-raised);
   border-radius: 50%;
   box-shadow: 0 4px 16px rgb(4 33 31 / 0.22);
-  font-size: 2.05rem; font-weight: 800; letter-spacing: -0.02em;
+  font-size: 2.25rem; font-weight: 800; letter-spacing: -0.02em;
   text-transform: uppercase;
 }
 
-.profile-body { padding: 0 var(--space-4); }
+.profile-body { padding: 0 var(--space-3); }
 /* Sıkı ve derli toplu: kullanıcı ilk ekranda temel bilgileri görür. */
-.profile-identity { text-align: center; padding: 10px 0 12px; }
+.profile-identity { text-align: center; padding: 8px 0 10px; }
 .profile-name {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 1.5rem; font-weight: 800; line-height: 1.15;
+  font-size: 1.55rem; font-weight: 800; line-height: 1.15;
   letter-spacing: -0.025em; overflow-wrap: anywhere;
 }
 .profile-handle {
   display: flex; align-items: center; justify-content: center;
-  flex-wrap: wrap; gap: 6px;
-  margin-top: 2px;
+  flex-wrap: wrap; gap: 5px;
+  margin-top: 3px;
 }
-.profile-username { color: var(--ink-faint); font-size: 0.9rem; font-weight: 600; }
+.profile-username { color: var(--ink-faint); font-size: 0.87rem; font-weight: 600; }
 .role-badge {
   display: inline-flex; align-items: center;
-  padding: 1px 8px;
+  padding: 0 7px; height: 18px;
   border-radius: var(--radius-pill);
   background: var(--brand); color: #fff;
-  font-size: 0.65rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em;
+  font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em;
 }
-.profile-edit { margin-left: 0; }
+.profile-edit { min-height: 26px; padding: 0 10px; font-size: 0.72rem; }
+/* Küçük gri ikincil satır, kullanıcı bilgisinin hemen altında. */
+.profile-meta {
+  margin: 5px 0 0;
+  color: var(--ink-faint); font-size: 0.73rem; line-height: 1.4;
+}
 .profile-bio {
-  margin: 10px auto 0; max-width: 34rem;
-  color: var(--ink); font-size: 0.92rem; line-height: 1.5;
+  margin: 7px auto 0; max-width: 34rem;
+  color: var(--ink); font-size: 0.9rem; line-height: 1.45;
   overflow-wrap: anywhere; white-space: pre-wrap;
 }
 
+/* İstatistikler: bilgilerin hemen altında, kısa. */
 .profile-stats {
   display: grid; grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-2);
+  gap: 4px;
   margin: 0;
-  padding: 12px 0;
+  padding: 9px 0 10px;
   border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
 }
 .profile-stat { text-align: center; min-width: 0; }
-.profile-stat dt { font-size: 0.74rem; color: var(--ink-faint); font-weight: 600; }
+.profile-stat dt { font-size: 0.7rem; color: var(--ink-faint); font-weight: 600; line-height: 1.2; }
 .profile-stat dd {
-  margin: 1px 0 0; font-size: 1.2rem; font-weight: 800; color: var(--ink);
-  letter-spacing: -0.02em; overflow-wrap: anywhere;
+  margin: 1px 0 0; font-size: 1.15rem; font-weight: 800; color: var(--ink);
+  line-height: 1.15; letter-spacing: -0.02em; overflow-wrap: anywhere;
 }
 /* Sıkışırsa yatay kaydırılabilir. */
 @media (max-width: 340px) {
@@ -603,12 +613,12 @@ button { font-family: inherit; }
   color: var(--ink-faint); font-size: 0.76rem; text-align: center;
 }
 
-/* Sekmeler: tam genişlik, ortalanmış, yapışkan. */
+/* Sekmeler: istatistiklerin hemen altında, yapışkan, boşluksuz. */
 .profile-tabs {
   position: sticky; top: calc(var(--header-h) + var(--safe-t)); z-index: 10;
   display: flex;
-  margin: 10px calc(var(--space-4) * -1) 10px;
-  padding: 0 var(--space-2);
+  margin: 0 calc(var(--space-3) * -1) 8px;
+  padding: 0 2px;
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
@@ -616,8 +626,8 @@ button { font-family: inherit; }
 }
 .profile-tab {
   flex: 1 1 0; min-width: 0;
-  padding: 10px 4px;
-  color: var(--ink-faint); font-size: 0.84rem; font-weight: 700;
+  padding: 9px 2px;
+  color: var(--ink-faint); font-size: 0.8rem; font-weight: 700;
   text-align: center; white-space: nowrap;
   border-bottom: 2.5px solid transparent;
   margin-bottom: -1px;
@@ -626,16 +636,32 @@ button { font-family: inherit; }
 .profile-tab:hover { color: var(--ink); }
 .profile-tab.active { color: var(--brand); border-bottom-color: var(--brand); }
 
-.profile-empty { padding: var(--space-6) var(--space-3); text-align: center; }
-.profile-saved-hint { text-align: center; color: var(--ink-soft); font-size: 0.88rem; margin: 0 0 var(--space-3); }
-.profile-saved-note { text-align: center; color: var(--ink-faint); font-size: 0.78rem; margin: 0; }
-.profile-saved-item {
-  display: block; padding: var(--space-3);
-  background: var(--surface-raised); border: 1px solid var(--line);
-  border-radius: var(--radius); margin-bottom: var(--space-2);
-  color: var(--ink); font-weight: 700;
+/* Boş durum: ikon + başlık + yönlendirici, devasa boş alan bırakmaz. */
+.empty-panel {
+  display: flex; flex-direction: column; align-items: center;
+  text-align: center; gap: 5px;
+  padding: 22px 16px;
+  background: var(--surface-raised);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
 }
-.profile-saved-item small { display: block; color: var(--ink-faint); font-weight: 500; font-size: 0.78rem; }
+.empty-icon {
+  width: 40px; height: 40px; margin-bottom: 2px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%; background: var(--brand-soft); color: var(--brand);
+}
+.empty-icon svg { width: 22px; height: 22px; }
+.empty-title { margin: 0; font-size: 0.92rem; font-weight: 800; color: var(--ink); }
+.empty-body { margin: 0 0 5px; font-size: 0.82rem; color: var(--ink-soft); max-width: 26rem; }
+
+.profile-saved-note { text-align: center; color: var(--ink-faint); font-size: 0.72rem; margin: 7px 0 0; }
+.profile-saved-item {
+  display: block; padding: 10px 12px;
+  background: var(--surface-raised); border: 1px solid var(--line);
+  border-radius: 14px; margin-bottom: 8px;
+  color: var(--ink); font-weight: 700; font-size: 0.9rem;
+}
+.profile-saved-item small { display: block; color: var(--ink-faint); font-weight: 500; font-size: 0.75rem; }
 
 .profile-comments { display: flex; flex-direction: column; gap: var(--space-2); }
 .profile-comment {

@@ -1,6 +1,6 @@
 import type { FC } from 'hono/jsx'
 import { t, relativeTime, formatDate } from '../i18n/tr'
-import { accountAge, compactNumber, previewText, communityColor, communityInitials } from './helpers'
+import { accountAge, compactNumber, previewText, communityColor, communityInitials, formatDateTr } from './helpers'
 import { CommunityAvatar, SocialCard } from './components'
 import type { ProfileView } from '../services/users'
 import { moderatesAnyCommunity } from '../services/users'
@@ -9,6 +9,26 @@ import { getMyVotes } from '../services/votes'
 import type { UserRow } from '../types'
 
 export type ProfileTab = 'posts' | 'comments' | 'saved' | 'about'
+
+/** İçerik yokken: ikon + başlık + yönlendirici çağrı. */
+const EmptyState: FC<{ title: string; body: string; ctaHref: string; ctaLabel: string }> = ({
+  title,
+  body,
+  ctaHref,
+  ctaLabel,
+}) => (
+  <div class="empty-panel">
+    <span class="empty-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24">
+        <rect x="3.5" y="4.5" width="17" height="15" rx="4" fill="none" stroke="currentColor" stroke-width="1.8" />
+        <path d="M8 10h8M8 14h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+      </svg>
+    </span>
+    <p class="empty-title">{title}</p>
+    <p class="empty-body">{body}</p>
+    <a class="btn secondary small" href={ctaHref}>{ctaLabel}</a>
+  </div>
+)
 
 const TABS: Array<{ key: ProfileTab; label: string }> = [
   { key: 'posts', label: t.profile.tabPosts },
@@ -85,6 +105,7 @@ export const ProfileView_: FC<{
       <div class="profile-body">
         <div class="profile-identity">
           <h1 class="profile-name">{displayName}</h1>
+          {/* Kullanıcı adı, rozet ve Düzenle aynı kompakt bölgede. */}
           <div class="profile-handle">
             <span class="profile-username">u/{user.username}</span>
             {role && <span class="role-badge">{role}</span>}
@@ -94,6 +115,11 @@ export const ProfileView_: FC<{
               </a>
             )}
           </div>
+          {/* Küçük gri ikincil satır: katılma ve karma dağılımı. */}
+          <p class="profile-meta">
+            {t.profile.joined}: {formatDateTr(user.created_at)} · {t.profile.postKarma}: {karma.postKarma} ·{' '}
+            {t.profile.commentKarma}: {karma.commentKarma}
+          </p>
           {user.bio && <p class="profile-bio">{user.bio}</p>}
         </div>
 
@@ -112,12 +138,6 @@ export const ProfileView_: FC<{
           </div>
         </dl>
 
-        {/* İkincil bilgiler: ana istatistiklerin altında, daha küçük. */}
-        <p class="profile-meta">
-          {t.profile.joined} {formatDate(user.created_at)} · {t.profile.postKarma}: {karma.postKarma} ·{' '}
-          {t.profile.commentKarma}: {karma.commentKarma}
-        </p>
-
         <nav class="profile-tabs" role="tablist" aria-label={t.profile.tabsLabel}>
           {TABS.map((item) => (
             <a
@@ -134,7 +154,12 @@ export const ProfileView_: FC<{
         <div class="profile-panel" role="tabpanel">
           {tab === 'posts' &&
             (posts.length === 0 ? (
-              <p class="placeholder profile-empty">{t.post.noPosts}</p>
+              <EmptyState
+                title={t.post.noPosts}
+                body={t.profile.emptyPostsBody}
+                ctaHref={isSelf ? '/submit' : '/communities'}
+                ctaLabel={isSelf ? t.nav.createPost : t.feed.browseCommunities}
+              />
             ) : (
               <div class="social-feed">
                 {posts.map((p) => (
@@ -156,7 +181,12 @@ export const ProfileView_: FC<{
 
           {tab === 'comments' &&
             (comments.length === 0 ? (
-              <p class="placeholder profile-empty">{t.post.noComments}</p>
+              <EmptyState
+                title={t.post.noComments}
+                body={t.profile.emptyCommentsBody}
+                ctaHref="/communities"
+                ctaLabel={t.feed.browseCommunities}
+              />
             ) : (
               <div class="profile-comments">
                 {comments.map((cm) => (
@@ -182,8 +212,12 @@ export const ProfileView_: FC<{
 
           {tab === 'saved' && (
             <div class="profile-saved" data-saved-list>
-              <p class="placeholder profile-empty">{t.profile.emptySaved}</p>
-              <p class="profile-saved-hint">{t.profile.emptySavedHint}</p>
+              <EmptyState
+                title={t.profile.emptySaved}
+                body={t.profile.emptySavedHint}
+                ctaHref="/"
+                ctaLabel={t.nav.home}
+              />
               <p class="profile-saved-note">{t.card.savedLocally}</p>
             </div>
           )}
