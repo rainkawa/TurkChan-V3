@@ -1,0 +1,81 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.turkchan.app'
+    compileSdk 34
+
+    // Sunucu adresi build zamanında verilir:
+    //   ./gradlew assembleRelease -PserverUrl=https://example.org
+    // Release derlemesinde HTTPS zorunludur (düz metin trafik kapalı).
+    def serverUrl = (project.findProperty('serverUrl') ?: 'https://turkchan.app').toString()
+
+    defaultConfig {
+        applicationId 'com.turkchan.app'
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName '1.0.0'
+        // Türkçe kaynaklar varsayılan; İngilizce yedek eklenmedi.
+        resConfigs 'tr', 'en'
+        buildConfigField 'String', 'SERVER_URL', "\"${serverUrl}\""
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    signingConfigs {
+        release {
+            // Anahtarlar depoya GİRMEZ. android/keystore/ altında, .gitignore'da.
+            def store = rootProject.file('keystore/turkchan-release.jks')
+            if (store.exists()) {
+                storeFile store
+                storePassword project.findProperty('storePassword') ?: 'turkchan'
+                keyAlias project.findProperty('keyAlias') ?: 'turkchan'
+                keyPassword project.findProperty('keyPassword') ?: 'turkchan'
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix '.debug'
+            versionNameSuffix '-debug'
+            minifyEnabled false
+        }
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (rootProject.file('keystore/turkchan-release.jks').exists()) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // APK boyutu: yalnızca gerekli kaynaklar pakete girsin.
+    packagingOptions {
+        resources {
+            excludes += ['META-INF/**', 'kotlin/**', '**/*.kotlin_metadata', 'DebugProbesKt.bin']
+        }
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
+
+// Tek bağımlılık: androidx FileProvider. Kamera ile çekilen fotoğrafın
+// WebView'a URI olarak aktarılması için zorunludur; başka hiçbir şey
+// kütüphaneden gelmez (APK küçük kalır).
+dependencies {
+    implementation 'androidx.core:core:1.13.1'
+}

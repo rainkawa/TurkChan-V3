@@ -104,6 +104,69 @@ Design decisions worth knowing:
 - Back up nightly (`sqlite3 data/app.db ".backup ..."`) to off-server encrypted storage, and test restores. Or host the schema on PostgreSQL — it ports cleanly.
 - Single-node by design: availability strategy is fast redeploy + backups, not HA.
 
+## Android uygulaması (APK)
+
+TurkChan’ın web uygulaması, arayüzü olduğu gibi yükleyen native bir WebView kabuğu
+(`android/`) ile Android’e paketlenir. Backend, veritabanı ve güvenlik sistemi
+aynı sunucuda çalışmaya devam eder; APK yalnızca istemcidir.
+
+- **Package ID:** `com.turkchan.app` · **Uygulama adı:** TurkChan
+- **minSdk 24 (Android 7.0) · targetSdk/compileSdk 34**
+- **İzinler:** yalnızca `INTERNET` ve `ACCESS_NETWORK_STATE` (kamera izni yok —
+  kamera `ACTION_IMAGE_CAPTURE` intent’i üzerinden çalışır, sistem izni istemez)
+- **Güvenlik:** `usesCleartextTraffic="false"` + network security config; düz metin
+  (HTTP) bağlantı reddedilir, JS köprüsü (`addJavascriptInterface`) yoktur,
+  dosya sistemi erişimi kapalı, üçüncü taraf çerezler kapalı
+- **Boyut:** R8 + kaynak küçültme ile ~200 KB
+
+### Gereksinimler
+
+JDK 17, Android SDK (platform 34 + build-tools 34.0.0) ve Gradle. Lokal SDK yolunu
+`android/local.properties` içine yazın (`sdk.dir=/path/to/android-sdk`) ya da
+`ANDROID_HOME` tanımlayın. GitHub Actions için `android/workflows/android.yml`
+hazırdır.
+
+### Komutlar
+
+```bash
+# 1) Marka varlıklarını üret (ikon, adaptive ikon, splash) — isteğe bağlı,
+#    dosyalar depoda hazır.
+npm run android:assets
+
+# 2) Release APK derle (sunucu adresi HTTPS olmak zorunda)
+cd android
+./gradlew :app:assembleRelease -PserverUrl=https://turkchan.app
+# Çıktı: android/app/build/outputs/apk/release/app-release.apk
+
+# Veya proje kökünden
+npm run android:apk
+```
+
+Release imzalı APK üretmek için `android/keystore/turkchan-release.jks` dosyası
+gereklidir (bu dosya depoya **girmez**, `.gitignore`’dadır). Anahtar yoksa APK
+imzasız derlenir — dağıtım için `keytool` ile kendi anahtarınızı oluşturun:
+
+```bash
+keytool -genkeypair -v -keystore android/keystore/turkchan-release.jks \
+  -alias turkchan -keyalg RSA -keysize 2048 -validity 10000
+cd android && ./gradlew :app:assembleRelease \
+  -PserverUrl=https://... -PstorePassword=... -PkeyAlias=... -PkeyPassword=...
+```
+
+### Davranış notları
+
+- **Geri tuşu:** uygulama içindeki sayfalarda önce WebView geçmişi geri gider;
+  ana sayfada tekrar geri basılırsa uygulama kapanır.
+- **Güvenli alan:** sistem çentik/status bar/nav bar inset’leri
+  `--tc-safe-*` CSS değişkenleri olarak sayfaya aktarılır; `html.tc-android`
+  bloğu bunları kullanır. Web sürümü etkilenmez.
+- **Dosya/görsel:** galeri seçici + kamera intent’i (`onShowFileChooser`),
+  URI’ler `FileProvider` üzerinden paylaşılır; `content://` URI’ler de
+  `<input type="file">` ile uyumludur.
+- **Paylaşım/dış linkler:** sunucu dışı bağlantılar uygulama dışında açılır;
+  `text/plain` paylaşım intent’i desteklenir.
+- **Splash:** koyu zemin üzerinde TurkChan monogramı, tema arka planıyla birebir aynı.
+
 ## Lisans
 
 [MIT](LICENSE)

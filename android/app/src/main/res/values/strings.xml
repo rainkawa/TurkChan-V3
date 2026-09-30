@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TurkChan</string>
+    <string name="exit_hint">Çıkmak için tekrar geriye basın</string>
+    <string name="server_dialog_title">Sunucu adresi</string>
+    <string name="server_dialog_message">TurkChan sunucusunun adresi (https:// ile başlamalı).</string>
+    <string name="server_dialog_save">Kaydet</string>
+    <string name="server_dialog_cancel">Vazgeç</string>
+    <string name="server_error_empty">Adres boş olamaz.</string>
+    <string name="server_error_insecure">Yalnızca https:// adresleri kullanılabilir.</string>
+    <string name="server_error_invalid">Geçerli bir adres girin.</string>
+</resources>

@@ -1659,3 +1659,40 @@ a.post-ref:hover { text-decoration: underline; }
 }
 .md a.mention:hover { background: var(--brand-soft); }
 .comment-form input[type='file'] { font-size: 0.85rem; }
+
+/* ==========================================================================
+   Android uygulama kabuğu (native WebView) uyumu
+   --------------------------------------------------------------------------
+   MainActivity, sistem çentik/çubuk inset'lerini `--tc-safe-*` olarak
+   documentElement'e yazar ve `tc-android` sınıfını ekler. Bu blok yalnızca
+   o sınıf varken devreye girer; normal web sürümü hiç etkilenmez.
+   Güvenlik tarafında değişen bir şey yoktur: sadece dolgu ve dokunma
+   davranışı.
+   ========================================================================== */
+html.tc-android {
+  --safe-t: var(--tc-safe-top, env(safe-area-inset-top, 0px));
+  --safe-b: var(--tc-safe-bottom, env(safe-area-inset-bottom, 0px));
+  /* Android'de tarayıcı çubuğu yok; kaydırma zinciri kabukta kalmasın. */
+  overscroll-behavior-y: contain;
+  /* Dokunma anında gri kutu parlamasın. */
+  -webkit-tap-highlight-color: transparent;
+  /* Sistem yazı tipi ölçeklemesi çift büyütmeyi engellesin. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+/* Yanlar (yatay modda) ve alttaki sistem çubuğu boşluğu. */
+html.tc-android body { padding-left: var(--tc-safe-left, 0px); padding-right: var(--tc-safe-right, 0px); }
+/* Klavyenin açılmasıyla alt çubuk zaten inset ile yukarı itilir. */
+html.tc-android .bottom-nav { height: calc(var(--bottom-nav-h) + var(--safe-b)); }
+/* Görüntü/medya önizleme ekranında arka plan boşluğu bırakma. */
+html.tc-android .media-item img,
+html.tc-android .media-item video { -webkit-user-drag: none; }
+/* Dokunma hedefleri Android yönergesine göre en az 44px. */
+html.tc-android .icon-btn,
+html.tc-android .bottom-nav a { min-height: 44px; }
+html.tc-android .icon-btn { min-width: 44px; }
+/* Eski Android WebView'lerinde dvh yok; vh yedeğini koru. */
+@supports not (height: 100dvh) {
+  html.tc-android body.is-guest .page { min-height: 100vh; }
+  html.tc-android body.is-chat .page { height: calc(100vh - var(--header-h) - var(--safe-t)); }
+}
