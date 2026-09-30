@@ -45,6 +45,7 @@ export const ProfileView_: FC<{
     <div class="profile">
       <section class="profile-cover">
         <div class="profile-cover-bg" aria-hidden="true" />
+        <div class="profile-cover-scrim" aria-hidden="true" />
         <div class="profile-cover-actions">
           <a class="round-btn" href="/search" aria-label={t.nav.search}>
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -94,10 +95,6 @@ export const ProfileView_: FC<{
             )}
           </div>
           {user.bio && <p class="profile-bio">{user.bio}</p>}
-          <p class="profile-meta">
-            {t.profile.joined} {formatDate(user.created_at)} · {t.profile.postKarma}: {karma.postKarma} ·{' '}
-            {t.profile.commentKarma}: {karma.commentKarma}
-          </p>
         </div>
 
         <dl class="profile-stats">
@@ -115,7 +112,13 @@ export const ProfileView_: FC<{
           </div>
         </dl>
 
-        <nav class="profile-tabs" role="tablist" aria-label={t.profile.editProfile}>
+        {/* İkincil bilgiler: ana istatistiklerin altında, daha küçük. */}
+        <p class="profile-meta">
+          {t.profile.joined} {formatDate(user.created_at)} · {t.profile.postKarma}: {karma.postKarma} ·{' '}
+          {t.profile.commentKarma}: {karma.commentKarma}
+        </p>
+
+        <nav class="profile-tabs" role="tablist" aria-label={t.profile.tabsLabel}>
           {TABS.map((item) => (
             <a
               href={`/u/${user.username}?tab=${item.key}`}

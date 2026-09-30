@@ -269,7 +269,10 @@ export const SortTabs: FC<{ basePath: string; sort: string; window?: string; ext
     ))}
     {sort === 'top' &&
       (['day', 'week', 'month', 'all'] as const).map((w) => (
-        <a href={`${basePath}?sort=top&t=${w}${extraQuery}`} class={topWindow === w ? 'active' : ''} style="font-size:0.75rem">
+        <a
+          href={`${basePath}?sort=top&t=${w}${extraQuery}`}
+          class={`sort-sub${topWindow === w ? ' active' : ''}`}
+        >
           {t.feed[w]}
         </a>
       ))}

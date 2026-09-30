@@ -242,6 +242,7 @@ export const t = {
     tabComments: 'Yorumlar',
     tabSaved: 'Kaydedilenler',
     tabAbout: 'Hakkında',
+    tabsLabel: 'Profil bölümleri',
     statKarma: 'Karma',
     statContributions: 'Katkılar',
     statAge: 'Hesap yaşı',

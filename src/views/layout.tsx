@@ -21,9 +21,9 @@ export interface LayoutProps {
   children?: Child
 }
 
-const BrandMark: FC<{ size?: number }> = ({ size = 26 }) => (
+const BrandMark: FC<{ size?: number; class?: string }> = ({ size = 26, class: cls = '' }) => (
   <svg
-    class="brand-mark"
+    class={`brand-mark ${cls}`.trim()}
     width={String(size)}
     height={String(size)}
     viewBox="0 0 64 64"
@@ -127,10 +127,9 @@ export const Layout: FC<LayoutProps> = ({ title, viewer, unread = 0, og, flash, 
             </button>
 
             <form class="app-search" action="/search" method="get" role="search">
-              <svg class="app-search-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2" />
-                <path d="m16 16 4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-              </svg>
+              <span class="app-search-mark" aria-hidden="true">
+                <BrandMark size={18} />
+              </span>
               <input
                 type="search"
                 name="q"
@@ -138,6 +137,10 @@ export const Layout: FC<LayoutProps> = ({ title, viewer, unread = 0, og, flash, 
                 aria-label={t.nav.searchPlaceholder}
                 autocomplete="off"
               />
+              <svg class="app-search-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2" />
+                <path d="m16 16 4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+              </svg>
             </form>
 
             <a class="icon-btn header-bell" href="/notifications" aria-label={t.nav.notifications}>
