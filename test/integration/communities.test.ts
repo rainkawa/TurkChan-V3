@@ -21,7 +21,7 @@ describe('US-008 community creation', () => {
     const text = await page.text()
     expect(text).toContain('Community parents_2026')
     expect(text).toContain('u/founder') // listed as moderator
-    expect(text).toContain('1 members')
+    expect(text).toContain('1 üye')
 
     const membership = world.ctx.db
       .prepare("SELECT role, status FROM memberships WHERE community_id = (SELECT id FROM communities WHERE name = 'parents_2026')")
@@ -86,7 +86,7 @@ describe('US-010 join and leave', () => {
     const { agent: joiner } = await registerUser(world, 'joiner')
     await joiner.post('/c/openclub/join')
     const page = await joiner.get('/c/openclub')
-    expect(await page.text()).toContain('Leave')
+    expect(await page.text()).toContain('Ayrıl')
   })
 
   test('joining restricted/private creates a pending request; approval grants access', async () => {
@@ -101,7 +101,7 @@ describe('US-010 join and leave', () => {
     await requester.post('/c/gated/join')
     page = await requester.get('/c/gated')
     expect(page.status).toBe(403)
-    expect(await page.text()).toContain('Requested')
+    expect(await page.text()).toContain('İstek gönderildi')
 
     // Moderator sees the queue and approves.
     const queue = await owner.get('/c/gated/mod/members')
@@ -140,7 +140,7 @@ describe('US-010 join and leave', () => {
     const res = await owner.post('/c/lonely/leave')
     await res.text()
     const page = await owner.get('/c/lonely')
-    expect(await page.text()).toContain('last moderator')
+    expect(await page.text()).toContain('Son moderatör')
 
     const { agent: member } = await registerUser(world)
     await member.post('/c/lonely/join')

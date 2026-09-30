@@ -25,9 +25,9 @@ export function castVote(
   targetId: string,
   value: number,
 ): VoteResult {
-  if (!viewer) throw unauthorized('Log in to vote.')
-  if (isSuspended(ctx, viewer)) throw forbidden('Your account is suspended.')
-  if (![1, -1, 0].includes(value)) throw badRequest('value', 'Vote must be 1, -1, or 0.')
+  if (!viewer) throw unauthorized('Oy vermek için giriş yapın.')
+  if (isSuspended(ctx, viewer)) throw forbidden('Hesabınız askıya alınmış.')
+  if (![1, -1, 0].includes(value)) throw badRequest('value', 'Oy değeri 1, -1 veya 0 olmalıdır.')
 
   const settings = getSettings(ctx)
   const limit = ctx.rateLimiter.check(`vote:${viewer.id}`, settings.votesPerMinute, 60 * 1000)
@@ -35,23 +35,23 @@ export function castVote(
 
   const target = loadTarget(ctx, targetType, targetId)
   if (!target || target.deleted || target.removed || target.auto_hidden) {
-    throw notFound('This content is no longer available.')
+    throw notFound('Bu içerik artık mevcut değil.')
   }
   if (target.author_id === viewer.id) {
-    throw forbidden('You cannot vote on your own content.')
+    throw forbidden('Kendi içeriğinize oy veremezsiniz.')
   }
   const communityId = targetType === 'post' ? (target as PostRow).community_id : postCommunityId(ctx, (target as CommentRow).post_id)
   const community = getCommunityById(ctx, communityId)
-  if (!community || community.deleted_at !== null) throw notFound('This content is no longer available.')
-  if (community.archived) throw badRequest('archived', 'This community is archived and read-only.')
+  if (!community || community.deleted_at !== null) throw notFound('Bu içerik artık mevcut değil.')
+  if (community.archived) throw badRequest('archived', 'Bu topluluk arşivlenmiş ve salt okunur durumdadır.')
   if (activeBan(ctx, viewer.id, community.id)) {
-    throw forbidden('You are banned from this community.')
+    throw forbidden('Bu topluluktan yasaklandınız.')
   }
   if (community.visibility === 'private' && !viewer.is_admin) {
     const member = ctx.db
       .prepare("SELECT 1 FROM memberships WHERE user_id = ? AND community_id = ? AND status = 'approved'")
       .get(viewer.id, community.id)
-    if (!member) throw forbidden('This community is private.')
+    if (!member) throw forbidden('Bu topluluk gizli.')
   }
 
   return transaction(ctx.db, () => {

@@ -86,7 +86,7 @@ describe('US-016 edit and delete', () => {
     const text = await page.text()
     expect(text).toContain('Updated body')
     expect(text).toContain('Original title')
-    expect(text).toContain('(edited)')
+    expect(text).toContain('(düzenlendi)')
 
     // Non-author (even a moderator) cannot edit.
     const res = await mod.post(`/posts/${postId}/edit`, { body: 'Hijacked' })
@@ -103,7 +103,7 @@ describe('US-016 edit and delete', () => {
     expect(await feed.text()).not.toContain('Gone soon')
     const page = await member.get(`/c/lounge/comments/${postId}`)
     expect(page.status).toBe(404)
-    expect(await page.text()).toContain('no longer available')
+    expect(await page.text()).toContain('artık mevcut değil')
   })
 
   test('deleting a post with comments keeps the thread with [deleted] placeholder', async () => {
@@ -115,7 +115,7 @@ describe('US-016 edit and delete', () => {
     const page = await member.get(`/c/lounge/comments/${postId}`)
     expect(page.status).toBe(200)
     const text = await page.text()
-    expect(text).toContain('[deleted]')
+    expect(text).toContain('[silindi]')
     expect(text).toContain('Useful answer') // replies preserved
     expect(text).not.toContain('Keep my thread') // title hidden
 
@@ -178,14 +178,14 @@ describe('US-014 link posts', () => {
     expect(second.headers.get('location')).toContain('/comments/') // still created (non-blocking)
     const landing = await mod.get(second.headers.get('location') as string)
     const text = await landing.text()
-    expect(text).toContain('already posted')
+    expect(text).toContain('paylaşılmış')
     expect(text).toContain(firstId) // links the earlier post
 
     // Same URL in a DIFFERENT community: no warning.
     await createCommunityVia(mod, 'elsewhere')
     const third = await mod.post('/c/elsewhere/submit?type=link', { title: 'Cross-post', url: 'https://example.com/dup' })
     const landing3 = await mod.get(third.headers.get('location') as string)
-    expect(await landing3.text()).not.toContain('already posted')
+    expect(await landing3.text()).not.toContain('paylaşılmış')
   })
 })
 
@@ -271,7 +271,7 @@ describe('rate limiting (US-042)', () => {
     const res = await member.post('/c/lounge/submit?type=text', { title: 'Sixth', body: '' })
     expect(res.headers.get('location')).toContain('/submit')
     const page = await member.get('/c/lounge/submit?type=text')
-    expect(await page.text()).toContain('Slow down')
+    expect(await page.text()).toContain('Yavaşlayın')
 
     // Window passes → allowed again.
     world.tick(10 * 60 * 1000 + 1)
@@ -290,7 +290,7 @@ describe('archived community is read-only (US-037)', () => {
     await admin.post(`/admin/communities/${communityId}/archive`)
 
     const page = await member.get('/c/oldprog')
-    expect(await page.text()).toContain('archived')
+    expect(await page.text()).toContain('arşivlenmiş')
 
     const res = await member.post('/c/oldprog/submit?type=text', { title: 'Too late', body: '' })
     await res.text()

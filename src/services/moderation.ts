@@ -19,7 +19,7 @@ function targetCommunity(ctx: Ctx, targetType: 'post' | 'comment', target: PostR
       ? (target as PostRow).community_id
       : (getPost(ctx, (target as CommentRow).post_id) as PostRow).community_id
   const community = getCommunityById(ctx, communityId)
-  if (!community) throw notFound('Community not found.')
+  if (!community) throw notFound('Topluluk bulunamadı.')
   return community
 }
 
@@ -35,7 +35,7 @@ export function removeContent(
   citedRule?: string | null,
 ): void {
   const target = targetType === 'post' ? getPost(ctx, targetId) : getComment(ctx, targetId)
-  if (!target || target.deleted) throw notFound('This content is no longer available.')
+  if (!target || target.deleted) throw notFound('Bu içerik artık mevcut değil.')
   const community = targetCommunity(ctx, targetType, target)
   const actor = requireModerator(ctx, viewer, community)
 
@@ -60,7 +60,7 @@ export function removeContent(
     notify(ctx, {
       userId: target.author_id,
       type: 'mod_removal',
-      title: `Your ${targetType} in c/${community.name} was removed by the moderators${citedRule ? ` — rule cited: ${citedRule}` : ''}.`,
+      title: `c/${community.name} topluluğundaki ${targetType === 'post' ? 'gönderiniz' : 'yorumunuz'} moderatörler tarafından kaldırıldı${citedRule ? ` — atıf yapılan kural: ${citedRule}` : ''}.`,
       link: `/c/${community.name}`,
     })
   })
@@ -69,9 +69,9 @@ export function removeContent(
 /** Site admin can view and reverse any removal (US-031). */
 export function restoreContent(ctx: Ctx, viewer: Viewer, targetType: 'post' | 'comment', targetId: string): void {
   const target = targetType === 'post' ? getPost(ctx, targetId) : getComment(ctx, targetId)
-  if (!target) throw notFound('This content is no longer available.')
+  if (!target) throw notFound('Bu içerik artık mevcut değil.')
   const community = targetCommunity(ctx, targetType, target)
-  if (!viewer?.is_admin) throw forbidden('Site admin access required.')
+  if (!viewer?.is_admin) throw forbidden('Site yöneticisi yetkisi gerekiyor.')
 
   transaction(ctx.db, () => {
     if (targetType === 'post') {
@@ -101,14 +101,14 @@ export function banUser(
 ): void {
   const actor = requireModerator(ctx, viewer, community)
   if (durationDays !== null && !BAN_DURATIONS_DAYS.includes(durationDays as (typeof BAN_DURATIONS_DAYS)[number])) {
-    throw badRequest('duration', 'Ban duration must be 3, 7, or 30 days, or permanent.')
+    throw badRequest('duration', 'Yasaklama süresi 3, 7 veya 30 gün ya da süresiz olmalıdır.')
   }
   const target = ctx.db.prepare('SELECT id, is_admin FROM users WHERE id = ? AND deleted = 0').get(userId) as
     | { id: string; is_admin: number }
     | undefined
-  if (!target) throw notFound('User not found.')
-  if (target.is_admin) throw forbidden('Site admins cannot be banned from communities.')
-  if (target.id === actor.id) throw badRequest('self', 'You cannot ban yourself.')
+  if (!target) throw notFound('Kullanıcı bulunamadı.')
+  if (target.is_admin) throw forbidden('Site yöneticileri topluluklardan yasaklanamaz.')
+  if (target.id === actor.id) throw badRequest('self', 'Kendinizi yasaklayamazsınız.')
 
   const expiresAt = durationDays === null ? null : ctx.now() + durationDays * DAY_MS
   transaction(ctx.db, () => {
@@ -129,12 +129,12 @@ export function banUser(
       targetType: 'user',
       targetId: userId,
       reason: reason ?? null,
-      detail: durationDays === null ? 'permanent' : `${durationDays} days`,
+      detail: durationDays === null ? 'süresiz' : `${durationDays} gün`,
     })
     notify(ctx, {
       userId,
       type: 'mod_ban',
-      title: `You are banned from c/${community.name} ${durationDays === null ? 'permanently' : `for ${durationDays} days`}${reason ? ` — reason: ${reason}` : ''}.`,
+      title: `c/${community.name} topluluğundan ${durationDays === null ? 'süresiz olarak' : `${durationDays} gün süreyle`} yasaklandınız${reason ? ` — sebep: ${reason}` : ''}.`,
       link: `/c/${community.name}`,
     })
   })
@@ -155,7 +155,7 @@ export function unbanUser(ctx: Ctx, viewer: Viewer, community: CommunityRow, use
 /** US-033: pin up to 2 posts; pinning a third requires unpinning first. */
 export function pinPost(ctx: Ctx, viewer: Viewer, postId: string): void {
   const post = getPost(ctx, postId)
-  if (!post || post.deleted || post.removed) throw notFound('Post not found.')
+  if (!post || post.deleted || post.removed) throw notFound('Gönderi bulunamadı.')
   const community = getCommunityById(ctx, post.community_id) as CommunityRow
   const actor = requireModerator(ctx, viewer, community)
   if (post.pinned_at !== null) return
@@ -165,7 +165,7 @@ export function pinPost(ctx: Ctx, viewer: Viewer, postId: string): void {
       .get(community.id) as { n: number }
   ).n
   if (pinnedCount >= 2) {
-    throw badRequest('pin_limit', 'A community can pin at most 2 posts. Unpin one first.')
+    throw badRequest('pin_limit', 'Bir topluluk en fazla 2 gönderi sabitleyebilir. Önce bir gönderinin sabitlemesini kaldırın.')
   }
   transaction(ctx.db, () => {
     ctx.db.prepare('UPDATE posts SET pinned_at = ? WHERE id = ?').run(ctx.now(), postId)
@@ -175,7 +175,7 @@ export function pinPost(ctx: Ctx, viewer: Viewer, postId: string): void {
 
 export function unpinPost(ctx: Ctx, viewer: Viewer, postId: string): void {
   const post = getPost(ctx, postId)
-  if (!post) throw notFound('Post not found.')
+  if (!post) throw notFound('Gönderi bulunamadı.')
   const community = getCommunityById(ctx, post.community_id) as CommunityRow
   const actor = requireModerator(ctx, viewer, community)
   transaction(ctx.db, () => {
@@ -189,7 +189,7 @@ export function appointModerator(ctx: Ctx, viewer: Viewer, community: CommunityR
   const actor = requireModerator(ctx, viewer, community)
   const membership = getMembership(ctx, userId, community.id)
   if (!membership || membership.status !== 'approved') {
-    throw badRequest('not_member', 'Only approved members can be appointed as moderators.')
+    throw badRequest('not_member', 'Yalnızca onaylı üyeler moderatör olarak atanabilir.')
   }
   if (membership.role === 'moderator') return
   transaction(ctx.db, () => {
@@ -209,16 +209,16 @@ export function appointModerator(ctx: Ctx, viewer: Viewer, community: CommunityR
 export function removeModerator(ctx: Ctx, viewer: Viewer, community: CommunityRow, userId: string): void {
   const actor = requireModerator(ctx, viewer, community)
   const membership = getMembership(ctx, userId, community.id)
-  if (!membership || membership.role !== 'moderator') throw notFound('That user is not a moderator.')
+  if (!membership || membership.role !== 'moderator') throw notFound('Bu kullanıcı moderatör değil.')
 
   const moderators = listModerators(ctx, community.id)
   if (moderators.length <= 1) {
-    throw badRequest('last_moderator', 'The last moderator cannot be removed. Appoint a replacement or ask a site admin.')
+    throw badRequest('last_moderator', 'Son moderatör kaldırılamaz. Yerine başka bir moderatör atayın ya da site yöneticisine danışın.')
   }
   const oldest = moderators[0]
   const isSelfStepDown = actor.id === userId
   if (!isSelfStepDown && !actor.is_admin && actor.id !== oldest?.user_id) {
-    throw forbidden('Only the longest-standing moderator or a site admin can remove other moderators.')
+    throw forbidden('Yalnızca en eski moderatör ya da site yöneticisi diğer moderatörleri kaldırabilir.')
   }
   transaction(ctx.db, () => {
     ctx.db

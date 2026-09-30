@@ -19,7 +19,7 @@ export class LocalObjectStorage implements ObjectStorage {
   }
 
   private pathFor(key: string): string {
-    if (!/^[A-Za-z0-9-]+$/.test(key)) throw new Error('invalid storage key')
+    if (!/^[A-Za-z0-9-]+$/.test(key)) throw new Error('Geçersiz depolama anahtarı')
     return join(this.dir, key)
   }
 

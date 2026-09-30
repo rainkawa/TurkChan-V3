@@ -19,7 +19,7 @@ export function apiRoutes(ctx: Ctx): Hono<AppEnv> {
     }
     const targetType = body.targetType === 'comment' ? 'comment' : body.targetType === 'post' ? 'post' : null
     if (!targetType || typeof body.targetId !== 'string') {
-      throw badRequest('input', 'targetType and targetId are required.')
+      throw badRequest('input', 'targetType ve targetId alanları gereklidir.')
     }
     const result = castVote(ctx, viewer, targetType, body.targetId, Number(body.value))
     return c.json(result)

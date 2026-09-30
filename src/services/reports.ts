@@ -20,8 +20,8 @@ export interface ReportInput {
 
 /** US-029: report content; duplicates absorbed silently; reporters anonymous. */
 export function createReport(ctx: Ctx, viewer: Viewer, input: ReportInput): void {
-  if (!viewer) throw unauthorized('Log in to report content.')
-  if (isSuspended(ctx, viewer)) throw forbidden('Your account is suspended.')
+  if (!viewer) throw unauthorized('İçerik şikayet etmek için giriş yapın.')
+  if (isSuspended(ctx, viewer)) throw forbidden('Hesabınız askıya alınmış.')
 
   const settings = getSettings(ctx)
   const limit = ctx.rateLimiter.check(`report:${viewer.id}`, settings.reportsPerHour, HOUR_MS)
@@ -29,26 +29,26 @@ export function createReport(ctx: Ctx, viewer: Viewer, input: ReportInput): void
 
   const target =
     input.targetType === 'post' ? getPost(ctx, input.targetId) : getComment(ctx, input.targetId)
-  if (!target || target.deleted) throw notFound('This content is no longer available.')
+  if (!target || target.deleted) throw notFound('Bu içerik artık mevcut değil.')
 
   const communityId =
     input.targetType === 'post'
       ? (target as PostRow).community_id
       : (getPost(ctx, (target as CommentRow).post_id) as PostRow).community_id
   const community = getCommunityById(ctx, communityId)
-  if (!community || community.deleted_at !== null) throw notFound('This content is no longer available.')
-  if (!canReadCommunity(ctx, viewer, community)) throw forbidden('This community is private.')
+  if (!community || community.deleted_at !== null) throw notFound('Bu içerik artık mevcut değil.')
+  if (!canReadCommunity(ctx, viewer, community)) throw forbidden('Bu topluluk gizli.')
 
   const detail = (input.detail ?? '').trim().slice(0, LIMITS.reportDetailMax)
   if (input.reasonType === 'other' && !detail) {
-    throw badRequest('detail_required', 'Describe the problem when choosing "other".')
+    throw badRequest('detail_required', '“Diğer” seçeneğini kullanırken sorunu açıklayın.')
   }
   let ruleId: string | null = null
   if (input.reasonType === 'rule') {
     const rule = ctx.db
       .prepare('SELECT id FROM community_rules WHERE id = ? AND community_id = ?')
       .get(input.ruleId ?? '', community.id)
-    if (!rule) throw badRequest('rule', 'Select one of this community’s rules.')
+    if (!rule) throw badRequest('rule', 'Bu topluluğun kurallarından birini seçin.')
     ruleId = input.ruleId as string
   }
 
@@ -99,7 +99,7 @@ export interface QueueEntry {
 /** US-030: open reports grouped per target, oldest-unresolved first. */
 export function reportQueue(ctx: Ctx, viewer: Viewer, community: CommunityRow | null): QueueEntry[] {
   if (community) requireModerator(ctx, viewer, community)
-  else if (!viewer?.is_admin) throw forbidden('Site admin access required.')
+  else if (!viewer?.is_admin) throw forbidden('Site yöneticisi yetkisi gerekiyor.')
 
   const rows = ctx.db
     .prepare(

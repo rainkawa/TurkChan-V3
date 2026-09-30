@@ -121,7 +121,7 @@ describe('US-023 vote integrity', () => {
     }
     const blocked = await voter.json('/api/vote', { targetType: 'post', targetId: postIds[5], value: 1 })
     expect(blocked.status).toBe(429)
-    expect(((await blocked.json()) as { error: string }).error).toContain('Slow down')
+    expect(((await blocked.json()) as { error: string }).error).toContain('Yavaşlayın')
 
     // Window passes → allowed again.
     world.tick(60 * 1000 + 1)

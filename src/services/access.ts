@@ -56,8 +56,8 @@ export function isSuspended(ctx: Ctx, user: UserRow): boolean {
 /** Community exists for this viewer (soft-deleted communities are admin-only). */
 export function requireVisibleCommunity(ctx: Ctx, viewer: Viewer, name: string): CommunityRow {
   const community = getCommunityByName(ctx, name)
-  if (!community) throw notFound('Community not found.')
-  if (community.deleted_at !== null && !viewer?.is_admin) throw notFound('Community not found.')
+  if (!community) throw notFound('Topluluk bulunamadı.')
+  if (community.deleted_at !== null && !viewer?.is_admin) throw notFound('Topluluk bulunamadı.')
   return community
 }
 
@@ -73,7 +73,7 @@ export function canReadCommunity(ctx: Ctx, viewer: Viewer, community: CommunityR
 export function requireReadAccess(ctx: Ctx, viewer: Viewer, community: CommunityRow): void {
   if (!canReadCommunity(ctx, viewer, community)) {
     // Access-required, never leaking content — 403 with no detail beyond the name being valid.
-    throw forbidden('This community is private. You need approved membership to view it.')
+    throw forbidden('Bu topluluk gizli. Görüntülemek için onaylı üye olmalısınız.')
   }
 }
 
@@ -86,27 +86,27 @@ export function requireParticipant(
 ): UserRow {
   if (!viewer) throw unauthorized()
   if (viewer.deleted) throw unauthorized()
-  if (isSuspended(ctx, viewer)) throw forbidden('Your account is suspended.')
-  if (community.deleted_at !== null) throw notFound('Community not found.')
-  if (community.archived) throw badRequest('archived', 'This community is archived and read-only.')
+  if (isSuspended(ctx, viewer)) throw forbidden('Hesabınız askıya alınmış.')
+  if (community.deleted_at !== null) throw notFound('Topluluk bulunamadı.')
+  if (community.archived) throw badRequest('archived', 'Bu topluluk arşivlenmiş ve salt okunur durumdadır.')
   const ban = activeBan(ctx, viewer.id, community.id)
-  if (ban) throw forbidden('You are banned from this community.')
+  if (ban) throw forbidden('Bu topluluktan yasaklandınız.')
   if (opts.requireMembership && !viewer.is_admin && !isApprovedMember(ctx, viewer, community.id)) {
-    throw forbidden('You must be a member of this community to do that.')
+    throw forbidden('Bunu yapmak için bu topluluğun üyesi olmalısınız.')
   }
   return viewer
 }
 
 export function requireModerator(ctx: Ctx, viewer: Viewer, community: CommunityRow): UserRow {
   if (!viewer) throw unauthorized()
-  if (isSuspended(ctx, viewer)) throw forbidden('Your account is suspended.')
-  if (!isModerator(ctx, viewer, community.id)) throw forbidden('Moderator access required.')
+  if (isSuspended(ctx, viewer)) throw forbidden('Hesabınız askıya alınmış.')
+  if (!isModerator(ctx, viewer, community.id)) throw forbidden('Moderatör yetkisi gerekiyor.')
   return viewer
 }
 
 export function requireAdmin(viewer: Viewer): UserRow {
   if (!viewer) throw unauthorized()
-  if (!viewer.is_admin) throw forbidden('Site admin access required.')
+  if (!viewer.is_admin) throw forbidden('Site yöneticisi yetkisi gerekiyor.')
   return viewer
 }
 

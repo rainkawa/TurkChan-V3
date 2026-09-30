@@ -57,9 +57,9 @@ export async function assertPublicDestination(raw: string): Promise<void> {
   const url = new URL(raw)
   const literal = url.hostname.replace(/^\[|\]$/g, '')
   if (isIP(literal)) {
-    if (isPrivateAddress(literal)) throw new Error('destination not allowed')
+    if (isPrivateAddress(literal)) throw new Error('Hedef adrese izin verilmiyor')
     return
   }
   const { address } = await lookup(url.hostname)
-  if (isPrivateAddress(address)) throw new Error('destination not allowed')
+  if (isPrivateAddress(address)) throw new Error('Hedef adrese izin verilmiyor')
 }

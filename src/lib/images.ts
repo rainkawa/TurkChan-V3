@@ -32,7 +32,7 @@ export function stripImageMetadata(bytes: Uint8Array): Uint8Array {
   if (type === 'jpeg') return stripJpeg(bytes)
   if (type === 'png') return stripPng(bytes)
   if (type === 'webp') return stripWebp(bytes)
-  throw new Error('unsupported image type')
+  throw new Error('Desteklenmeyen görsel türü')
 }
 
 function stripJpeg(bytes: Uint8Array): Uint8Array {

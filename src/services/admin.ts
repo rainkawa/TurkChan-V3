@@ -22,8 +22,8 @@ export function suspendUser(
 ): void {
   const admin = requireAdmin(viewer)
   const user = ctx.db.prepare('SELECT * FROM users WHERE id = ? AND deleted = 0').get(userId) as UserRow | undefined
-  if (!user) throw notFound('User not found.')
-  if (user.is_admin) throw badRequest('admin', 'Site admins cannot be suspended.')
+  if (!user) throw notFound('Kullanıcı bulunamadı.')
+  if (user.is_admin) throw badRequest('admin', 'Site yöneticileri askıya alınamaz.')
   const until = input.days === null ? null : ctx.now() + input.days * DAY_MS
   transaction(ctx.db, () => {
     ctx.db
@@ -71,7 +71,7 @@ export function setCommunityArchived(ctx: Ctx, viewer: Viewer, community: Commun
 export function deleteCommunity(ctx: Ctx, viewer: Viewer, community: CommunityRow, typedName: string): void {
   const admin = requireAdmin(viewer)
   if (typedName.trim().toLowerCase() !== community.name) {
-    throw badRequest('confirm', 'Type the community name exactly to confirm deletion.')
+    throw badRequest('confirm', 'Silmeyi onaylamak için topluluk adını tam olarak yazın.')
   }
   transaction(ctx.db, () => {
     ctx.db.prepare('UPDATE communities SET deleted_at = ? WHERE id = ?').run(ctx.now(), community.id)

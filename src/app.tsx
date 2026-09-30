@@ -5,7 +5,7 @@ import { getSessionUser } from './services/auth'
 import { AppError } from './services/errors'
 import { ValidationError } from './lib/validation'
 import { ErrorPage } from './views/layout'
-import { t } from './i18n/en'
+import { t } from './i18n/tr'
 import { type AppEnv, SESSION_COOKIE } from './routes/helpers'
 import { authRoutes } from './routes/auth'
 import { mainRoutes } from './routes/main'
@@ -36,7 +36,7 @@ export function createApp(ctx: Ctx): Hono<AppEnv> {
           originHost = null
         }
         if (originHost !== requestHost) {
-          throw new AppError(403, 'bad_origin', 'Cross-origin request rejected.')
+          throw new AppError(403, 'bad_origin', t.errors.crossOrigin)
         }
       }
     }
@@ -53,7 +53,7 @@ export function createApp(ctx: Ctx): Hono<AppEnv> {
 
   app.notFound((c) => {
     const viewer = c.get('viewer') ?? null
-    if (c.req.path.startsWith('/api/')) return c.json({ error: 'Not found' }, 404)
+    if (c.req.path.startsWith('/api/')) return c.json({ error: t.errors.notFoundBody }, 404)
     return c.html(
       <ErrorPage viewer={viewer} heading={t.errors.notFoundTitle} message={t.errors.notFoundBody} />,
       404,
@@ -79,9 +79,9 @@ export function createApp(ctx: Ctx): Hono<AppEnv> {
       return c.html(<ErrorPage viewer={viewer} heading={heading} message={err.message} />, err.status as 400)
     }
     console.error(err)
-    if (wantsJson) return c.json({ error: 'Internal error' }, 500)
+    if (wantsJson) return c.json({ error: t.errors.internalError }, 500)
     return c.html(
-      <ErrorPage viewer={viewer} heading={t.errors.genericTitle} message="An unexpected error occurred. Please try again." />,
+      <ErrorPage viewer={viewer} heading={t.errors.genericTitle} message={t.errors.genericBody} />,
       500,
     )
   })

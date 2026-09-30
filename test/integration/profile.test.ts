@@ -28,9 +28,9 @@ describe('US-005/US-007 profiles and karma', () => {
     const page = await guest.get(`/u/${username}`)
     const text = await page.text()
     expect(text).toContain(`u/${username}`)
-    expect(text).toContain('Joined 2026-07-01')
-    expect(text).toContain('Post karma: 1')
-    expect(text).toContain('Comment karma: 0')
+    expect(text).toContain('Katıldı 2026-07-01')
+    expect(text).toContain('Gönderi karma: 1')
+    expect(text).toContain('Yorum karma: 0')
     expect(text).toContain('My contribution')
     expect(text).toContain('And my comment')
   })
@@ -50,7 +50,7 @@ describe('US-005/US-007 profiles and karma', () => {
     const guest = new Agent(world.app)
     const page = await guest.get(`/u/${username}`)
     const text = await page.text()
-    expect(text).toContain('Post karma: 1')
+    expect(text).toContain('Gönderi karma: 1')
     expect(text).not.toContain('INNER-CIRCLE-POST')
 
     // Fellow member sees it.
@@ -91,7 +91,7 @@ describe('US-040 reply notifications', () => {
 
     const list = await op.get('/notifications')
     const listText = await list.text()
-    expect(listText).toContain('replied to your post')
+    expect(listText).toContain('gönderinize')
 
     // Opening deep-links to the permalink and marks it read.
     const notifId = (world.ctx.db.prepare('SELECT id FROM notifications').get() as { id: string }).id
@@ -113,7 +113,7 @@ describe('US-040 reply notifications', () => {
     await createCommentVia(bob, 'threads', postId, 'Bob replies to Alice', aliceComment)
 
     const aliceNotifs = await alice.get('/notifications')
-    expect(await aliceNotifs.text()).toContain('replied to your comment')
+    expect(await aliceNotifs.text()).toContain('yorumunuza')
 
     // op got exactly one notification (Alice's top-level), not Bob's nested reply.
     const opNotifCount = (world.ctx.db.prepare(
@@ -141,7 +141,7 @@ describe('US-040 reply notifications', () => {
 
     const list = await op.get('/notifications')
     const text = await list.text()
-    expect(text).not.toContain('replied to your post') // withdrawn
+    expect(text).not.toContain('gönderinize') // withdrawn
     const home = await op.get('/')
     expect(await home.text()).not.toContain('notif-badge')
   })

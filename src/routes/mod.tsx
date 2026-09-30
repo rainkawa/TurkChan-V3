@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import type { Ctx } from '../context'
-import { t } from '../i18n/en'
+import { t } from '../i18n/tr'
 import { Layout } from '../views/layout'
 import { requireVisibleCommunity, getCommunityById, requireModerator } from '../services/access'
 import { pendingRequests, resolveJoinRequest, listModerators, getUserForModeration } from '../services/communities'
@@ -38,12 +38,18 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
       <Layout title={t.community.modQueue} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)}>
         <div class="card">
           <h2>{t.community.modQueue} — c/{community.name}</h2>
-          {queue.length === 0 && <p class="placeholder">Queue is clear. 🎉</p>}
+          {queue.length === 0 && <p class="placeholder">{t.mod.queueClear}</p>}
           <div class="table-wrap">
             {queue.length > 0 && (
               <table class="data">
                 <thead>
-                  <tr><th>Content</th><th>Reports</th><th>Reasons</th><th>Age</th><th>Actions</th></tr>
+                  <tr>
+                    <th>{t.admin.content}</th>
+                    <th>{t.admin.reportsCol}</th>
+                    <th>{t.admin.reasons}</th>
+                    <th>{t.admin.age}</th>
+                    <th>{t.admin.actions}</th>
+                  </tr>
                 </thead>
                 <tbody>
                   {queue.map((entry) => {
@@ -56,22 +62,24 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
                     return (
                       <tr>
                         <td>
-                          {entry.auto_hidden === 1 && <span class="pin-tag">⚠ auto-hidden</span>}{' '}
+                          {entry.auto_hidden === 1 && <span class="pin-tag">⚠ {t.mod.autoHidden}</span>}{' '}
                           <a href={link}>{entry.title ?? entry.body_preview ?? entry.target_id}</a>
-                          {entry.author_username && <div class="hint">by u/{entry.author_username}</div>}
+                          {entry.author_username && <div class="hint">{t.common.by} u/{entry.author_username}</div>}
                         </td>
                         <td>{entry.report_count}</td>
                         <td>{entry.reasons}</td>
                         <td>{relativeTime(entry.oldest_report_at, now)}</td>
                         <td>
-                          <form method="post" action={`/mod/remove/${entry.target_type}/${entry.target_id}`} style="display:inline" data-confirm="Remove this content?">
-                            <button class="btn danger small" type="submit">Remove</button>
+                          <form method="post" action={`/mod/remove/${entry.target_type}/${entry.target_id}`} style="display:inline" data-confirm={t.post.removeContentConfirm}>
+                            <button class="btn danger small" type="submit">{t.common.remove}</button>
                           </form>{' '}
                           <form method="post" action={`/c/${community.name}/mod/dismiss/${entry.target_type}/${entry.target_id}`} style="display:inline">
-                            <button class="btn secondary small" type="submit">Dismiss</button>
+                            <button class="btn secondary small" type="submit">{t.mod.dismiss}</button>
                           </form>{' '}
                           {entry.author_username && (
-                            <a class="btn secondary small" href={`/c/${community.name}/mod/members?ban=${entry.author_username}`}>Ban author</a>
+                            <a class="btn secondary small" href={`/c/${community.name}/mod/members?ban=${entry.author_username}`}>
+                              {t.community.banAuthor}
+                            </a>
                           )}
                         </td>
                       </tr>
@@ -93,7 +101,7 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
     const type = c.req.param('type') === 'comment' ? 'comment' : 'post'
     try {
       dismissReports(ctx, viewer, community, type, c.req.param('id'))
-      setFlash(c, 'ok', 'Reports dismissed.')
+      setFlash(c, 'ok', t.mod.reportsDismissed)
     } catch (err) {
       if (err instanceof AppError) setFlash(c, 'error', err.message)
       else throw err
@@ -114,7 +122,7 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
     const community = post ? getCommunityById(ctx, post.community_id) : null
     try {
       removeContent(ctx, viewer, type, targetId, body.rule || null)
-      setFlash(c, 'ok', 'Content removed.')
+      setFlash(c, 'ok', t.mod.contentRemoved)
     } catch (err) {
       if (err instanceof AppError) setFlash(c, 'error', err.message)
       else throw err
@@ -128,7 +136,7 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
     const type = c.req.param('type') === 'comment' ? 'comment' : 'post'
     try {
       restoreContent(ctx, viewer, type, c.req.param('id'))
-      setFlash(c, 'ok', 'Content restored.')
+      setFlash(c, 'ok', t.mod.contentRestored)
     } catch (err) {
       if (err instanceof AppError) setFlash(c, 'error', err.message)
       else throw err
@@ -179,19 +187,21 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
       <Layout title={t.community.approvals} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)}>
         <div class="card">
           <h2>{t.community.approvals} — c/{community.name}</h2>
-          {pending.length === 0 && <p class="placeholder">No pending requests.</p>}
+          {pending.length === 0 && <p class="placeholder">{t.community.noPendingRequests}</p>}
           {pending.map((p) => (
             <div class="dir-item">
               <div>
                 <a class="name" href={`/u/${p.username}`}>u/{p.username}</a>
-                <p class="desc">requested {relativeTime(p.created_at, now)}</p>
+                <p class="desc">
+                  {t.community.requestedAgo} {relativeTime(p.created_at, now)}
+                </p>
               </div>
               <span>
                 <form method="post" action={`/c/${community.name}/mod/requests/${p.user_id}/approve`} style="display:inline">
-                  <button class="btn small" type="submit">Approve</button>
+                  <button class="btn small" type="submit">{t.mod.approve}</button>
                 </form>{' '}
                 <form method="post" action={`/c/${community.name}/mod/requests/${p.user_id}/reject`} style="display:inline">
-                  <button class="btn secondary small" type="submit">Reject</button>
+                  <button class="btn secondary small" type="submit">{t.mod.reject}</button>
                 </form>
               </span>
             </div>
@@ -203,55 +213,55 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
           {moderators.map((m) => (
             <div class="dir-item">
               <a class="name" href={`/u/${m.username}`}>u/{m.username}</a>
-              <form method="post" action={`/c/${community.name}/mod/moderators/${m.user_id}/remove`} style="display:inline" data-confirm="Remove this moderator?">
-                <button class="btn secondary small" type="submit">Remove mod</button>
+              <form method="post" action={`/c/${community.name}/mod/moderators/${m.user_id}/remove`} style="display:inline" data-confirm={t.post.removeModeratorConfirm}>
+                <button class="btn secondary small" type="submit">{t.community.moderatorRemove}</button>
               </form>
             </div>
           ))}
           <form method="post" action={`/c/${community.name}/mod/moderators/appoint`} style="margin-top:0.75rem">
             <div class="field">
-              <label for="appoint-username">Appoint moderator (username)</label>
+              <label for="appoint-username">{t.community.moderatorAppointLabel}</label>
               <input id="appoint-username" name="username" type="text" required />
             </div>
-            <button class="btn small" type="submit">Appoint</button>
+            <button class="btn small" type="submit">{t.community.moderatorAppoint}</button>
           </form>
         </div>
 
         <div class="card" style="margin-top:1rem">
-          <h3>Bans</h3>
+          <h3>{t.community.bans}</h3>
           {bans.map((b) => (
             <div class="dir-item">
               <div>
                 <span class="name">u/{b.username}</span>
                 <p class="desc">
-                  {b.expires_at === null ? 'permanent' : `until ${new Date(b.expires_at).toISOString().slice(0, 10)}`}
+                  {b.expires_at === null ? t.community.permanent : `${t.community.until} ${new Date(b.expires_at).toISOString().slice(0, 10)}`}
                   {b.reason ? ` — ${b.reason}` : ''}
                 </p>
               </div>
               <form method="post" action={`/c/${community.name}/mod/unban/${b.user_id}`} style="display:inline">
-                <button class="btn secondary small" type="submit">Unban</button>
+                <button class="btn secondary small" type="submit">{t.community.unban}</button>
               </form>
             </div>
           ))}
           <form method="post" action={`/c/${community.name}/mod/ban`} style="margin-top:0.75rem">
             <div class="field">
-              <label for="ban-username">Ban member (username)</label>
+              <label for="ban-username">{t.community.banMember}</label>
               <input id="ban-username" name="username" type="text" required value={banPrefill} />
             </div>
             <div class="field">
-              <label for="ban-duration">Duration</label>
+              <label for="ban-duration">{t.community.banDuration}</label>
               <select id="ban-duration" name="duration">
-                <option value="3">3 days</option>
-                <option value="7">7 days</option>
-                <option value="30">30 days</option>
-                <option value="permanent">Permanent</option>
+                <option value="3">{t.community.days3}</option>
+                <option value="7">{t.community.days7}</option>
+                <option value="30">{t.community.days30}</option>
+                <option value="permanent">{t.community.permanent}</option>
               </select>
             </div>
             <div class="field">
-              <label for="ban-reason">Reason (shown to the banned user)</label>
+              <label for="ban-reason">{t.community.banReason}</label>
               <input id="ban-reason" name="reason" type="text" maxlength={300} />
             </div>
-            <button class="btn danger small" type="submit">Ban</button>
+            <button class="btn danger small" type="submit">{t.community.ban}</button>
           </form>
         </div>
       </Layout>,
@@ -279,10 +289,10 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
     const body = await formData(c)
     try {
       const target = getUserForModeration(ctx, body.username ?? '')
-      if (!target) throw notFound('User not found.')
+      if (!target) throw notFound('Kullanıcı bulunamadı.')
       const duration = body.duration === 'permanent' ? null : Number(body.duration)
       banUser(ctx, viewer, community, target.id, duration, body.reason || null)
-      setFlash(c, 'ok', `u/${target.username} banned.`)
+      setFlash(c, 'ok', `u/${target.username} ${t.community.bannedFlash}`)
     } catch (err) {
       if (err instanceof AppError) setFlash(c, 'error', err.message)
       else throw err
@@ -310,9 +320,9 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
     const body = await formData(c)
     try {
       const target = getUserForModeration(ctx, body.username ?? '')
-      if (!target) throw notFound('User not found.')
+      if (!target) throw notFound('Kullanıcı bulunamadı.')
       appointModerator(ctx, viewer, community, target.id)
-      setFlash(c, 'ok', `u/${target.username} is now a moderator.`)
+      setFlash(c, 'ok', `u/${target.username} ${t.community.nowModerator}`)
     } catch (err) {
       if (err instanceof AppError) setFlash(c, 'error', err.message)
       else throw err
@@ -326,7 +336,7 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
     const community = requireVisibleCommunity(ctx, viewer, c.req.param('name'))
     try {
       removeModerator(ctx, viewer, community, c.req.param('userId'))
-      setFlash(c, 'ok', 'Moderator removed.')
+      setFlash(c, 'ok', t.community.moderatorRemoved)
     } catch (err) {
       if (err instanceof AppError) setFlash(c, 'error', err.message)
       else throw err
@@ -346,7 +356,7 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
     for (const entry of entries) {
       if (!usernames.has(entry.actor_id)) {
         const row = ctx.db.prepare('SELECT username FROM users WHERE id = ?').get(entry.actor_id) as { username: string } | undefined
-        usernames.set(entry.actor_id, row?.username ?? '[deleted]')
+        usernames.set(entry.actor_id, row?.username ?? t.post.deletedBody)
       }
     }
     return c.html(
@@ -356,7 +366,13 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
           <div class="table-wrap">
             <table class="data">
               <thead>
-                <tr><th>When</th><th>Actor</th><th>Action</th><th>Target</th><th>Reason / detail</th></tr>
+                <tr>
+                  <th>{t.admin.when}</th>
+                  <th>{t.admin.actor}</th>
+                  <th>{t.admin.action}</th>
+                  <th>{t.admin.target}</th>
+                  <th>{t.admin.reasonDetail}</th>
+                </tr>
               </thead>
               <tbody>
                 {entries.map((e) => (
@@ -371,7 +387,7 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
               </tbody>
             </table>
           </div>
-          {entries.length === 0 && <p class="placeholder">No moderation actions yet.</p>}
+          {entries.length === 0 && <p class="placeholder">{t.mod.noModActions}</p>}
         </div>
       </Layout>,
     )

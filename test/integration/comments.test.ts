@@ -102,7 +102,7 @@ describe('US-020 comment edit and delete', () => {
     const page = await alice.get(`/c/talk/comments/${postId}`)
     const text = await page.text()
     expect(text).toContain('Fixed text')
-    expect(text).toContain('(edited)')
+    expect(text).toContain('(düzenlendi)')
 
     const res = await bob.post(`/comments/${commentId}/edit`, { body: 'Vandalised' })
     await res.text()
@@ -123,7 +123,7 @@ describe('US-020 comment edit and delete', () => {
 
     const page = await alice.get(`/c/talk/comments/${postId}`)
     const text = await page.text()
-    expect(text).toContain('[deleted]')
+    expect(text).toContain('[silindi]')
     expect(text).toContain('The reply') // structure preserved
     expect(text).not.toContain('Parent comment')
   })
@@ -135,11 +135,11 @@ describe('US-020 comment edit and delete', () => {
 
     const aliceName = (world.ctx.db.prepare('SELECT username FROM comments c JOIN users u ON u.id = c.author_id WHERE c.id = ?').get(commentId) as { username: string }).username
     let profile = await bob.get(`/u/${aliceName}`)
-    expect(await profile.text()).toContain('Comment karma: 1')
+    expect(await profile.text()).toContain('Yorum karma: 1')
 
     await alice.post(`/comments/${commentId}/delete`)
     profile = await bob.get(`/u/${aliceName}`)
-    expect(await profile.text()).toContain('Comment karma: 0')
+    expect(await profile.text()).toContain('Yorum karma: 0')
   })
 })
 

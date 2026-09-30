@@ -25,22 +25,22 @@ export function createCommunity(
   input: { name: string; title: string; description: string; visibility: string },
 ): CommunityRow {
   if (!viewer) throw unauthorized()
-  if (isSuspended(ctx, viewer)) throw forbidden('Your account is suspended.')
+  if (isSuspended(ctx, viewer)) throw forbidden('Hesabınız askıya alınmış.')
   const settings = getSettings(ctx)
   if (settings.communityCreation === 'admin' && !viewer.is_admin) {
-    throw forbidden('Only site admins can create communities right now.')
+    throw forbidden('Şu anda yalnızca site yöneticileri topluluk oluşturabilir.')
   }
 
   const name = validateCommunityName(input.name)
   const title = input.title.trim() || name
   if (title.length > LIMITS.communityTitleMax) {
-    throw new ValidationError('title', `Title must be at most ${LIMITS.communityTitleMax} characters.`)
+    throw new ValidationError('title', `Başlık en fazla ${LIMITS.communityTitleMax} karakter olabilir.`)
   }
   const description = input.description.trim().slice(0, LIMITS.communityDescriptionMax)
   if (!['public', 'restricted', 'private'].includes(input.visibility)) {
-    throw badRequest('visibility', 'Visibility must be public, restricted, or private.')
+    throw badRequest('visibility', 'Görünürlük herkese açık, kısıtlı veya gizli olmalıdır.')
   }
-  if (getCommunityByName(ctx, name)) throw conflict('name_taken', 'That community name is already taken.')
+  if (getCommunityByName(ctx, name)) throw conflict('name_taken', 'Bu topluluk adı zaten alınmış.')
 
   const id = newId()
   transaction(ctx.db, () => {
@@ -129,7 +129,7 @@ export function updateCommunitySettings(
   const description = (input.description ?? community.description).trim().slice(0, LIMITS.communityDescriptionMax)
   const visibility = input.visibility ?? community.visibility
   if (!['public', 'restricted', 'private'].includes(visibility)) {
-    throw badRequest('visibility', 'Visibility must be public, restricted, or private.')
+    throw badRequest('visibility', 'Görünürlük herkese açık, kısıtlı veya gizli olmalıdır.')
   }
   const autoHide = Math.max(0, Math.min(100, Math.trunc(input.autoHideReports ?? community.auto_hide_reports)))
   const hideScores = Math.max(0, Math.min(1440, Math.trunc(input.hideCommentScoresMinutes ?? community.hide_comment_scores_minutes)))
@@ -160,7 +160,7 @@ export function replaceRules(
 ): CommunityRuleRow[] {
   const actor = requireModerator(ctx, viewer, community)
   if (rules.length > LIMITS.ruleMax) {
-    throw badRequest('rules', `A community can have at most ${LIMITS.ruleMax} rules.`)
+    throw badRequest('rules', `Bir toplulukta en fazla ${LIMITS.ruleMax} kural olabilir.`)
   }
   const cleaned = rules
     .map((r) => ({
@@ -187,11 +187,11 @@ export function replaceRules(
 /** US-010: join (instant for public; pending request for restricted/private). */
 export function joinCommunity(ctx: Ctx, viewer: Viewer, community: CommunityRow): MembershipRow {
   if (!viewer) throw unauthorized()
-  if (isSuspended(ctx, viewer)) throw forbidden('Your account is suspended.')
-  if (community.archived) throw badRequest('archived', 'This community is archived.')
-  if (community.deleted_at !== null) throw notFound('Community not found.')
+  if (isSuspended(ctx, viewer)) throw forbidden('Hesabınız askıya alınmış.')
+  if (community.archived) throw badRequest('archived', 'Bu topluluk arşivlenmiş durumdadır.')
+  if (community.deleted_at !== null) throw notFound('Topluluk bulunamadı.')
   if (activeBan(ctx, viewer.id, community.id)) {
-    throw forbidden('You are banned from this community and cannot rejoin.')
+    throw forbidden('Bu topluluktan yasaklandınız ve yeniden katılamazsınız.')
   }
   const existing = getMembership(ctx, viewer.id, community.id)
   if (existing?.status === 'approved') return existing
@@ -211,7 +211,7 @@ export function leaveCommunity(ctx: Ctx, viewer: Viewer, community: CommunityRow
   const membership = getMembership(ctx, viewer.id, community.id)
   if (!membership) return
   if (membership.role === 'moderator' && lastModeratorId(ctx, community.id) === viewer.id) {
-    throw badRequest('last_moderator', 'You are the last moderator. Appoint another moderator before leaving.')
+    throw badRequest('last_moderator', 'Son moderatörsünüz. Ayrılmadan önce başka bir moderatör atayın.')
   }
   ctx.db.prepare('DELETE FROM memberships WHERE user_id = ? AND community_id = ?').run(viewer.id, community.id)
 }
@@ -249,7 +249,7 @@ export function resolveJoinRequest(
 ): void {
   const actor = requireModerator(ctx, viewer, community)
   const membership = getMembership(ctx, userId, community.id)
-  if (!membership || membership.status !== 'pending') throw notFound('No pending request for that user.')
+  if (!membership || membership.status !== 'pending') throw notFound('Bu kullanıcı için bekleyen istek yok.')
   transaction(ctx.db, () => {
     ctx.db
       .prepare('UPDATE memberships SET status = ? WHERE user_id = ? AND community_id = ?')

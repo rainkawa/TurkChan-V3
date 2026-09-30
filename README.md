@@ -1,6 +1,6 @@
-# Komuniti — a self-hosted community discussion platform
+# TurkChan — Türkiye’nin topluluk platformu
 
-A Reddit-style discussion platform for community organisations — NGO programmes, youth organisations, mosques, madrasahs. User-created communities, threaded discussions, and community voting that determines visibility, at small-community scale (hundreds to low thousands of users), with the moderation layer such organisations actually need on day one.
+Kendi kendine barındırılabilen bir topluluk tartışma platformu — STK programları, gençlik kuruluşları, camiler ve medreseler için. Kullanıcıların oluşturduğu topluluklar, iç içe tartışmalar ve görünürlüğü belirleyen topluluk oylaması; yüzlerce ile birkaç bin kullanıcı ölçeğinde ve bu tür kuruluşların ilk günden ihtiyaç duyduğu moderasyon katmanıyla.
 
 Built as a single deployable monolith: one process, one database file, no external services required to run it.
 
@@ -10,7 +10,7 @@ TypeScript · Hono (SSR JSX) · SQLite (node:sqlite, FTS5) · Argon2id · 166 te
 
 ## Features
 
-**Core mechanics**
+**Çekirdek mekanikler**
 - Communities with three visibility types: **public** (anyone reads, members post), **restricted** (anyone reads, approved members post), **private** (approved members only — zero content leakage, enforced server-side everywhere: pages, feeds, search, profiles, OG tags, exports)
 - Three post types: **text** (sanitised Markdown), **link** (server-side OG preview fetch with SSRF guard + duplicate-URL warning), **image** (pre-signed upload flow, magic-byte validation, EXIF/GPS stripped before storage)
 - **Nested comments** to depth 8 (deeper replies flatten), materialized-path trees, permalinks with ancestor context, `[deleted]` placeholders that preserve thread structure
@@ -19,14 +19,14 @@ TypeScript · Hono (SSR JSX) · SQLite (node:sqlite, FTS5) · Argon2id · 166 te
 - **Best comment sort** — Wilson score lower bound, the right algorithm for few-vote small communities
 - **Karma**, full-text **search** (FTS5, visibility-aware), in-app **notifications** (replies + mod actions, withdrawn if the reply is removed before you see it)
 
-**Safety and administration**
+**Güvenlik ve yönetim**
 - Reporting with community rules in the dialog, silent duplicate absorption, anonymous reporters, and an optional auto-hide-after-N-reports threshold
 - Moderation per community: remove (with karma reversal + author notification), timed/permanent bans that lift automatically, pin up to 2 posts, moderator appointment with oldest-moderator removal rules, immutable mod log
 - Site admin dashboard: suspend/unsuspend accounts, archive or soft-delete communities (typed confirmation, 30-day recovery window), registration policy (open / invite-only with expiring invite links / closed), community-creation policy, live-editable rate limits, JSON export per community with 24-hour download links
 - Rate limiting on posts, comments, votes, reports, registration, and login; account lockout after repeated failed logins
 - PDPA-minded: minimal collection (email + username), account self-deletion with anonymisation, privacy notice page, image metadata stripping
 
-## Quick start
+## Hızlı başlangıç
 
 Requires **Node.js ≥ 22.5** (uses the built-in `node:sqlite`).
 
@@ -36,20 +36,20 @@ npm run seed   # demo communities + accounts (see below)
 npm run dev    # → http://localhost:3000
 ```
 
-The **first registered user becomes site admin**. Seeded demo logins:
+İlk **kayıt olan kullanıcı site yöneticisi olur**. Seed ile gelen demo hesaplar:
 
-| Account | Password | Role |
+| Hesap | Parola | Rol |
 |---|---|---|
-| `admin` | `seed-admin-pass-1` | Site admin |
-| `ustazah_f` | `seed-mod-pass-1` | Community moderator |
-| `aisyah`, `rahim`, `nurul` | `seed-user-pass-{1,2,3}` | Members |
+| `admin` | `seed-admin-pass-1` | Site yöneticisi |
+| `ustazah_f` | `seed-mod-pass-1` | Topluluk moderatörü |
+| `aisyah`, `rahim`, `nurul` | `seed-user-pass-{1,2,3}` | Üyeler |
 
 ```bash
 npm test           # 166 tests: unit + full HTTP integration
 npm run typecheck  # strict TypeScript, no emit
 ```
 
-## Architecture
+## Mimari
 
 One web application, server-rendered, with a thin vanilla-JS enhancement layer (optimistic voting, Markdown preview, local-storage drafts). No client framework, no build step for the frontend.
 
@@ -66,7 +66,7 @@ src/
 │                      #   admin, notifications, search, uploads, access
 ├── routes/            # thin HTTP handlers per area (+ JSON API)
 ├── views/             # JSX layout + components (mobile-first)
-└── i18n/en.ts         # all UI strings externalised (Malay-ready)
+└── i18n/tr.ts         # tüm arayüz metinleri tek dosyada (Türkçe)
 ```
 
 Design decisions worth knowing:
@@ -78,7 +78,7 @@ Design decisions worth knowing:
 - **Vote counting** — individual vote rows retained (auditable), score denormalised in the same transaction. No queues; this platform will never see Reddit's write volume.
 - **Hot ranking decay is a site setting** (default 90 000 s vs Reddit's 45 000) so a small community's front page doesn't empty out on slow days.
 
-## Testing
+## Testler
 
 166 tests across 18 files, all runnable offline in ~2 s:
 
@@ -86,16 +86,16 @@ Design decisions worth knowing:
 - **Integration (through the real HTTP app)** — registration/login/lockout/reset/deletion, membership approval flows, all three post types (including multipart image upload with EXIF verification), comment nesting and depth-cap flattening, vote idempotency and flips, feed ordering and cursor stability, reporting/auto-hide/removal/bans/pins/mod-log, admin suspension/archival/purge/exports/invites, search visibility, notifications and withdrawal
 - **Hardening** — CSRF origin rejection, open-redirect guard, malformed cursor/sort resilience, archived-community lockdown, private-community zero-leakage checks
 
-## Configuration
+## Yapılandırma
 
-| Knob | Where |
+| Ayar | Nerede |
 |---|---|
 | `PORT`, `DB_PATH`, `UPLOAD_DIR`, `BASE_URL` | environment variables |
 | Registration mode, community-creation policy | Admin → Settings (live) |
 | Hot decay constant, all rate limits | Admin → Settings (live) |
 | Auto-hide threshold, hidden comment scores | per-community settings (moderators) |
 
-## Production notes
+## Üretim notları
 
 - Run behind **Caddy** (or any TLS-terminating proxy); set `NODE_ENV=production` to enable `Secure` cookies.
 - Implement the `Mailer` interface (`src/lib/mailer.ts`) with a real provider (Resend/Postmark/SES) for password resets.
@@ -103,6 +103,6 @@ Design decisions worth knowing:
 - Back up nightly (`sqlite3 data/app.db ".backup ..."`) to off-server encrypted storage, and test restores. Or host the schema on PostgreSQL — it ports cleanly.
 - Single-node by design: availability strategy is fast redeploy + backups, not HA.
 
-## License
+## Lisans
 
 [MIT](LICENSE)

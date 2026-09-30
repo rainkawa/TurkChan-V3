@@ -35,7 +35,7 @@ describe('US-036 account suspension', () => {
     expect(again.loggedIn()).toBe(false)
     const page = await again.get('/login')
     const text = await page.text()
-    expect(text).toContain('suspended')
+    expect(text).toContain('askıya alınmış')
     expect(text).toContain('Abusive behaviour')
 
     // Admin-logged (site-level).

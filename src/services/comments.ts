@@ -25,12 +25,13 @@ export function createComment(
   input: { body: string; parentId?: string | null },
 ): CommentRow {
   const post = getPost(ctx, postId)
-  if (!post || post.deleted) throw notFound('Post not found.')
+  if (!post || post.deleted) throw notFound('Gönderi bulunamadı.')
+
   if (post.removed || post.auto_hidden) {
-    throw forbidden('Commenting is disabled on removed content.')
+    throw forbidden('Kaldırılan içeriklere yorum yapılamaz.')
   }
   const community = getCommunityById(ctx, post.community_id)
-  if (!community) throw notFound('Post not found.')
+  if (!community) throw notFound('Gönderi bulunamadı.')
   const user = requireParticipant(ctx, viewer, community, {
     requireMembership: community.visibility !== 'public',
   })
@@ -44,7 +45,7 @@ export function createComment(
   let parent: CommentRow | null = null
   if (input.parentId) {
     parent = getComment(ctx, input.parentId)
-    if (!parent || parent.post_id !== postId) throw notFound('Parent comment not found.')
+    if (!parent || parent.post_id !== postId) throw notFound('Üst yorum bulunamadı.')
     if (parent.deleted && !hasVisibleContent(parent)) {
       // Replying to a [deleted] placeholder is allowed (thread structure is preserved).
     }
@@ -71,7 +72,7 @@ export function createComment(
       notify(ctx, {
         userId: recipientId,
         type: 'reply',
-        title: `u/${user.username} replied to your ${parent ? 'comment' : 'post'} in c/${community.name}`,
+        title: `u/${user.username}, c/${community.name} topluluğundaki ${parent ? 'yorumunuza' : 'gönderinize'} yanıt verdi`,
         link: `/c/${community.name}/comments/${postId}/comment/${id}`,
         sourceCommentId: id,
       })
@@ -86,12 +87,12 @@ function hasVisibleContent(comment: CommentRow): boolean {
 
 export function editComment(ctx: Ctx, viewer: Viewer, commentId: string, body: string): CommentRow {
   const comment = getComment(ctx, commentId)
-  if (!comment || comment.deleted) throw notFound('Comment not found.')
-  if (!viewer || viewer.id !== comment.author_id) throw forbidden('Only the author can edit this comment.')
-  if (comment.removed) throw forbidden('This comment was removed by a moderator and cannot be edited.')
+  if (!comment || comment.deleted) throw notFound('Yorum bulunamadı.')
+  if (!viewer || viewer.id !== comment.author_id) throw forbidden('Bu yorumu yalnızca yazarı düzenleyebilir.')
+  if (comment.removed) throw forbidden('Bu yorum bir moderatör tarafından kaldırıldı ve düzenlenemez.')
   const community = getCommunityById(ctx, (getPost(ctx, comment.post_id) as PostRow).community_id)
   if (!community || community.archived || community.deleted_at !== null) {
-    throw badRequest('archived', 'This community is archived and read-only.')
+    throw badRequest('archived', 'Bu topluluk arşivlenmiş ve salt okunur durumdadır.')
   }
   const validBody = validateCommentBody(body)
   ctx.db.prepare('UPDATE comments SET body = ?, edited_at = ? WHERE id = ?').run(validBody, ctx.now(), commentId)
@@ -104,8 +105,8 @@ export function editComment(ctx: Ctx, viewer: Viewer, commentId: string, body: s
  */
 export function deleteComment(ctx: Ctx, viewer: Viewer, commentId: string): { placeholder: boolean } {
   const comment = getComment(ctx, commentId)
-  if (!comment || comment.deleted) throw notFound('Comment not found.')
-  if (!viewer || viewer.id !== comment.author_id) throw forbidden('Only the author can delete this comment.')
+  if (!comment || comment.deleted) throw notFound('Yorum bulunamadı.')
+  if (!viewer || viewer.id !== comment.author_id) throw forbidden('Bu yorumu yalnızca yazarı silebilir.')
 
   const childCount = (
     ctx.db.prepare('SELECT COUNT(*) AS n FROM comments WHERE parent_id = ?').get(commentId) as { n: number }

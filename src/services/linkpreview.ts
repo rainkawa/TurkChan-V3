@@ -19,7 +19,7 @@ export async function fetchLinkPreview(ctx: Ctx, url: string): Promise<LinkPrevi
     const response = await ctx.fetchFn(url, {
       signal: AbortSignal.timeout(ctx.config.linkPreviewTimeoutMs),
       redirect: 'follow',
-      headers: { accept: 'text/html', 'user-agent': 'CommunityPlatformBot/0.1 (+link-preview)' },
+      headers: { accept: 'text/html', 'user-agent': 'TurkChanBot/0.1 (+link-preview)' },
     })
     const contentType = response.headers.get('content-type') ?? ''
     if (!response.ok || !contentType.includes('text/html')) return null

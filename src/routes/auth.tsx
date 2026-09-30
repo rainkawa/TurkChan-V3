@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import type { Ctx } from '../context'
-import { t } from '../i18n/en'
+import { t } from '../i18n/tr'
 import { Layout } from '../views/layout'
 import {
   register,
@@ -87,7 +87,7 @@ export function authRoutes(ctx: Ctx): Hono<AppEnv> {
         <Layout title={t.auth.registerTitle} viewer={null}>
           <div class="card form-narrow">
             <h2>{t.auth.registerTitle}</h2>
-            <div class="flash warn">Registration is currently closed. Contact your programme coordinator for access.</div>
+            <div class="flash warn">{t.auth.registrationClosed}</div>
           </div>
         </Layout>,
       )
@@ -101,7 +101,7 @@ export function authRoutes(ctx: Ctx): Hono<AppEnv> {
             <div class="field">
               <label for="username">{t.auth.username}</label>
               <input id="username" name="username" type="text" required minlength={3} maxlength={20} pattern="[A-Za-z0-9_]+" autocomplete="username" />
-              <div class="hint">3–20 characters; letters, numbers, underscore.</div>
+              <div class="hint">{t.auth.usernameHint}</div>
             </div>
             <div class="field">
               <label for="email">{t.auth.email}</label>
@@ -167,7 +167,7 @@ export function authRoutes(ctx: Ctx): Hono<AppEnv> {
               <label for="email">{t.auth.email}</label>
               <input id="email" name="email" type="email" required />
             </div>
-            <button class="btn" type="submit">Send reset link</button>
+            <button class="btn" type="submit">{t.auth.sendResetLink}</button>
           </form>
         </div>
       </Layout>,
@@ -197,7 +197,7 @@ export function authRoutes(ctx: Ctx): Hono<AppEnv> {
               <input id="password" name="password" type="password" required minlength={10} autocomplete="new-password" />
               <div class="hint">{t.auth.passwordHint}</div>
             </div>
-            <button class="btn" type="submit">Reset password</button>
+            <button class="btn" type="submit">{t.auth.resetPassword}</button>
           </form>
         </div>
       </Layout>,
@@ -246,7 +246,7 @@ export function authRoutes(ctx: Ctx): Hono<AppEnv> {
     try {
       await deleteAccount(ctx, viewer, body.password ?? '')
       clearSessionCookie(c)
-      setFlash(c, 'ok', 'Your account has been deleted.')
+      setFlash(c, 'ok', t.auth.accountDeleted)
       return c.redirect('/')
     } catch (err) {
       if (err instanceof AppError) {

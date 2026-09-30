@@ -41,17 +41,17 @@ export async function register(
 
   const settings = getSettings(ctx)
   if (settings.registrationMode === 'closed') {
-    throw forbidden('Registration is currently closed. Contact your programme coordinator.')
+    throw forbidden('Kayıtlar şu anda kapalı. Program koordinatörünüzle iletişime geçin.')
   }
   let inviteCode: string | null = null
   if (settings.registrationMode === 'invite') {
     inviteCode = (input.inviteCode ?? '').trim()
-    if (!inviteCode) throw badRequest('invite_required', 'Registration is invite-only. An invite link is required.')
+    if (!inviteCode) throw badRequest('invite_required', 'Kayıt yalnızca davetle yapılabilir. Davet bağlantısı gerekiyor.')
     const invite = ctx.db.prepare('SELECT * FROM invites WHERE code = ?').get(inviteCode) as
       | { code: string; expires_at: number; max_uses: number; uses: number }
       | undefined
     if (!invite || invite.expires_at <= ctx.now() || invite.uses >= invite.max_uses) {
-      throw badRequest('invite_invalid', 'This invite link is invalid or has expired.')
+      throw badRequest('invite_invalid', 'Bu davet bağlantısı geçersiz ya da süresi dolmuş.')
     }
   }
 
@@ -62,14 +62,14 @@ export async function register(
   const usernameTaken = ctx.db
     .prepare('SELECT 1 FROM users WHERE username_lower = ?')
     .get(username.toLowerCase())
-  if (usernameTaken) throw conflict('username_taken', 'That username is already taken.')
+  if (usernameTaken) throw conflict('username_taken', 'Bu kullanıcı adı zaten alınmış.')
 
   const emailTaken = ctx.db.prepare('SELECT 1 FROM users WHERE email_lower = ?').get(email)
   if (emailTaken) {
     // Non-enumerating (US-001): the message never confirms the address exists.
     throw conflict(
       'email_unavailable',
-      'If this email is already registered, log in instead or use password reset. Otherwise, use a different address.',
+      'Bu e-posta zaten kayıtlıysa giriş yapın ya da parola sıfırlama kullanın. Değilse farklı bir adres deneyin.',
     )
   }
 
@@ -138,7 +138,7 @@ export async function login(
     throw new AppError(
       429,
       'account_locked',
-      'Too many failed login attempts. This account is temporarily locked — try again in 15 minutes or reset your password.',
+      'Çok fazla başarısız giriş denemesi. Bu hesap geçici olarak kilitlendi — 15 dakika sonra tekrar deneyin ya da parolanızı sıfırlayın.',
     )
   }
 
@@ -147,13 +147,13 @@ export async function login(
     .prepare('INSERT INTO login_attempts (username_lower, ip, success, created_at) VALUES (?, ?, ?, ?)')
     .run(attemptKey, input.ip, valid ? 1 : 0, ctx.now())
 
-  if (!user || !valid) throw unauthorized('Incorrect username/email or password.')
+  if (!user || !valid) throw unauthorized('Kullanıcı adı/e-posta veya parola hatalı.')
 
   if (user.suspended_indefinitely || (user.suspended_until !== null && user.suspended_until > ctx.now())) {
     const until = user.suspended_indefinitely
-      ? 'indefinitely'
-      : `until ${new Date(user.suspended_until as number).toISOString()}`
-    throw forbidden(`This account is suspended ${until}.${user.suspension_reason ? ` Reason: ${user.suspension_reason}` : ''}`)
+      ? 'süresiz olarak'
+      : `${new Date(user.suspended_until as number).toISOString().slice(0, 10)} tarihine kadar`
+    throw forbidden(`Bu hesap ${until} askıya alınmış.${user.suspension_reason ? ` Sebep: ${user.suspension_reason}` : ''}`)
   }
 
   const sessionToken = createSession(ctx, user.id)
@@ -190,8 +190,8 @@ export async function requestPasswordReset(ctx: Ctx, email: string, ip: string):
     .run(sha256(token), user.id, ctx.now() + ctx.config.resetTokenTtlMs)
   await ctx.mailer.send({
     to: normalized,
-    subject: 'Reset your password',
-    text: `Hi ${user.username},\n\nReset your password using this link (valid for 60 minutes):\n${ctx.config.baseUrl}/reset-password/${token}\n\nIf you did not request this, you can ignore this email.`,
+    subject: 'Parolanızı sıfırlayın',
+    text: `Merhaba ${user.username},\n\nParolanızı aşağıdaki bağlantıyla sıfırlayın (60 dakika geçerlidir):\n${ctx.config.baseUrl}/reset-password/${token}\n\nBu isteği siz yapmadıysanız bu e-postayı yok sayabilirsiniz.`,
   })
 }
 
@@ -201,7 +201,7 @@ export async function resetPassword(ctx: Ctx, token: string, newPassword: string
     .prepare('SELECT * FROM password_resets WHERE token_hash = ?')
     .get(sha256(token)) as { token_hash: string; user_id: string; expires_at: number; used: number } | undefined
   if (!row || row.used || row.expires_at <= ctx.now()) {
-    throw badRequest('reset_invalid', 'This reset link is invalid or has expired. Request a new one.')
+    throw badRequest('reset_invalid', 'Bu sıfırlama bağlantısı geçersiz ya da süresi dolmuş. Yeni bir tane isteyin.')
   }
   const passwordHash = await hashPassword(password)
   transaction(ctx.db, () => {
@@ -214,7 +214,7 @@ export async function resetPassword(ctx: Ctx, token: string, newPassword: string
 /** US-004: anonymise profile, purge credentials, keep content as "[deleted]". */
 export async function deleteAccount(ctx: Ctx, user: UserRow, password: string): Promise<void> {
   const valid = await verifyPassword(user.password_hash, password)
-  if (!valid) throw forbidden('Password is incorrect.')
+  if (!valid) throw forbidden('Parola hatalı.')
   transaction(ctx.db, () => {
     ctx.db
       .prepare(

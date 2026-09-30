@@ -1,9 +1,9 @@
 {
-  "name": "community-platform",
+  "name": "turkchan",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Self-hosted Reddit-style discussion platform for community organisations",
+  "description": "TurkChan — Türkiye’nin topluluk platformu. Kendi kendine barındırılan tartışma platformu.",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",

@@ -34,10 +34,10 @@ describe('US-001 registration', () => {
   test('rejects invalid username, short password, bad email', async () => {
     const agent = new Agent(world.app)
     for (const [form, expectedError] of [
-      [{ username: 'ab', email: 'a@b.co', password: 'longenough123' }, 'Username must be'],
-      [{ username: 'has space', email: 'a@b.co', password: 'longenough123' }, 'letters, numbers'],
-      [{ username: 'okname', email: 'not-an-email', password: 'longenough123' }, 'valid email'],
-      [{ username: 'okname', email: 'a@b.co', password: 'short' }, 'at least 10 characters'],
+      [{ username: 'ab', email: 'a@b.co', password: 'longenough123' }, 'Kullanıcı adı'],
+      [{ username: 'has space', email: 'a@b.co', password: 'longenough123' }, 'harf, rakam'],
+      [{ username: 'okname', email: 'not-an-email', password: 'longenough123' }, 'Geçerli bir e-posta'],
+      [{ username: 'okname', email: 'a@b.co', password: 'short' }, 'En az 10 karakter'],
     ] as const) {
       const res = await agent.post('/register', form as Record<string, string>)
       expect(res.status).toBe(302) // PRG back to form with flash
@@ -52,15 +52,15 @@ describe('US-001 registration', () => {
     const dupUser = new Agent(world.app)
     await dupUser.post('/register', { username: 'TAKEN_NAME', email: 'new@example.test', password: 'longenough123' })
     let page = await dupUser.get('/register')
-    expect(await page.text()).toContain('already taken')
+    expect(await page.text()).toContain('zaten alınmış')
 
     const dupEmail = new Agent(world.app)
     await dupEmail.post('/register', { username: 'fresh_name', email: 'taken@example.test', password: 'longenough123' })
     page = await dupEmail.get('/register')
     const text = await page.text()
     // Never confirms the address exists (US-001).
-    expect(text).toContain('If this email is already registered')
-    expect(text).not.toContain('already registered.')
+    expect(text).toContain('Bu e-posta zaten kayıtlıysa')
+    expect(text).not.toContain('kayıtlıdır')
   })
 
   test('passwords stored as Argon2id hashes, never plaintext', async () => {
@@ -84,7 +84,7 @@ describe('US-001 registration', () => {
     })
     expect(res.status).toBe(302)
     const page = await agent.get('/register')
-    expect(await page.text()).toContain('Slow down')
+    expect(await page.text()).toContain('Yavaşlayın')
   })
 })
 
@@ -95,7 +95,7 @@ describe('US-038 registration modes', () => {
 
     const agent = new Agent(world.app)
     const page = await agent.get('/register')
-    expect(await page.text()).toContain('currently closed')
+    expect(await page.text()).toContain('şu anda kapalı')
     const res = await agent.post('/register', { username: 'nope', email: 'nope@x.test', password: 'longenough123' })
     await res.text()
     expect(agent.loggedIn()).toBe(false)
@@ -178,7 +178,7 @@ describe('US-002 login and logout', () => {
     await agent.post('/login', { identifier: 'wrongpw', password: 'not-the-password' })
     expect(agent.loggedIn()).toBe(false)
     const page = await agent.get('/login')
-    expect(await page.text()).toContain('Incorrect username/email or password')
+    expect(await page.text()).toContain('Kullanıcı adı/e-posta veya parola hatalı')
   })
 
   test('5 failed logins in 15 minutes locks the account with a clear message', async () => {
@@ -192,7 +192,7 @@ describe('US-002 login and logout', () => {
     await victim.post('/login', { identifier: 'locked', password })
     expect(victim.loggedIn()).toBe(false)
     const page = await victim.get('/login')
-    expect(await page.text()).toContain('temporarily locked')
+    expect(await page.text()).toContain('geçici olarak kilitlendi')
 
     // Lockout expires after the window.
     world.tick(16 * 60 * 1000)
@@ -214,8 +214,8 @@ describe('US-003 password reset', () => {
     page = await agent.get('/forgot-password')
     const unknown = await page.text()
 
-    expect(known).toContain('If that email is registered')
-    expect(unknown).toContain('If that email is registered')
+    expect(known).toContain('sıfırlama bağlantısı gönderildi')
+    expect(unknown).toContain('sıfırlama bağlantısı gönderildi')
     expect(world.mailer.sent).toHaveLength(1) // only the real account got mail
   })
 
@@ -241,7 +241,7 @@ describe('US-003 password reset', () => {
     const reuse = await requester.post(`/reset-password/${token}`, { password: 'anotherpass99' })
     await reuse.text()
     const page = await requester.get(`/reset-password/${token}`)
-    expect(await page.text()).toContain('invalid or has expired')
+    expect(await page.text()).toContain('geçersiz ya da süresi dolmuş')
   })
 
   test('expired token is rejected', async () => {
@@ -288,14 +288,14 @@ describe('US-004 account deletion', () => {
     const guest = new Agent(world.app)
     const profile = await guest.get('/u/leaver')
     expect(profile.status).toBe(404)
-    expect(await profile.text()).toContain('not available')
+    expect(await profile.text()).toContain('kullanılamıyor')
 
     // Content remains, attributed to [deleted].
     const postPage = await guest.get(`/c/general/comments/${postId}`)
     expect(postPage.status).toBe(200)
     const text = await postPage.text()
     expect(text).toContain('My question')
-    expect(text).toContain('[deleted]')
+    expect(text).toContain('[silindi]')
     expect(text).not.toContain('u/leaver')
 
     // Login is impossible.

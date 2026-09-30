@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import type { Context } from 'hono'
 import type { Ctx } from '../context'
-import { t } from '../i18n/en'
+import { t } from '../i18n/tr'
 import { Layout } from '../views/layout'
 import { CommentTreeView, Markdown, VoteRail } from '../views/components'
 import { getPostForViewer, editPostBody, deletePost, getPost } from '../services/posts'
@@ -84,7 +84,7 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
             ? undefined
             : {
                 title: post.title,
-                description: `c/${community.name} · ${post.score} points · ${post.comment_count} comments`,
+                description: `c/${community.name} · ${post.score} ${t.common.points} · ${post.comment_count} ${t.feed.comments}`,
                 image: post.type === 'image' && post.image_key ? `${ctx.config.baseUrl}/media/${post.image_key}` : post.link_preview_image,
                 url: `${ctx.config.baseUrl}/c/${community.name}/comments/${post.id}`,
               }
@@ -113,23 +113,23 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
                 {viewer && !isOwn && contentHidden === null && <a href={`/report/post/${post.id}`}>{t.post.report}</a>}
                 {isMod && contentHidden === null && (
                   <>
-                    <form method="post" action={`/mod/remove/post/${post.id}`} style="display:inline" data-confirm="Remove this post?">
-                      <button class="linklike" type="submit">remove</button>
+                    <form method="post" action={`/mod/remove/post/${post.id}`} style="display:inline" data-confirm={t.post.removePostConfirm}>
+                      <button class="linklike" type="submit">{t.common.remove}</button>
                     </form>
                     {post.pinned_at === null ? (
                       <form method="post" action={`/posts/${post.id}/pin`} style="display:inline">
-                        <button class="linklike" type="submit">pin</button>
+                        <button class="linklike" type="submit">{t.common.pin}</button>
                       </form>
                     ) : (
                       <form method="post" action={`/posts/${post.id}/unpin`} style="display:inline">
-                        <button class="linklike" type="submit">unpin</button>
+                        <button class="linklike" type="submit">{t.common.unpin}</button>
                       </form>
                     )}
                   </>
                 )}
                 {viewer?.is_admin === 1 && contentHidden === 'removed' && (
                   <form method="post" action={`/mod/restore/post/${post.id}`} style="display:inline">
-                    <button class="linklike" type="submit">restore</button>
+                    <button class="linklike" type="submit">{t.common.restore}</button>
                   </form>
                 )}
               </div>
@@ -149,7 +149,12 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
           {canReply ? (
             <form class="comment-form" method="post" action={`/c/${community.name}/comments/${post.id}/comment`} id="reply">
               {highlightCommentId && <input type="hidden" name="parentId" value={highlightCommentId} />}
-              {highlightCommentId && <p class="hint">Replying to the highlighted comment. <a href={`/c/${community.name}/comments/${post.id}`}>Comment on the post instead</a></p>}
+              {highlightCommentId && (
+                <p class="hint">
+                  {t.post.replyingTo}{' '}
+                  <a href={`/c/${community.name}/comments/${post.id}`}>{t.post.commentOnPostInstead}</a>
+                </p>
+              )}
               <div class="field">
                 <textarea name="body" placeholder={t.comment.placeholder} required maxlength={10000}></textarea>
               </div>
@@ -183,7 +188,7 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
   app.get('/c/:name/comments/:postId/comment/:commentId', (c) => {
     const comment = getComment(ctx, c.req.param('commentId'))
     if (!comment || comment.post_id !== c.req.param('postId')) {
-      throw notFound('This content is no longer available.')
+      throw notFound(t.errors.notFoundBody)
     }
     return renderPostPage(c, comment.id)
   })
@@ -218,7 +223,7 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
     return c.html(
       <Layout title={t.post.edit} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)}>
         <div class="card">
-          <h2>{t.post.edit}: {post.title}</h2>
+          <h2>{t.post.editingPost}: {post.title}</h2>
           <form method="post" action={`/posts/${post.id}/edit`}>
             <div class="field">
               <label for="body">{t.post.body}</label>
@@ -226,7 +231,7 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
             </div>
             <button class="btn" type="submit">{t.post.save}</button>
             {' '}
-            <a class="btn secondary" href={`/c/${community?.name}/comments/${post.id}`}>Cancel</a>
+            <a class="btn secondary" href={`/c/${community?.name}/comments/${post.id}`}>{t.common.cancel}</a>
           </form>
         </div>
       </Layout>,
@@ -256,7 +261,7 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
     const post = getPost(ctx, c.req.param('id'))
     try {
       deletePost(ctx, viewer, c.req.param('id'))
-      setFlash(c, 'ok', 'Post deleted.')
+      setFlash(c, 'ok', t.post.postDeleted)
     } catch (err) {
       if (err instanceof AppError) setFlash(c, 'error', err.message)
       else throw err
@@ -275,14 +280,14 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
     return c.html(
       <Layout title={t.post.edit} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)}>
         <div class="card">
-          <h2>{t.post.edit} comment</h2>
+          <h2>{t.post.editingComment}</h2>
           <form method="post" action={`/comments/${comment.id}/edit`}>
             <div class="field">
               <textarea name="body" maxlength={10000} rows={6} required>{comment.body}</textarea>
             </div>
             <button class="btn" type="submit">{t.post.save}</button>
             {' '}
-            <a class="btn secondary" href={`/c/${community?.name}/comments/${comment.post_id}/comment/${comment.id}`}>Cancel</a>
+            <a class="btn secondary" href={`/c/${community?.name}/comments/${comment.post_id}/comment/${comment.id}`}>{t.common.cancel}</a>
           </form>
         </div>
       </Layout>,

@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import type { Ctx } from '../context'
-import { t } from '../i18n/en'
+import { t, visibilityLabel } from '../i18n/tr'
 import { Layout } from '../views/layout'
 import { PostCard, SortTabs } from '../views/components'
 import {
@@ -62,7 +62,7 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
     if (!canReadCommunity(ctx, viewer, community)) {
       // US-017/US-043: access-required page with zero content leakage.
       return c.html(
-        <Layout title="Private community" viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)}>
+        <Layout title={t.community.privateTitle} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)}>
           <div class="card empty-state">
             <div class="big">c/{community.name}</div>
             <p>{t.community.privateGate}</p>
@@ -106,7 +106,9 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
         <div class="community-head">
           <div>
             <h1>{community.title}</h1>
-            <span class="slug">c/{community.name} · {members} {t.community.members} · {community.visibility}</span>
+            <span class="slug">
+              c/{community.name} · {members} {t.community.members} · {visibilityLabel(community.visibility)}
+            </span>
           </div>
           {viewer && !state.isBanned && (
             state.isMember ? (
@@ -162,7 +164,7 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
               <p>{community.description}</p>
               <form method="get" action="/search">
                 <input type="hidden" name="community" value={community.name} />
-                <input type="search" name="q" placeholder={`Search c/${community.name}`} />
+                <input type="search" name="q" placeholder={`${t.community.searchCommunityPlaceholder} c/${community.name}`} />
               </form>
             </div>
             {rules.length > 0 && (
@@ -198,7 +200,7 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
     const community = requireVisibleCommunity(ctx, viewer, c.req.param('name'))
     try {
       const membership = joinCommunity(ctx, viewer, community)
-      if (membership.status === 'pending') setFlash(c, 'ok', 'Request sent. A moderator will review it.')
+      if (membership.status === 'pending') setFlash(c, 'ok', t.community.requestSent)
     } catch (err) {
       if (err instanceof AppError) setFlash(c, 'error', err.message)
       else throw err
@@ -289,7 +291,7 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
       if (type === 'image') {
         const parsed = await c.req.parseBody()
         const file = parsed.image
-        if (!(file instanceof File)) throw new AppError(400, 'image', 'Choose an image file to upload.')
+        if (!(file instanceof File)) throw new AppError(400, 'image', 'Yüklemek için bir görsel dosyası seçin.')
         const bytes = new Uint8Array(await file.arrayBuffer())
         const slot = requestUpload(ctx, viewer)
         await receiveUpload(ctx, slot.key, slot.token, bytes)
@@ -337,15 +339,15 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
               </select>
             </div>
             <div class="field">
-              <label for="rules">{t.community.rules} (one per line; “Title | detail” — max 15)</label>
+              <label for="rules">{t.community.rulesHint}</label>
               <textarea id="rules" name="rules" rows={8}>{rulesText}</textarea>
             </div>
             <div class="field">
-              <label for="autoHideReports">Auto-hide content after N reports (0 = off)</label>
+              <label for="autoHideReports">{t.community.autoHideReports}</label>
               <input id="autoHideReports" name="autoHideReports" type="number" min={0} max={100} value={String(community.auto_hide_reports)} />
             </div>
             <div class="field">
-              <label for="hideScores">Hide comment scores for first N minutes (0 = off)</label>
+              <label for="hideScores">{t.community.hideScores}</label>
               <input id="hideScores" name="hideScores" type="number" min={0} max={1440} value={String(community.hide_comment_scores_minutes)} />
             </div>
             <button class="btn" type="submit">{t.post.save}</button>
@@ -377,7 +379,7 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
           return { title: (title ?? '').trim(), detail: rest.join('|').trim() }
         })
       replaceRules(ctx, viewer, community, rules)
-      setFlash(c, 'ok', 'Community settings saved.')
+      setFlash(c, 'ok', t.community.settingsSaved)
     } catch (err) {
       if (err instanceof AppError || err instanceof ValidationError) setFlash(c, 'error', err.message)
       else throw err

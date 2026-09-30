@@ -170,7 +170,7 @@ describe('US-025/US-033 pinned posts', () => {
     const communityText = await community.text()
     const order = extractOrder(communityText, ['PINNED-SCHEDULE', 'NEWER-CHATTER'])
     expect(order).toEqual(['PINNED-SCHEDULE', 'NEWER-CHATTER'])
-    expect(communityText).toContain('Pinned')
+    expect(communityText).toContain('Sabitlendi')
 
     // Home feed: chronological order wins; pin does not float (US-025).
     const home = await agent.get('/?sort=new')

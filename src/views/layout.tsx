@@ -1,5 +1,5 @@
 import type { FC, Child } from 'hono/jsx'
-import { t } from '../i18n/en'
+import { t } from '../i18n/tr'
 import type { UserRow } from '../types'
 
 export interface OgTags {
@@ -19,11 +19,14 @@ export interface LayoutProps {
 }
 
 export const Layout: FC<LayoutProps> = ({ title, viewer, unread = 0, og, flash, children }) => (
-  <html lang="en">
+  <html lang="tr">
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
-      <title>{title ? `${title} · ${t.siteName}` : t.siteName}</title>
+      <title>{title ? `${title} · ${t.siteName}` : t.siteTitle}</title>
+      <meta name="description" content={t.ogDescription} />
+      <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+      <link rel="apple-touch-icon" href="/static/favicon.svg" />
       <link rel="stylesheet" href="/static/style.css" />
       {og && (
         <>
@@ -33,6 +36,10 @@ export const Layout: FC<LayoutProps> = ({ title, viewer, unread = 0, og, flash, 
           {og.image && <meta property="og:image" content={og.image} />}
           {og.url && <meta property="og:url" content={og.url} />}
           <meta property="og:site_name" content={t.siteName} />
+          <meta property="og:locale" content="tr_TR" />
+          <meta name="twitter:card" content="summary_large_image" />
+          <meta name="twitter:title" content={og.title} />
+          {og.description && <meta name="twitter:description" content={og.description} />}
         </>
       )}
     </head>
@@ -46,7 +53,8 @@ export const Layout: FC<LayoutProps> = ({ title, viewer, unread = 0, og, flash, 
           <form class="header-search" action="/search" method="get">
             <input type="search" name="q" placeholder={t.nav.search} aria-label={t.nav.search} />
           </form>
-          <nav class="header-nav" aria-label="Main navigation">
+          <nav class="header-nav" aria-label={t.nav.mainNavigation}>
+            <a href="/">{t.nav.home}</a>
             <a href="/communities">{t.nav.communities}</a>
             {viewer ? (
               <>

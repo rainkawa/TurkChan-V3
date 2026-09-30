@@ -91,7 +91,7 @@ export async function createLinkPost(
   const title = validatePostTitle(input.title)
   const url = input.url.trim()
   if (!isValidPublicUrlSyntax(url)) {
-    throw badRequest('url', 'Enter a valid public http(s) URL.')
+    throw badRequest('url', 'Geçerli herkese açık bir http(s) bağlantısı girin.')
   }
   const duplicateOf = findDuplicateLinkPost(ctx, community, url)
   // Preview fetch is best-effort and never blocks creation (US-014).
@@ -137,13 +137,13 @@ export function createImagePost(
 /** US-016: titles immutable; only text bodies editable, with edited indicator. */
 export function editPostBody(ctx: Ctx, viewer: Viewer, postId: string, body: string): PostRow {
   const post = getPost(ctx, postId)
-  if (!post || post.deleted) throw notFound('Post not found.')
-  if (!viewer || viewer.id !== post.author_id) throw forbidden('Only the author can edit this post.')
-  if (post.type !== 'text') throw badRequest('not_editable', 'Link URLs and images are not editable — delete and repost.')
-  if (post.removed) throw forbidden('This post was removed by a moderator and cannot be edited.')
+  if (!post || post.deleted) throw notFound('Gönderi bulunamadı.')
+  if (!viewer || viewer.id !== post.author_id) throw forbidden('Bu gönderiyi yalnızca yazarı düzenleyebilir.')
+  if (post.type !== 'text') throw badRequest('not_editable', 'Bağlantı ve görseller düzenlenemez — silip yeniden paylaşın.')
+  if (post.removed) throw forbidden('Bu gönderi bir moderatör tarafından kaldırıldı ve düzenlenemez.')
   const community = getCommunityById(ctx, post.community_id)
   if (!community || community.archived || community.deleted_at !== null) {
-    throw badRequest('archived', 'This community is archived and read-only.')
+    throw badRequest('archived', 'Bu topluluk arşivlenmiş ve salt okunur durumdadır.')
   }
   const validBody = validatePostBody(body)
   transaction(ctx.db, () => {
@@ -155,8 +155,8 @@ export function editPostBody(ctx: Ctx, viewer: Viewer, postId: string, body: str
 
 export function deletePost(ctx: Ctx, viewer: Viewer, postId: string): void {
   const post = getPost(ctx, postId)
-  if (!post || post.deleted) throw notFound('Post not found.')
-  if (!viewer || viewer.id !== post.author_id) throw forbidden('Only the author can delete this post.')
+  if (!post || post.deleted) throw notFound('Gönderi bulunamadı.')
+  if (!viewer || viewer.id !== post.author_id) throw forbidden('Bu gönderiyi yalnızca yazarı silebilir.')
   transaction(ctx.db, () => {
     ctx.db.prepare('UPDATE posts SET deleted = 1 WHERE id = ?').run(postId)
     syncPostFts(ctx, getPost(ctx, postId) as PostRow)
@@ -177,12 +177,12 @@ export interface PostView {
  */
 export function getPostForViewer(ctx: Ctx, viewer: Viewer, postId: string): PostView {
   const post = getPost(ctx, postId)
-  if (!post) throw notFound('This content is no longer available.')
+  if (!post) throw notFound('Bu içerik artık mevcut değil.')
   const community = getCommunityById(ctx, post.community_id)
-  if (!community) throw notFound('This content is no longer available.')
-  if (community.deleted_at !== null && !viewer?.is_admin) throw notFound('This content is no longer available.')
+  if (!community) throw notFound('Bu içerik artık mevcut değil.')
+    if (community.deleted_at !== null && !viewer?.is_admin) throw notFound('Bu içerik artık mevcut değil.')
   if (!canReadCommunity(ctx, viewer, community)) {
-    throw forbidden('This community is private. You need approved membership to view it.')
+    throw forbidden('Bu topluluk gizli. Görüntülemek için onaylı üye olmalısınız.')
   }
 
   const isModOrAdmin = Boolean(viewer?.is_admin)
@@ -193,7 +193,7 @@ export function getPostForViewer(ctx: Ctx, viewer: Viewer, postId: string): Post
 
   // Deleted post with zero comments is gone entirely (US-016).
   if (post.deleted && post.comment_count === 0 && !isModOrAdmin) {
-    throw notFound('This content is no longer available.')
+    throw notFound('Bu içerik artık mevcut değil.')
   }
 
   const author = ctx.db.prepare('SELECT username, deleted FROM users WHERE id = ?').get(post.author_id) as

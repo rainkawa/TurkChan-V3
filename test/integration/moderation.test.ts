@@ -84,7 +84,7 @@ describe('US-030/US-031 queue and removal', () => {
     const { mod, author, authorName, reporter, postId } = await setup()
     await reporter.json('/api/vote', { targetType: 'post', targetId: postId, value: 1 })
     let profile = await reporter.get(`/u/${authorName}`)
-    expect(await profile.text()).toContain('Post karma: 1')
+    expect(await profile.text()).toContain('Gönderi karma: 1')
 
     await reporter.post(`/report/post/${postId}`, { reason: 'spam', detail: '' })
     await mod.post(`/mod/remove/post/${postId}`, { rule: 'No spam' })
@@ -92,7 +92,7 @@ describe('US-030/US-031 queue and removal', () => {
     // Placeholder for everyone; title hidden.
     const page = await reporter.get(`/c/watch/comments/${postId}`)
     const text = await page.text()
-    expect(text).toContain('[removed by moderator]')
+    expect(text).toContain('[moderatör tarafından kaldırıldı]')
     expect(text).not.toContain('Questionable post')
 
     // Reports auto-resolved.
@@ -100,12 +100,12 @@ describe('US-030/US-031 queue and removal', () => {
 
     // Karma reversed (US-031).
     profile = await reporter.get(`/u/${authorName}`)
-    expect(await profile.text()).toContain('Post karma: 0')
+    expect(await profile.text()).toContain('Gönderi karma: 0')
 
     // Author notified with the cited rule; moderator not identified (US-041).
     const notif = await author.get('/notifications')
     const notifText = await notif.text()
-    expect(notifText).toContain('removed')
+    expect(notifText).toContain('kaldırıldı')
     expect(notifText).toContain('No spam')
 
     // Mod log records it (US-035).
@@ -149,7 +149,7 @@ describe('US-030/US-031 queue and removal', () => {
     expect(await feed.text()).not.toContain('Questionable post') // hidden pending review
 
     const queue = await mod.get('/c/watch/mod/queue')
-    expect(await queue.text()).toContain('auto-hidden')
+    expect(await queue.text()).toContain('otomatik gizlendi')
 
     // Dismissing restores visibility.
     await mod.post(`/c/watch/mod/dismiss/post/${postId}`)
@@ -179,7 +179,7 @@ describe('US-030/US-031 queue and removal', () => {
     await mod.post(`/mod/remove/comment/${commentId}`)
     const page = await mod.get(`/c/watch/comments/${postId}`)
     const text = await page.text()
-    expect(text).toContain('[removed by moderator]')
+    expect(text).toContain('[moderatör tarafından kaldırıldı]')
     expect(text).not.toContain('Rude remark')
     expect(text).toContain('A reply survives')
   })
@@ -193,8 +193,8 @@ describe('US-032 bans', () => {
     // Notification includes duration + reason (US-041).
     const notif = await author.get('/notifications')
     const notifText = await notif.text()
-    expect(notifText).toContain('banned')
-    expect(notifText).toContain('7 days')
+    expect(notifText).toContain('yasaklandınız')
+    expect(notifText).toContain('7 gün')
     expect(notifText).toContain('Repeated spam')
 
     // Reading still works (public community).
@@ -216,7 +216,7 @@ describe('US-032 bans', () => {
     const log = await mod.get('/c/watch/mod/log')
     const logText = await log.text()
     expect(logText).toContain('ban_user')
-    expect(logText).toContain('7 days')
+    expect(logText).toContain('7 gün')
 
     // Timed ban lifts automatically.
     world.tick(8 * 24 * 60 * 60 * 1000)

@@ -34,7 +34,7 @@ async function main() {
 
   const existing = (ctx.db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n
   if (existing > 0) {
-    console.log('Database already has users — skipping seed.')
+    console.log('Veritabanında zaten kullanıcı var — seed atlandı.')
     return
   }
 
@@ -55,21 +55,21 @@ async function main() {
   const nurul = await mkUser('nurul', 'seed-user-pass-3')
 
   const weekend = createCommunity(ctx, ustazah, {
-    name: 'weekend_madrasah',
-    title: 'Weekend Madrasah — Parents',
-    description: 'Schedules, logistics, and Q&A for the weekend Islamic programme.',
+    name: 'hafta_sonu',
+    title: 'Hafta Sonu Eğitimi — Veli',
+    description: 'Hafta sonu İslaî programı için program, lojistik ve soru-cevap.',
     visibility: 'public',
   })
   replaceRules(ctx, ustazah, weekend, [
-    { title: 'Be respectful', detail: 'Adab first, always.' },
-    { title: 'Keep it relevant', detail: 'Programme-related discussion only.' },
-    { title: 'No personal data of children', detail: 'Never post names/photos of minors without consent.' },
+    { title: 'Saygılı olun', detail: 'Önce edep, her zaman.' },
+    { title: 'Konuyla ilgili kalın', detail: 'Yalnızca programla ilgili tartışmalar.' },
+    { title: 'Çocukların kişisel verileri paylaşmayın', detail: 'Reşit olmayanların isim/fotoğraflarını izin almadan paylaşmayın.' },
   ])
 
   const volunteers = createCommunity(ctx, ustazah, {
-    name: 'volunteers',
-    title: 'Volunteer Youth Leaders',
-    description: 'Coordination space for volunteers across programmes.',
+    name: 'gonulluler',
+    title: 'Gönüllü Genç Liderler',
+    description: 'Programlar arası gönüllüler için koordinasyon alanı.',
     visibility: 'restricted',
   })
 
@@ -77,26 +77,26 @@ async function main() {
   joinCommunity(ctx, admin, weekend)
 
   const schedule = createTextPost(ctx, ustazah, weekend, {
-    title: 'Term 3 schedule and logistics (pinned)',
-    body: '## Term 3\n\n- **Sat 9am–12pm**: Quran + Tajweed\n- **Sun 9am–11am**: Fiqh for kids\n\nDoors open 8.40am. Please arrive by 8.55am.',
+    title: '3. Dönem programı ve lojistik (sabit)',
+    body: '## 3. Dönem\n\n- **Cumartesi 09.00–12.00**: Kur’an ve Tecvid\n- **Pazar 09.00–11.00**: Çocuklar için fıkıh\n\nKapılar 08.40’ta açılır. Lütfen 08.55’e kadar gelin.',
   })
   pinPost(ctx, ustazah, schedule.id)
 
   const faq = createTextPost(ctx, ustazah, weekend, {
-    title: 'FAQ: what to bring, parking, pickup',
-    body: '**What to bring:** own mushaf if you have one, water bottle.\n\n**Parking:** use the open-air carpark; the basement is reserved.\n\n**Pickup:** at the side gate, 12 sharp.',
+    title: 'SSS: ne getirmeli, otopark, teslim',
+    body: '**Ne getirmeli:** varsa kendi mushafınız, su şişesi.\n\n**Otopark:** açık otoparkı kullanın; otopark altı ayrılmıştır.\n\n**Teslim:** yan kapıdan, tam 12.00’de.',
   })
   pinPost(ctx, ustazah, faq.id)
 
   const question = createTextPost(ctx, aisyah, weekend, {
-    title: 'Should children bring their own Quran?',
-    body: 'My son starts this Saturday — does he need his own mushaf or are copies provided?',
+    title: 'Çocuklar kendi mushaflarını getirmeli mi?',
+    body: 'Oğlum bu cumartesi başlıyor — kendi mushafını getirmesi gerekiyor mu, yoksa kopyalar sağlanıyor mu?',
   })
   const answer = createComment(ctx, ustazah, question.id, {
-    body: 'Copies are provided in class, but bringing his own is encouraged for home revision. Any standard 15-line mushaf is fine.',
+    body: 'Sınıfta kopyalar sağlanıyor, ancak evde tekrar için kendi mushafını getirmesi teşvik edilir. Standart 15 satırlık herhangi bir mushaf uygundur.',
   })
   createComment(ctx, rahim, question.id, {
-    body: 'We bought ours from the bookshop next to the mosque — RM12 and sturdy.',
+    body: 'Bizimkini cami yanındaki kitapçıdan aldık — sağlam ve uygun fiyatlıydı.',
     parentId: answer.id,
   })
   for (const user of [aisyah, rahim, nurul, admin]) {
@@ -105,19 +105,19 @@ async function main() {
   }
 
   createTextPost(ctx, rahim, weekend, {
-    title: 'Carpool from Tampines on Saturdays?',
-    body: 'We have 2 spare seats leaving Tampines Central at 8.15am. Reply if interested.',
+    title: 'Cumartesi günleri yolculuk paylaşımı var mı?',
+    body: 'Merkezden 08.15’te çıkan aracımızda 2 boş koltuk var. İlgilenenler yanıtlayabilir.',
   })
   await createLinkPost(ctx, ustazah, volunteers, {
-    title: 'Volunteer briefing deck (term 3)',
-    url: 'https://example.org/briefing-term3',
+    title: 'Gönüllü bilgilendirme sunumu (3. dönem)',
+    url: 'https://example.org/briefing-donem-3',
   })
 
-  console.log('Seeded demo data:')
-  console.log('  communities: c/weekend_madrasah (public), c/volunteers (restricted)')
-  console.log('  admin login: admin / seed-admin-pass-1')
-  console.log('  moderator:   ustazah_f / seed-mod-pass-1')
-  console.log('  members:     aisyah, rahim, nurul / seed-user-pass-{1,2,3}')
+  console.log('Demo verisi eklendi:')
+  console.log('  topluluklar: c/hafta_sonu (herkese açık), c/gonulluler (kısıtlı)')
+  console.log('  yönetici girişi: admin / seed-admin-pass-1')
+  console.log('  moderatör:       ustazah_f / seed-mod-pass-1')
+  console.log('  üyeler:          aisyah, rahim, nurul / seed-user-pass-{1,2,3}')
 }
 
 main().catch((err) => {

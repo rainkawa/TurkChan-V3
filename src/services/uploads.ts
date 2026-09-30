@@ -25,14 +25,14 @@ export function requestUpload(ctx: Ctx, viewer: UserRow | null): { key: string; 
 
 export async function receiveUpload(ctx: Ctx, key: string, token: string, bytes: Uint8Array): Promise<UploadRow> {
   const upload = ctx.db.prepare('SELECT * FROM uploads WHERE key = ?').get(key) as UploadRow | undefined
-  if (!upload || upload.token_hash !== sha256(token)) throw notFound('Upload slot not found.')
-  if (upload.status !== 'pending') throw badRequest('upload_used', 'This upload slot was already used.')
-  if (bytes.length === 0) throw badRequest('empty', 'The uploaded file is empty.')
+  if (!upload || upload.token_hash !== sha256(token)) throw notFound('Yükleme alanı bulunamadı.')
+  if (upload.status !== 'pending') throw badRequest('upload_used', 'Bu yükleme alanı zaten kullanılmış.')
+  if (bytes.length === 0) throw badRequest('empty', 'Yüklenen dosya boş.')
   if (bytes.length > ctx.config.maxImageBytes) {
-    throw badRequest('too_large', 'Images must be 10 MB or smaller.')
+    throw badRequest('too_large', 'Görseller 10 MB veya daha küçük olmalıdır.')
   }
   const type = detectImageType(bytes)
-  if (!type) throw badRequest('bad_type', 'Only JPEG, PNG, and WebP images are accepted.')
+  if (!type)    throw badRequest('bad_type', 'Yalnızca JPEG, PNG ve WebP görselleri kabul edilir.')
 
   const stripped = stripImageMetadata(bytes)
   await ctx.storage.put(key, stripped)
@@ -45,10 +45,10 @@ export async function receiveUpload(ctx: Ctx, key: string, token: string, bytes:
 /** Claim an uploaded image for a post. Enforces ownership and single use. */
 export function attachUpload(ctx: Ctx, viewer: UserRow, key: string): UploadRow {
   const upload = ctx.db.prepare('SELECT * FROM uploads WHERE key = ?').get(key) as UploadRow | undefined
-  if (!upload) throw badRequest('upload_missing', 'Image upload not found — upload the image first.')
-  if (upload.uploader_id !== viewer.id) throw forbidden('That upload belongs to another account.')
+  if (!upload)    throw badRequest('upload_missing', 'Görsel yüklemesi bulunamadı — önce görseli yükleyin.')
+  if (upload.uploader_id !== viewer.id) throw forbidden('Bu yükleme başka bir hesaba ait.')
   if (upload.status !== 'uploaded') {
-    throw badRequest('upload_incomplete', 'The image upload did not complete. Upload it again.')
+    throw badRequest('upload_incomplete', 'Görsel yüklemesi tamamlanmadı. Tekrar yükleyin.')
   }
   ctx.db.prepare("UPDATE uploads SET status = 'attached' WHERE key = ?").run(key)
   return { ...upload, status: 'attached' }

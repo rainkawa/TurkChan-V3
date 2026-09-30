@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import type { Ctx } from '../context'
-import { t } from '../i18n/en'
+import { t } from '../i18n/tr'
 import { Layout } from '../views/layout'
 import { PostCard, SortTabs } from '../views/components'
 import { homeFeed, type FeedSort, type TopWindow } from '../services/feeds'
@@ -14,6 +14,7 @@ import { decodeCursor } from '../lib/cursor'
 import { AppError } from '../services/errors'
 import { ValidationError } from '../lib/validation'
 import { relativeTime, formatDate } from '../views/helpers'
+import { visibilityLabel } from '../i18n/tr'
 import { type AppEnv, formData, setFlash, takeFlash, unread } from './helpers'
 
 export function parseSort(raw: string | undefined): FeedSort {
@@ -35,7 +36,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
     const myVotes = getMyVotes(ctx, viewer, 'post', page.items.map((i) => i.id))
     const now = ctx.now()
     return c.html(
-      <Layout viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)} og={{ title: t.siteName, description: t.tagline }}>
+      <Layout viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)} og={{ title: t.siteTitle, description: t.ogDescription }}>
         <div class="layout with-sidebar">
           <section>
             <SortTabs basePath="/" sort={sort} window={window} />
@@ -89,10 +90,10 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
                 <a class="name" href={`/c/${e.name}`}>c/{e.name}</a>
                 <p class="desc">{e.title}{e.description ? ` — ${e.description}` : ''}</p>
               </div>
-              <span class="count">{e.member_count} {t.community.members}{e.visibility !== 'public' ? ` · ${e.visibility}` : ''}</span>
+              <span class="count">{e.member_count} {t.community.members}{e.visibility !== 'public' ? ` · ${visibilityLabel(e.visibility)}` : ''}</span>
             </div>
           ))}
-          {entries.length === 0 && <p class="placeholder">No communities yet.</p>}
+          {entries.length === 0 && <p class="placeholder">{t.post.noCommunities}</p>}
         </div>
       </Layout>,
     )
@@ -109,7 +110,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
             <div class="field">
               <label for="name">{t.community.name}</label>
               <input id="name" name="name" type="text" required minlength={3} maxlength={24} pattern="[a-z0-9_]+" />
-              <div class="hint">3–24 chars, lowercase letters/numbers/underscore. Cannot be changed later.</div>
+              <div class="hint">{t.community.nameHint}</div>
             </div>
             <div class="field">
               <label for="title">{t.community.title}</label>
@@ -171,12 +172,17 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
           <h2>{t.nav.search}</h2>
           <form method="get" action="/search">
             <div class="field">
-              <input type="search" name="q" value={query} placeholder="Search posts and communities" />
+              <input type="search" name="q" value={query} placeholder={t.post.searchPlaceholder} />
               {communityName && <input type="hidden" name="community" value={communityName} />}
             </div>
             <button class="btn" type="submit">{t.nav.search}</button>
           </form>
-          {communityName && <p class="hint">Searching within c/{communityName}. <a href={`/search?q=${encodeURIComponent(query)}`}>Search everywhere</a></p>}
+          {communityName && (
+            <p class="hint">
+              {t.post.searchWithinPrefix} c/{communityName}.{' '}
+              <a href={`/search?q=${encodeURIComponent(query)}`}>{t.post.searchEverywhere}</a>
+            </p>
+          )}
         </div>
         {query && results.communities.length > 0 && (
           <div class="card" style="margin-top:1rem">
@@ -194,10 +200,10 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
         )}
         {query && (
           <div class="card" style="margin-top:1rem">
-            <h3>Posts</h3>
+            <h3>{t.profile.posts}</h3>
             {results.posts.length === 0 && (
               <p class="placeholder">
-                No results. Try different keywords, or <a href="/communities">post your question in a relevant community</a>.
+                {t.post.noResults} <a href="/communities">{t.post.searchPostQuestion}</a>.
               </p>
             )}
             {results.posts.map((p) => (
@@ -205,7 +211,8 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
                 <div>
                   <a class="name" href={`/c/${p.community_name}/comments/${p.id}`}>{p.title}</a>
                   <p class="desc">
-                    c/{p.community_name} · {p.score} pts · {p.comment_count} {t.feed.comments} · {relativeTime(p.created_at, now)}
+                    c/{p.community_name} · {p.score} {t.common.points} · {p.comment_count} {t.feed.comments} ·{' '}
+                    {relativeTime(p.created_at, now)}
                   </p>
                 </div>
               </div>
@@ -247,24 +254,28 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
             </div>
             <div class="card" style="margin-top:1rem">
               <h3>{t.profile.posts}</h3>
-              {profile.posts.length === 0 && <p class="placeholder">No posts.</p>}
+              {profile.posts.length === 0 && <p class="placeholder">{t.post.noPosts}</p>}
               {profile.posts.map((p) => (
                 <div class="dir-item">
                   <div>
                     <a class="name" href={`/c/${p.community_name}/comments/${p.id}`}>{p.title}</a>
-                    <p class="desc">c/{p.community_name} · {p.score} pts · {relativeTime(p.created_at, now)}</p>
+                    <p class="desc">
+                      c/{p.community_name} · {p.score} {t.common.points} · {relativeTime(p.created_at, now)}
+                    </p>
                   </div>
                 </div>
               ))}
             </div>
             <div class="card" style="margin-top:1rem">
               <h3>{t.profile.comments}</h3>
-              {profile.comments.length === 0 && <p class="placeholder">No comments.</p>}
+              {profile.comments.length === 0 && <p class="placeholder">{t.post.noComments}</p>}
               {profile.comments.map((cm) => (
                 <div class="dir-item">
                   <div>
                     <a class="name" href={`/c/${cm.community_name}/comments/${cm.post_id}/comment/${cm.id}`}>{cm.post_title}</a>
-                    <p class="desc">{cm.body.slice(0, 160)} · {cm.score} pts · {relativeTime(cm.created_at, now)}</p>
+                    <p class="desc">
+                      {cm.body.slice(0, 160)} · {cm.score} {t.common.points} · {relativeTime(cm.created_at, now)}
+                    </p>
                   </div>
                 </div>
               ))}
@@ -308,7 +319,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
     const body = await formData(c)
     try {
       updateProfile(ctx, viewer, { displayName: body.displayName ?? '', bio: body.bio ?? '' })
-      setFlash(c, 'ok', 'Profile updated.')
+      setFlash(c, 'ok', t.profile.updated)
     } catch (err) {
       if (err instanceof ValidationError) setFlash(c, 'error', err.message)
       else throw err
@@ -364,19 +375,28 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
 
   app.get('/privacy', (c) => {
     const viewer = c.get('viewer')
-    return c.html(
-      <Layout title={t.footer.privacy} viewer={viewer} unread={unread(ctx, viewer)}>
+    return c.html(        <Layout title={t.footer.privacy} viewer={viewer} unread={unread(ctx, viewer)}>
         <div class="card">
           <h2>{t.footer.privacy}</h2>
-          <p>This platform collects the minimum personal data needed to run community discussions: your email address and username.</p>
+          <p>{t.privacy.intro}</p>
           <ul>
-            <li><strong>Purpose:</strong> account access, password reset, and reply notifications. Nothing else.</li>
-            <li><strong>No sale or sharing:</strong> your data is never sold or shared with third parties.</li>
-            <li><strong>IP addresses</strong> are retained in logs for at most 30 days, used only for rate limiting and abuse investigation.</li>
-            <li><strong>Account deletion:</strong> you can delete your account at any time from Settings. Your profile is anonymised and your email removed; posts and comments remain attributed to “[deleted]” to preserve discussions.</li>
-            <li><strong>Images:</strong> uploaded images have all metadata (including GPS location) stripped before storage.</li>
+            <li>
+              <strong>{t.privacy.purpose}</strong> {t.privacy.purposeBody}
+            </li>
+            <li>
+              <strong>{t.privacy.noSale}</strong> {t.privacy.noSaleBody}
+            </li>
+            <li>
+              <strong>{t.privacy.ipAddresses}</strong> {t.privacy.ipAddressesBody}
+            </li>
+            <li>
+              <strong>{t.privacy.accountDeletion}</strong> {t.privacy.accountDeletionBody}
+            </li>
+            <li>
+              <strong>{t.privacy.images}</strong> {t.privacy.imagesBody}
+            </li>
           </ul>
-          <p>Questions? Contact your programme coordinator or site administrator.</p>
+          <p>{t.privacy.questions}</p>
         </div>
       </Layout>,
     )

@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import type { Ctx } from '../context'
-import { t } from '../i18n/en'
+import { t, visibilityLabel } from '../i18n/tr'
 import { Layout } from '../views/layout'
 import { requireAdmin, getCommunityById } from '../services/access'
 import {
@@ -54,11 +54,19 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
         <div class="card">
           <form method="get" action="/admin">
             <input type="hidden" name="tab" value="users" />
-            <input type="search" name="q" value={query} placeholder="Filter by username" />
+            <input type="search" name="q" value={query} placeholder={t.admin.filterByUsername} />
           </form>
           <div class="table-wrap">
             <table class="data">
-              <thead><tr><th>User</th><th>Email</th><th>Status</th><th>Joined</th><th>Actions</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>{t.admin.user}</th>
+                  <th>{t.admin.email}</th>
+                  <th>{t.admin.status}</th>
+                  <th>{t.admin.joined}</th>
+                  <th>{t.admin.actions}</th>
+                </tr>
+              </thead>
               <tbody>
                 {users.map((u) => {
                   const suspended = u.suspended_indefinitely === 1 || (u.suspended_until !== null && u.suspended_until > now)
@@ -66,7 +74,13 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
                     <tr>
                       <td><a href={`/u/${u.username}`}>u/{u.username}</a>{u.is_admin === 1 && ' ⭐'}</td>
                       <td>{u.email_lower ?? '—'}</td>
-                      <td>{u.deleted === 1 ? 'deleted' : suspended ? `suspended${u.suspended_until ? ` until ${formatDate(u.suspended_until)}` : ' (indefinite)'}` : 'active'}</td>
+                      <td>
+                        {u.deleted === 1
+                          ? t.admin.deleted
+                          : suspended
+                            ? `${t.admin.suspended}${u.suspended_until ? ` — ${formatDate(u.suspended_until)}` : ` (${t.admin.indefinite})`}`
+                            : t.admin.active}
+                      </td>
                       <td>{formatDate(u.created_at)}</td>
                       <td>
                         {u.deleted === 0 && u.is_admin === 0 && (
@@ -77,12 +91,12 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
                           ) : (
                             <form method="post" action={`/admin/users/${u.id}/suspend`} style="display:inline">
                               <select name="days" style="width:auto;padding:0.2rem">
-                                <option value="3">3d</option>
-                                <option value="7">7d</option>
-                                <option value="30">30d</option>
-                                <option value="indefinite">indefinite</option>
+                                <option value="3">{t.admin.days3}</option>
+                                <option value="7">{t.admin.days7}</option>
+                                <option value="30">{t.admin.days30}</option>
+                                <option value="indefinite">{t.admin.indefinite}</option>
                               </select>{' '}
-                              <input name="reason" type="text" placeholder="reason" style="width:8rem;padding:0.2rem" />{' '}
+                              <input name="reason" type="text" placeholder={t.admin.reasonPlaceholder} style="width:8rem;padding:0.2rem" />{' '}
                               <button class="btn danger small" type="submit">{t.admin.suspend}</button>
                             </form>
                           )
@@ -102,14 +116,30 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
         <div class="card">
           <div class="table-wrap">
             <table class="data">
-              <thead><tr><th>Community</th><th>Members</th><th>Posts</th><th>Status</th><th>Actions</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>{t.admin.community}</th>
+                  <th>{t.admin.memberCount}</th>
+                  <th>{t.admin.postCount}</th>
+                  <th>{t.admin.status}</th>
+                  <th>{t.admin.actions}</th>
+                </tr>
+              </thead>
               <tbody>
                 {communities.map((cm) => (
                   <tr>
-                    <td><a href={`/c/${cm.name}`}>c/{cm.name}</a> · {cm.visibility}</td>
+                    <td>
+                      <a href={`/c/${cm.name}`}>c/{cm.name}</a> · {visibilityLabel(cm.visibility)}
+                    </td>
                     <td>{cm.member_count}</td>
                     <td>{cm.post_count}</td>
-                    <td>{cm.deleted_at !== null ? `deleted ${formatDate(cm.deleted_at)}` : cm.archived === 1 ? 'archived' : 'active'}</td>
+                    <td>
+                      {cm.deleted_at !== null
+                        ? `${t.admin.deleted} ${formatDate(cm.deleted_at)}`
+                        : cm.archived === 1
+                          ? t.admin.archivedStatus
+                          : t.admin.active}
+                    </td>
                     <td>
                       {cm.deleted_at === null ? (
                         <>
@@ -120,13 +150,13 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
                             <button class="btn secondary small" type="submit">{t.admin.export}</button>
                           </form>{' '}
                           <form method="post" action={`/admin/communities/${cm.id}/delete`} style="display:inline">
-                            <input name="confirmName" type="text" placeholder={`type "${cm.name}"`} style="width:9rem;padding:0.2rem" />{' '}
-                            <button class="btn danger small" type="submit">Delete</button>
+                            <input name="confirmName" type="text" placeholder={`${t.admin.typeName} "${cm.name}"`} style="width:9rem;padding:0.2rem" />{' '}
+                            <button class="btn danger small" type="submit">{t.admin.delete}</button>
                           </form>
                         </>
                       ) : (
                         <form method="post" action={`/admin/communities/${cm.id}/restore`} style="display:inline">
-                          <button class="btn secondary small" type="submit">Restore</button>
+                          <button class="btn secondary small" type="submit">{t.admin.restore}</button>
                         </form>
                       )}
                     </td>
@@ -142,39 +172,41 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
         <div class="card form-narrow">
           <form method="post" action="/admin/settings">
             <div class="field">
-              <label for="registrationMode">Registration</label>
+              <label for="registrationMode">{t.admin.registration}</label>
               <select id="registrationMode" name="registrationMode">
                 {(['open', 'invite', 'closed'] as const).map((mode) => (
-                  <option value={mode} selected={settings.registrationMode === mode}>{mode}</option>
+                  <option value={mode} selected={settings.registrationMode === mode}>
+                    {mode === 'open' ? t.admin.registrationOpen : mode === 'invite' ? t.admin.registrationInvite : t.admin.registrationClosed}
+                  </option>
                 ))}
               </select>
             </div>
             <div class="field">
-              <label for="communityCreation">Community creation</label>
+              <label for="communityCreation">{t.admin.communityCreation}</label>
               <select id="communityCreation" name="communityCreation">
-                <option value="member" selected={settings.communityCreation === 'member'}>any member</option>
-                <option value="admin" selected={settings.communityCreation === 'admin'}>admin only</option>
+                <option value="member" selected={settings.communityCreation === 'member'}>{t.admin.anyMember}</option>
+                <option value="admin" selected={settings.communityCreation === 'admin'}>{t.admin.adminOnly}</option>
               </select>
             </div>
             <div class="field">
-              <label for="hotDecaySeconds">Hot ranking decay constant (seconds)</label>
+              <label for="hotDecaySeconds">{t.admin.hotDecay}</label>
               <input id="hotDecaySeconds" name="hotDecaySeconds" type="number" min={1000} value={String(settings.hotDecaySeconds)} />
-              <div class="hint">Reddit used 45,000. Small communities want 90,000–180,000 (slower decay).</div>
+              <div class="hint">{t.admin.hotDecayHint}</div>
             </div>
             <div class="field">
-              <label for="postsPer10Min">Posts per 10 min / account</label>
+              <label for="postsPer10Min">{t.admin.postsPer10Min}</label>
               <input id="postsPer10Min" name="postsPer10Min" type="number" min={1} value={String(settings.postsPer10Min)} />
             </div>
             <div class="field">
-              <label for="commentsPer10Min">Comments per 10 min / account</label>
+              <label for="commentsPer10Min">{t.admin.commentsPer10Min}</label>
               <input id="commentsPer10Min" name="commentsPer10Min" type="number" min={1} value={String(settings.commentsPer10Min)} />
             </div>
             <div class="field">
-              <label for="votesPerMinute">Votes per minute / account</label>
+              <label for="votesPerMinute">{t.admin.votesPerMinute}</label>
               <input id="votesPerMinute" name="votesPerMinute" type="number" min={1} value={String(settings.votesPerMinute)} />
             </div>
             <div class="field">
-              <label for="reportsPerHour">Reports per hour / account</label>
+              <label for="reportsPerHour">{t.admin.reportsPerHour}</label>
               <input id="reportsPerHour" name="reportsPerHour" type="number" min={1} value={String(settings.reportsPerHour)} />
             </div>
             <button class="btn" type="submit">{t.post.save}</button>
@@ -187,15 +219,21 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
         <div class="card">
           <form method="post" action="/admin/invites">
             <div class="field">
-              <label>New invite link</label>
-              <input name="expiresInDays" type="number" min={1} max={365} value="7" style="width:6rem" /> days,{' '}
-              <input name="maxUses" type="number" min={1} max={1000} value="10" style="width:6rem" /> uses{' '}
-              <button class="btn small" type="submit">Create</button>
+              <label>{t.admin.newInviteLink}</label>
+              <input name="expiresInDays" type="number" min={1} max={365} value="7" style="width:6rem" /> {t.admin.days},{' '}
+              <input name="maxUses" type="number" min={1} max={1000} value="10" style="width:6rem" /> {t.admin.uses}{' '}
+              <button class="btn small" type="submit">{t.admin.create}</button>
             </div>
           </form>
           <div class="table-wrap">
             <table class="data">
-              <thead><tr><th>Link</th><th>Expires</th><th>Uses</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>{t.admin.link}</th>
+                  <th>{t.admin.expires}</th>
+                  <th>{t.admin.uses}</th>
+                </tr>
+              </thead>
               <tbody>
                 {invites.map((inv) => (
                   <tr>
@@ -215,7 +253,14 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
         <div class="card">
           <div class="table-wrap">
             <table class="data">
-              <thead><tr><th>When</th><th>Action</th><th>Target</th><th>Detail</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>{t.admin.when}</th>
+                  <th>{t.admin.action}</th>
+                  <th>{t.admin.target}</th>
+                  <th>{t.admin.detail}</th>
+                </tr>
+              </thead>
               <tbody>
                 {entries.map((e) => (
                   <tr>
@@ -234,11 +279,19 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
       const queue = reportQueue(ctx, viewer, null)
       content = (
         <div class="card">
-          {queue.length === 0 && <p class="placeholder">No open reports anywhere. 🎉</p>}
+          {queue.length === 0 && <p class="placeholder">{t.admin.noOpenReports}</p>}
           {queue.length > 0 && (
             <div class="table-wrap">
               <table class="data">
-                <thead><tr><th>Community</th><th>Content</th><th>Reports</th><th>Reasons</th><th>Age</th></tr></thead>
+                <thead>
+                  <tr>
+                    <th>{t.admin.community}</th>
+                    <th>{t.admin.content}</th>
+                    <th>{t.admin.reportsCol}</th>
+                    <th>{t.admin.reasons}</th>
+                    <th>{t.admin.age}</th>
+                  </tr>
+                </thead>
                 <tbody>
                   {queue.map((entry) => {
                     const link = entry.target_type === 'post'
@@ -283,7 +336,7 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
         days: body.days === 'indefinite' ? null : Number(body.days ?? 7),
         reason: body.reason || null,
       })
-      setFlash(c, 'ok', 'User suspended.')
+      setFlash(c, 'ok', t.admin.userSuspended)
     } catch (err) {
       if (err instanceof AppError) setFlash(c, 'error', err.message)
       else throw err
@@ -311,7 +364,15 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
       else if (action === 'delete') deleteCommunity(ctx, viewer, community, body.confirmName ?? '')
       else if (action === 'restore') restoreCommunity(ctx, viewer, community)
       else throw notFound()
-      setFlash(c, 'ok', `Community ${action}d.`)
+      setFlash(c, 'ok', `${t.admin.community} — ${
+        action === 'archive'
+          ? t.admin.archivedStatus
+          : action === 'unarchive'
+            ? t.admin.unarchive
+            : action === 'delete'
+              ? t.admin.deleted
+              : t.admin.restore
+      }`)
     } catch (err) {
       if (err instanceof AppError) setFlash(c, 'error', err.message)
       else throw err
@@ -337,7 +398,7 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
     updateSettings(ctx, patch)
     const { logAction } = await import('../services/modlog')
     logAction(ctx, { communityId: null, actorId: (viewer as NonNullable<typeof viewer>).id, action: 'site_settings_update', detail: JSON.stringify(patch) })
-    setFlash(c, 'ok', 'Site settings updated.')
+    setFlash(c, 'ok', t.admin.siteSettingsUpdated)
     return c.redirect('/admin?tab=settings')
   })
 
@@ -358,7 +419,7 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
     const community = getCommunityById(ctx, c.req.param('communityId'))
     if (!community) throw notFound()
     const { token } = await exportCommunity(ctx, viewer, community)
-    setFlash(c, 'ok', `Export ready (valid 24h): /exports/${token}`)
+    setFlash(c, 'ok', `${t.admin.exportReady} /exports/${token}`)
     return c.redirect('/admin?tab=communities')
   })
 
@@ -366,7 +427,7 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
     const viewer = c.get('viewer')
     requireAdmin(viewer)
     const filePath = await getExport(ctx, c.req.param('token'))
-    if (!filePath) throw notFound('This export link is invalid or has expired.')
+    if (!filePath) throw notFound(t.admin.exportInvalid)
     const contents = await readFile(filePath)
     return c.body(contents.buffer as ArrayBuffer, 200, {
       'Content-Type': 'application/json',

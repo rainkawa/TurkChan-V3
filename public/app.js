@@ -37,7 +37,7 @@
           window.location.href = '/login?next=' + encodeURIComponent(window.location.pathname)
           return null
         }
-        if (!res.ok) return res.json().then(function (data) { throw new Error(data.error || 'Vote failed') })
+        if (!res.ok) return res.json().then(function (data) { throw new Error(data.error || 'Oyun kaydedilemedi') })
         return res.json()
       })
       .then(function (data) {

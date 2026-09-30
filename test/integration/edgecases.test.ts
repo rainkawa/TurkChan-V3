@@ -28,13 +28,13 @@ describe('hide comment scores for first N minutes (community setting)', () => {
     let page = await member.get(`/c/calm/comments/${postId}`)
     let text = await page.text()
     expect(text).toContain('data-hidden="1"') // masked in the vote rail
-    expect(text).toContain('· pts')
+    expect(text).toContain('· puan')
 
     world.tick(31 * 60 * 1000)
     page = await member.get(`/c/calm/comments/${postId}`)
     text = await page.text()
     expect(text).not.toContain('data-hidden="1"')
-    expect(text).toContain('1 pts')
+    expect(text).toContain('1 puan')
   })
 })
 
@@ -149,7 +149,7 @@ describe('US-043 graceful missing content', () => {
     const res = await mod.get(`/c/resilient/comments/${postId}/comment/${childId}`)
     expect(res.status).toBe(200)
     const text = await res.text()
-    expect(text).toContain('[deleted]')
+    expect(text).toContain('[silindi]')
     expect(text).toContain('Child stays')
 
     // Permalink of the deleted comment itself also renders (placeholder).
@@ -167,16 +167,16 @@ describe('membership request state visibility (US-011)', () => {
     // Restricted: readable by guests/members, join requires approval.
     let page = await requester.get('/c/stateful')
     expect(page.status).toBe(200)
-    expect(await page.text()).toContain('Request to join')
+    expect(await page.text()).toContain('Katılmak için istek gönder')
 
     await requester.post('/c/stateful/join')
     page = await requester.get('/c/stateful')
-    expect(await page.text()).toContain('Requested')
+    expect(await page.text()).toContain('İstek gönderildi')
 
     const userId = (world.ctx.db.prepare('SELECT id FROM users WHERE username = ?').get(username) as { id: string }).id
     await mod.post(`/c/stateful/mod/requests/${userId}/approve`)
     page = await requester.get('/c/stateful')
-    expect(await page.text()).toContain('Leave') // now a member
+    expect(await page.text()).toContain('Ayrıl') // now a member
 
     // Approved member of restricted community can post.
     const res = await requester.post('/c/stateful/submit?type=text', { title: 'Now allowed', body: '' })
