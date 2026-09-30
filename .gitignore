@@ -3,7 +3,13 @@ data/*.db
 data/*.db-*
 data/uploads/*
 data/exports/*
+# Yedekler asla depoya girmez; web üzerinden de servis edilmezler.
+data/backups/
+backups/
 !data/uploads/.gitkeep
 dist/
 *.log
+*.sqlite3
+.env
+.env.local
 .DS_Store

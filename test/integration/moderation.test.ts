@@ -5,6 +5,7 @@ import {
   createPostVia,
   createTestWorld,
   registerUser,
+  relogin,
   type TestWorld,
 } from '../testUtils'
 
@@ -218,10 +219,12 @@ describe('US-032 bans', () => {
     expect(logText).toContain('Kullanıcı yasaklandı')
     expect(logText).toContain('7 gün')
 
-    // Timed ban lifts automatically.
+    // Timed ban lifts automatically. 8 gün idle süresini aştığı için oturum da
+    // sunucuda sona erer; kullanıcı yeniden giriş yapar.
     world.tick(8 * 24 * 60 * 60 * 1000)
-    await author.post('/c/watch/join')
-    const postAfter = await author.post('/c/watch/submit?type=text', { title: 'Reformed', body: '' })
+    const authorAgain = await relogin(world, authorName)
+    await authorAgain.post('/c/watch/join')
+    const postAfter = await authorAgain.post('/c/watch/submit?type=text', { title: 'Reformed', body: '' })
     expect(postAfter.headers.get('location')).toContain('/comments/')
   })
 

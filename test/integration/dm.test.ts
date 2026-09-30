@@ -140,15 +140,13 @@ describe('DM — mesaj gönderme ve okundu durumu', () => {
     const sent = await send(alice, conversation, 'Merhaba Bob')
     expect(sent.status).toBe(302)
 
-    const inbox = await (await bob.get('/messages')).text()
-    // Okunmamış sohbet: koyu satır sınıfı + kırmızı rozet.
+    // Okunmamış sohbet bildirimler sayfasında koyu satır + kırmızı rozet olarak
+    // listelenir; alt bardaki rozet de orada görünür.
+    const inbox = await (await bob.get('/notifications')).text()
     expect(inbox).toContain('is-unread')
     expect(inbox).toContain('data-unread="1"')
     expect(inbox).toContain('dm-row-badge')
     expect(inbox).toContain('Merhaba Bob')
-
-    // Alt barda kırmızı rozet görünür.
-    expect(inbox).toContain('bottom-inbox')
     expect(inbox).toMatch(/bottom-inbox[\s\S]{0,400}notif-badge/)
   })
 
@@ -156,13 +154,14 @@ describe('DM — mesaj gönderme ve okundu durumu', () => {
     const conversation = await openChat(alice, 'bobby')
     await send(alice, conversation, 'Birinci')
 
-    expect(await (await bob.get('/messages')).text()).toContain('is-unread')
+    expect(await (await bob.get('/notifications')).text()).toContain('is-unread')
 
-    // Sohbeti açmak okundu sayılır.
+    // Sohbeti açmak sunucuda okundu sayılır.
     await bob.get(`/messages/${conversation}`)
 
+    expect(await (await bob.get('/notifications')).text()).not.toContain('is-unread')
+    // Gelen kutusu da rozet göstermez.
     const inbox = await (await bob.get('/messages')).text()
-    expect(inbox).not.toContain('is-unread')
     expect(inbox).not.toContain('dm-row-badge')
   })
 

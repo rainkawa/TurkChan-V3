@@ -8,6 +8,7 @@
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "seed": "tsx src/db/seed.ts",
+    "backup": "tsx src/scripts/backup.ts",
     "rank:assets": "node scripts/generate-rank-assets.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -15,12 +16,12 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.14.0",
+    "@napi-rs/canvas": "^1.0.9",
     "@node-rs/argon2": "^2.0.2",
     "hono": "^4.7.0",
     "markdown-it": "^14.1.0"
   },
   "devDependencies": {
-    "@napi-rs/canvas": "^1.0.9",
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^22.13.0",
     "lucide-static": "^1.49.0",

@@ -13,6 +13,8 @@ const VIDEO_EXT = /\.(mp4|webm|ogv|mov|m4v)(\?|#|$)/i
 
 /** Yüklenebilen türler ve boyut sınırları. */
 export const MAX_VIDEOS_PER_POST = 1
+/** GIF kare sayısı sınırı: aşırı kareli GIF tarayıcıyı kilitler. */
+export const MAX_GIF_FRAMES = 300
 export const UPLOAD_LIMITS = {
   image: 10 * 1024 * 1024,
   gif: 15 * 1024 * 1024,

@@ -165,7 +165,12 @@ export const Layout: FC<LayoutProps> = ({
               </svg>
             </form>
 
-            <a class="icon-btn header-bell" href="/notifications" aria-label={t.nav.notifications}>
+            <a
+              class="icon-btn header-bell"
+              href="/notifications"
+              aria-label={t.nav.notifications}
+              data-notification-badge={String(totalBadge)}
+            >
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M6 9a6 6 0 1 1 12 0c0 4 1.5 5.5 1.5 5.5h-15S6 13 6 9Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
                 <path d="M10 18a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
@@ -256,7 +261,7 @@ export const Layout: FC<LayoutProps> = ({
             class={active === 'messages' ? 'active' : ''}
             aria-current={active === 'messages' ? 'page' : undefined}
           >
-            <span class="bottom-inbox">
+            <span class="bottom-inbox" data-notification-badge={String(totalBadge)}>
               <NavIcon name="inbox" />
               {totalBadge > 0 && <span class="notif-badge">{badgeText(totalBadge)}</span>}
             </span>

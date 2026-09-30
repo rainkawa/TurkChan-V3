@@ -6,6 +6,7 @@ import { wilsonLowerBound } from '../lib/ranking'
 import { MAX_VIDEOS_PER_POST, uploadKindFromMime } from '../lib/media'
 import { getSettings } from './settings'
 import { badRequest, forbidden, notFound, rateLimited } from './errors'
+import { assertNotDuplicate } from '../lib/spam'
 import { getCommunityById, requireParticipant } from './access'
 import { getPost, getPostForViewer, resolveAnonymous } from './posts'
 import { AFFINITY_STEP, bumpAffinity } from './feeds'
@@ -15,6 +16,13 @@ import { transaction } from '../db'
 
 /** Visual nesting cap (FR-6): depth is 1-based; replies beyond 8 flatten to 8. */
 export const MAX_COMMENT_DEPTH = 8
+/**
+ * Bir gönderide tek seferde çekilen azami yorum sayısı.
+ *
+ * Sonsuz yorum ağacı bellek ve render süresini patlatabilir; en eski yorumlar
+ * atlanır (gönderi sayfasında kullanıcıya bunu bildiren bir not çizilir).
+ */
+export const MAX_COMMENTS_PER_POST = 2000
 const TEN_MINUTES_MS = 10 * 60 * 1000
 
 /** Bir yoruma eklenebilecek azami video sayısı. */
@@ -132,6 +140,15 @@ export function createComment(
   const rawBody = (input.body ?? '').trim()
   if (keys.length === 0 && rawBody.length === 0) throw badRequest('body', 'Yorum boş olamaz.')
   const body = keys.length > 0 && rawBody.length === 0 ? '' : validateCommentBody(rawBody)
+  if (body) {
+    assertNotDuplicate(ctx, {
+      scope: `comment:${postId}`,
+      userId: user.id,
+      content: body,
+      max: 1,
+      windowMs: TEN_MINUTES_MS,
+    })
+  }
 
   let parent: CommentRow | null = null
   if (input.parentId) {
@@ -379,7 +396,9 @@ export function getCommentTree(ctx: Ctx, viewer: Viewer, postId: string, sort: C
     .prepare(
       `SELECT c.*, u.username AS author_username, u.deleted AS author_deleted
        FROM comments c JOIN users u ON u.id = c.author_id
-       WHERE c.post_id = ?`,
+       WHERE c.post_id = ?
+       ORDER BY c.path, c.created_at, c.id
+       LIMIT ${MAX_COMMENTS_PER_POST}`,
     )
     .all(postId) as unknown as Array<CommentRow & { author_username: string; author_deleted: number }>
 

@@ -27,6 +27,140 @@ export function mimeForImageType(type: ImageType): string {
   return type === 'jpeg' ? 'image/jpeg' : type === 'png' ? 'image/png' : 'image/webp'
 }
 
+/** En büyük kabul edilen kenar boyutu (decompression bomb koruması). */
+export const MAX_IMAGE_EDGE = 8192
+export const MAX_IMAGE_PIXELS = 40_000_000 // ~8000x5000
+
+/**
+ * Görselin piksel boyutunu başlık bloğundan okur; pikselleri çözmez.
+ *
+ *  - JPEG: SOFn işareti (0xC0..0xCF, 0xC4/C8/CC hariç)
+ *  - PNG:  IHDR genişlik/yükseklik
+ *  - WebP: VP8/VP8L/VP8X başlıkları
+ *
+ * Boyut sınırı, küçük dosya boyutlu ama devasa açılan görsellerin (decompression
+ * bomb) bellek ve CPU tüketmesini engeller.
+ */
+export function imageDimensions(bytes: Uint8Array): { width: number; height: number } | null {
+  const type = detectImageType(bytes)
+  if (type === 'jpeg') return jpegDimensions(bytes)
+  if (type === 'png') {
+    if (bytes.length < 24) return null
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    return { width: view.getUint32(16), height: view.getUint32(20) }
+  }
+  if (type === 'webp') return webpDimensions(bytes)
+  return null
+}
+
+function jpegDimensions(bytes: Uint8Array): { width: number; height: number } | null {
+  let offset = 2
+  while (offset + 9 <= bytes.length) {
+    if (bytes[offset] !== 0xff) return null
+    const marker = bytes[offset + 1] as number
+    if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+      offset += 2
+      continue
+    }
+    if (marker === 0xda || marker === 0xd9) return null // SOS/EOI: boyut yok
+    const length = ((bytes[offset + 2] as number) << 8) | (bytes[offset + 3] as number)
+    const isSof =
+      marker >= 0xc0 &&
+      marker <= 0xcf &&
+      marker !== 0xc4 && // DHT
+      marker !== 0xc8 && // JPG
+      marker !== 0xcc // DAC
+    if (isSof) {
+      if (offset + 9 > bytes.length) return null
+      return {
+        height: ((bytes[offset + 5] as number) << 8) | (bytes[offset + 6] as number),
+        width: ((bytes[offset + 7] as number) << 8) | (bytes[offset + 8] as number),
+      }
+    }
+    offset += 2 + length
+  }
+  return null
+}
+
+function webpDimensions(bytes: Uint8Array): { width: number; height: number } | null {
+  const chunk = String.fromCharCode(
+    bytes[12] as number, bytes[13] as number, bytes[14] as number, bytes[15] as number,
+  )
+  if (chunk === 'VP8 ') {
+    // Kayıpsız değil, temel VP8: 14 baytlık başlıktan sonra 3 boyut baytı.
+    if (bytes.length < 30) return null
+    return {
+      width: ((bytes[26] as number) | ((bytes[27] as number) << 8)) & 0x3fff,
+      height: ((bytes[28] as number) | ((bytes[29] as number) << 8)) & 0x3fff,
+    }
+  }
+  if (chunk === 'VP8L') {
+    if (bytes.length < 25) return null
+    const bits =
+      (bytes[21] as number) | ((bytes[22] as number) << 8) | ((bytes[23] as number) << 16) | ((bytes[24] as number) << 24)
+    return { width: (bits & 0x3fff) + 1, height: ((bits >> 14) & 0x3fff) + 1 }
+  }
+  if (chunk === 'VP8X') {
+    if (bytes.length < 30) return null
+    const b = (i: number) => bytes[i] as number
+    const width = 1 + (b(24) | (b(25) << 8) | (b(26) << 16))
+    const height = 1 + (b(27) | (b(28) << 8) | (b(29) << 16))
+    return { width, height }
+  }
+  return null
+}
+
+/** GIF başlığından kare sayısı, piksel boyutu ve tüm karelerdeki toplam piksel. */
+export function gifStats(bytes: Uint8Array): {
+  width: number
+  height: number
+  frames: number
+  pixels: number
+} | null {
+  if (bytes.length < 13) return null
+  const width = (bytes[6] as number) | ((bytes[7] as number) << 8)
+  const height = (bytes[8] as number) | ((bytes[9] as number) << 8)
+  let frames = 0
+  let pixels = 0
+  let offset = 13
+  // Global renk tablosu
+  const packed = bytes[10] as number
+  if (packed & 0x80) offset += 3 * (2 << ((packed & 0x07) as number))
+  while (offset < bytes.length) {
+    const block = bytes[offset] as number
+    if (block === 0x3b) break // trailer
+    if (block === 0x21) {
+      offset += 2 // extension introducer + label
+      offset = skipSubBlocks(bytes, offset)
+      continue
+    }
+    if (block === 0x2c) {
+      frames += 1
+      pixels += width * height
+      if (offset + 10 > bytes.length) break
+      const localPacked = bytes[offset + 9] as number
+      offset += 10
+      if (localPacked & 0x80) offset += 3 * (2 << (localPacked & 0x07))
+      offset += 1 // LZW minimum code size
+      offset = skipSubBlocks(bytes, offset)
+      continue
+    }
+    break
+  }
+  return { width, height, frames, pixels }
+}
+
+function skipSubBlocks(bytes: Uint8Array, start: number): number {
+  let offset = start
+  while (offset < bytes.length) {
+    const size = bytes[offset] as number
+    offset += 1
+    if (size === 0) return offset
+    offset += size
+  }
+  return offset
+}
+
 export function stripImageMetadata(bytes: Uint8Array): Uint8Array {
   const type = detectImageType(bytes)
   if (type === 'jpeg') return stripJpeg(bytes)

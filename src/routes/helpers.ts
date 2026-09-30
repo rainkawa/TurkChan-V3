@@ -1,8 +1,10 @@
 import type { Context } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
+import { getConnInfo } from '@hono/node-server/conninfo'
 import type { Ctx } from '../context'
 import type { UserRow } from '../types'
 import { unreadCount } from '../services/notifications'
+import { AppError } from '../services/errors'
 import { dmUnreadCount } from '../services/dm'
 
 export interface AppEnv {
@@ -16,16 +18,41 @@ export type C = Context<AppEnv>
 
 export const SESSION_COOKIE = 'sid'
 
-export function clientIp(c: C): string {
+/**
+ * İstemci IP adresi.
+ *
+ * `X-Forwarded-For` istemci tarafından taklit edilebildiği için YALNIZCA
+ * güvenilir bir ters vekilin arkasında (TRUST_PROXY=1) okunur; aksi hâlde
+ * sadece gerçek soket adresi kullanılır. Rate limitler bu değere dayandığı
+ * için sahte başlıkla atlatılabilmesi önemlidir.
+ */
+export function clientIp(c: C, ctx: Ctx): string {
+  const direct = remoteAddress(c)
+  if (!ctx.config.trustProxy) return direct
   const forwarded = c.req.header('x-forwarded-for')
-  if (forwarded) return (forwarded.split(',')[0] as string).trim()
-  return c.req.header('x-real-ip') ?? '127.0.0.1'
+  if (forwarded) return (forwarded.split(',')[0] as string).trim() || direct
+  return c.req.header('x-real-ip') ?? direct
+}
+
+/** @hono/node-server bağlantı bilgisi; test/Workers ortamında yoksa null. */
+function remoteAddress(c: C): string {
+  try {
+    const info = getConnInfo(c)
+    return info.remote.address ?? '127.0.0.1'
+  } catch {
+    return '127.0.0.1'
+  }
 }
 
 export function setSessionCookie(ctx: Ctx, c: C, token: string): void {
   setCookie(c, SESSION_COOKIE, token, {
+    // JavaScript erişimi kapalı: XSS ile çerez okunamaz.
     httpOnly: true,
+    // Üretimde yalnızca HTTPS.
     secure: ctx.config.secureCookies,
+    // Aynı site içi tüm isteklerde gönderilir; siteler arası POST'lara gönderilmez.
+    // Strict seçilemez çünkü giden bağlantılarda (e-posta doğrulama dönüşü gibi)
+    // tarayıcı çerezi düşürebilir. CSRF koruması yine de server-side doğrulanır.
     sameSite: 'Lax',
     path: '/',
     maxAge: Math.floor(ctx.config.sessionTtlMs / 1000),
@@ -113,6 +140,47 @@ export function collectFiles(form: FormData, field: string): File[] {
   const out: File[] = []
   for (const value of form.getAll(field)) {
     if (value instanceof File && value.size > 0) out.push(value)
+  }
+  return out
+}
+
+/**
+ * Toplam istek gövdesi sınırı.
+ *
+ * `Content-Length` başlığına güvenilmez (sonda olabilir ya da hiç gelmeyebilir),
+ * bu yüzden hem başlık hem de gerçek bayt sayımı denetlenir. Sınır aşımında
+ * bağlantı düşürülür; bellek tükenmesi (OOM) saldırıları böylece engellenir.
+ */
+export const MAX_BODY_BYTES = 80 * 1024 * 1024
+
+/** Akıştan en fazla `max` bayt okur; aşarsa 413 fırlatır. */
+export async function readBodyWithLimit(c: C, max: number): Promise<Uint8Array> {
+  const declared = Number(c.req.header('content-length') ?? '')
+  if (Number.isFinite(declared) && declared > max) {
+    throw new AppError(413, 'body_too_large', 'Gönderilen veri çok büyük.')
+  }
+  const declaredStream = c.req.raw.body
+  if (!declaredStream) return new Uint8Array(await c.req.arrayBuffer())
+  const reader = declaredStream.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (value) {
+      total += value.byteLength
+      if (total > max) {
+        await reader.cancel().catch(() => {})
+        throw new AppError(413, 'body_too_large', 'Gönderilen veri çok büyük.')
+      }
+      chunks.push(value)
+    }
+  }
+  const out = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    out.set(chunk, offset)
+    offset += chunk.byteLength
   }
   return out
 }

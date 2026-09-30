@@ -8,6 +8,7 @@ import { RateLimiter } from '../src/lib/ratelimit'
 import { MemoryObjectStorage } from '../src/services/storage'
 import { insertCommunity } from '../src/services/communities'
 import { sha256 } from '../src/lib/ids'
+import { issueCsrfToken } from '../src/lib/csrf'
 import type { AppEnv } from '../src/routes/helpers'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -38,6 +39,8 @@ export function createTestWorld(): TestWorld {
     dbPath: ':memory:',
     exportDir: mkdtempSync(join(tmpdir(), 'cp-exports-')),
     baseUrl: 'http://localhost:3000',
+    // Testler bağlantı soketi olmadan x-forwarded-for gönderir.
+    trustProxy: true,
   }
   const ctx: Ctx = {
     db: openDatabase(':memory:'),
@@ -87,9 +90,26 @@ export class Agent {
     }
   }
 
+  /**
+   * Bu oturuma ait CSRF jetonu. Sunucunun çerez değerinden türettiği jetonla
+   * birebir aynıdır; testler de "doğru jeton gönderilirse kabul edilir,
+   * yanlış/eksik jeton reddedilir" davranışını gerçekten sınar.
+   */
+  /** Bu oturuma ait CSRF jetonu (multipart isteklerde de kullanılır). */
+  csrfToken(): string {
+    return issueCsrfToken(this.cookies.get('sid'))
+  }
+
   async request(path: string, init: RequestInit = {}): Promise<Response> {
     const headers = new Headers(init.headers)
     if (this.cookies.size > 0) headers.set('cookie', this.cookieHeader())
+    // Gerçek tarayıcı gizli form alanını / başlığı otomatik gönderir; test
+    // agent'ı da öyle davranır. Güvenlik testleri `x-csrf-token: none` ile
+    // bunu bilerek bozabilir.
+    const method = (init.method ?? 'GET').toUpperCase()
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) && !headers.has('x-csrf-token')) {
+      headers.set('x-csrf-token', this.csrfToken())
+    }
     const res = await this.app.request(path, { ...init, headers })
     this.storeCookies(res)
     return res
@@ -118,8 +138,31 @@ export class Agent {
     })
   }
 
+  /**
+   * Jetonu BILEREK bozuk/eksik gönderir. Yalnızca CSRF testleri içindir:
+   * sunucunun isteği gerçekten reddettiğini kanıtlamak için kullanılır.
+   */
+  async postWithoutCsrf(path: string, form: Record<string, string> = {}): Promise<Response> {
+    return this.request(path, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        'x-csrf-token': 'none',
+      },
+      body: new URLSearchParams(form).toString(),
+    })
+  }
+
   loggedIn(): boolean {
     return this.cookies.has('sid')
+  }
+
+  /** Çerezdeki flash mesajının çözülmüş hâli (hata mesajı testleri için). */
+  cookieHeaderFlash(): string | null {
+    const raw = this.cookies.get('flash')
+    if (!raw) return null
+    // Flash çerezi iki kez URL-kodlanır (çerez değeri + içerik).
+    return decodeURIComponent(decodeURIComponent(raw))
   }
 }
 
@@ -157,6 +200,23 @@ export async function registerAdmin(world: TestWorld): Promise<{ agent: Agent; u
   if (count > 0) throw new Error('registerAdmin must be called on a fresh world')
   const { agent, username } = await registerUser(world, `admin${++userCounter}`)
   return { agent, username }
+}
+
+/**
+ * Yeni bir agent ile giriş yapar.
+ *
+ * Testler saatleri ileri attığında oturumun idle/mutlak ömrü bilinçli olarak
+ * dolmuş olur (sunucu tarafı davranışı). Gerçek hayatta kullanıcı yeniden
+ * giriş yapar; testler de aynısını yapar.
+ */
+export async function relogin(
+  world: TestWorld,
+  username: string,
+  password = 'password12345',
+): Promise<Agent> {
+  const agent = new Agent(world.app)
+  await agent.post('/login', { identifier: username, password })
+  return agent
 }
 
 /**
@@ -236,7 +296,10 @@ export async function createCommentWithFilesVia(
   for (const file of files) {
     form.append(file.field ?? 'media', new File([file.data], file.filename, { type: file.contentType }))
   }
-  return agent.request(`/c/${community}/comments/${postId}/comment`, { method: 'POST', body: form })
+  return agent.request(`/c/${community}/comments/${postId}/comment`, {
+    method: 'POST',
+    body: form,
+  })
 }
 
 export async function bodyText(res: Response): Promise<string> {

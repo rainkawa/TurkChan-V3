@@ -11,6 +11,7 @@ import {
 } from '../lib/validation'
 import { getSettings } from './settings'
 import { AppError, badRequest, conflict, forbidden, rateLimited, unauthorized } from './errors'
+import { logSecurity, maskIp } from '../lib/logging'
 import { transaction } from '../db'
 
 const LOCKOUT_WINDOW_MS = 15 * 60 * 1000
@@ -102,29 +103,93 @@ export async function register(
   return { user, sessionToken }
 }
 
-export function createSession(ctx: Ctx, userId: string): string {
+export interface SessionMeta {
+  /** Geriye dönük imza; gizlilik gereği oturum tablosuna yazılmaz. */
+  readonly ip?: string
+}
+
+/**
+ * Yeni oturum açar.
+ *
+ * Token 256-bit kriptografik rastgelelikten üretilir ve veritabanında YALNIZCA
+ * SHA-256 karması tutulur; böylece veritabanı okuyan biri oturumu ele geçiremez.
+ * IP adresi / User-Agent bilerek saklanmaz (gizlilik ilkesi).
+ */
+export function createSession(ctx: Ctx, userId: string, _meta?: SessionMeta): string {
   const token = newSecret()
+  const now = ctx.now()
   ctx.db
-    .prepare('INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)')
-    .run(sha256(token), userId, ctx.now(), ctx.now() + ctx.config.sessionTtlMs)
+    .prepare(
+      `INSERT INTO sessions (token_hash, user_id, created_at, expires_at, last_seen_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run(sha256(token), userId, now, now + ctx.config.sessionTtlMs, now)
   return token
 }
 
+/**
+ * Oturumu çözer ve iki zaman aşımını da sunucu tarafında uygular:
+ *
+ *  - **Mutlak ömür**: `expires_at` geçmişse token her koşulda reddedilir.
+ *  - **Idle (boşta) ömür**: `last_seen_at`'ten bu yana `sessionIdleMs` geçtiyse
+ *    oturum biter; oturum açıkken kullanıcı "sonsuza kadar" bağlı kalmaz.
+ *
+ * Kısa aralıklarla yazıp yokuş bağlantıyı (WAL) şişirmemek için `last_seen_at`
+ * yalnızca bir dakikadan eskiyse güncellenir. Süresi dolan satırlar burada
+ * temizlenir, böylece geçersiz token veritabanında birikmez.
+ */
 export function getSessionUser(ctx: Ctx, token: string | undefined | null): UserRow | null {
   if (!token) return null
+  const now = ctx.now()
+  const hash = sha256(token)
   const row = ctx.db
     .prepare(
-      `SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
-       WHERE s.token_hash = ? AND s.expires_at > ?`,
+      `SELECT u.*, s.expires_at AS session_expires_at, s.last_seen_at AS session_last_seen_at
+         FROM sessions s JOIN users u ON u.id = s.user_id
+        WHERE s.token_hash = ?`,
     )
-    .get(sha256(token), ctx.now()) as UserRow | undefined
-  if (!row || row.deleted) return null
+    .get(hash) as (UserRow & { session_expires_at: number; session_last_seen_at: number }) | undefined
+
+  if (!row) return null
+
+  if (row.session_expires_at <= now) {
+    // Mutlak ömür doldu: kalıcı olarak düşür.
+    ctx.db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(hash)
+    return null
+  }
+  if (now - row.session_last_seen_at > ctx.config.sessionIdleMs) {
+    ctx.db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(hash)
+    return null
+  }
+  if (row.deleted) return null
+  // Askıya alınan hesap mevcut oturumla da erişemez: oturum silinse bile
+  // istek anında yeniden denetlenir (savunma derinliği).
+  if (row.suspended_indefinitely || (row.suspended_until !== null && row.suspended_until > now)) {
+    return null
+  }
+
+  if (now - row.session_last_seen_at >= 60_000) {
+    ctx.db.prepare('UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?').run(now, hash)
+  }
   return row
+}
+
+/**
+ * Login/logout sırasında eski token'ı geçersiz kılıp yenisini verir.
+ *
+ * Session fixation'a karşı: giriş anında çerezdeki token ile veritabanındaki
+ * satır eşleşmiyorsa yeni bir çerez yazılır.
+ */
+export function rotateSession(ctx: Ctx, userId: string, currentToken: string | undefined): string {
+  if (currentToken) {
+    ctx.db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(sha256(currentToken))
+  }
+  return createSession(ctx, userId)
 }
 
 export async function login(
   ctx: Ctx,
-  input: { usernameOrEmail: string; password: string; ip: string },
+  input: { usernameOrEmail: string; password: string; ip: string; currentToken?: string },
 ): Promise<SessionResult> {
   const ipLimit = ctx.rateLimiter.check(`login:${input.ip}`, 20, LOCKOUT_WINDOW_MS)
   if (!ipLimit.allowed) throw rateLimited(ipLimit.retryAfterMs)
@@ -143,19 +208,24 @@ export async function login(
       .get(attemptKey, ctx.now() - LOCKOUT_WINDOW_MS) as { n: number }
   ).n
   if (recentFailures >= LOCKOUT_THRESHOLD) {
+    logSecurity('login_locked', { account: attemptKey, ip: maskIp(input.ip) })
     throw new AppError(
       429,
       'account_locked',
-      'Çok fazla başarısız giriş denemesi. Bu hesap geçici olarak kilitlendi — 15 dakika sonra tekrar deneyin ya da parolanızı sıfırlayın.',
+      'Çok fazla başarısız giriş denemesi. Bu hesap geçici olarak kilitlendi — 15 dakika sonra tekrar deneyin.',
     )
   }
 
   const valid = user ? await verifyPassword(user.password_hash, input.password) : false
   ctx.db
-    .prepare('INSERT INTO login_attempts (username_lower, ip, success, created_at) VALUES (?, ?, ?, ?)')
-    .run(attemptKey, input.ip, valid ? 1 : 0, ctx.now())
+    .prepare('INSERT INTO login_attempts (username_lower, success, created_at) VALUES (?, ?, ?)')
+    .run(attemptKey, valid ? 1 : 0, ctx.now())
 
-  if (!user || !valid) throw unauthorized('Kullanıcı adı/e-posta veya parola hatalı.')
+  if (!user || !valid) {
+    // Hesabın var olup olmadığını ayırt etmeden loglanır; yanıt da aynıdır.
+    logSecurity('login_failed', { account: attemptKey, ip: maskIp(input.ip) })
+    throw unauthorized('Kullanıcı adı/e-posta veya parola hatalı.')
+  }
 
   if (user.suspended_indefinitely || (user.suspended_until !== null && user.suspended_until > ctx.now())) {
     const until = user.suspended_indefinitely
@@ -164,59 +234,29 @@ export async function login(
     throw forbidden(`Bu hesap ${until} askıya alınmış.${user.suspension_reason ? ` Sebep: ${user.suspension_reason}` : ''}`)
   }
 
-  const sessionToken = createSession(ctx, user.id)
+  // Girişte token yenilenir (session fixation koruması): giriş öncesi çerezde
+  // olan geçici oturum düşürülür ve yeni bir çerez yazılır.
+  const sessionToken = ctx.config.sessionRotateOnLogin
+    ? rotateSession(ctx, user.id, input.currentToken)
+    : createSession(ctx, user.id)
+  logSecurity('login_success', { userId: user.id, ip: maskIp(input.ip) })
   return { user, sessionToken }
 }
 
 export function logout(ctx: Ctx, token: string | undefined | null): void {
   if (!token) return
+  // Sunucuda geçersiz kılma: yalnızca çerezi silmek yeterli değildir.
   ctx.db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(sha256(token))
+}
+
+/** Süresi dolmuş oturumları temizler (bakım görevi). */
+export function purgeExpiredSessions(ctx: Ctx): number {
+  const result = ctx.db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(ctx.now())
+  return Number(result.changes)
 }
 
 export function invalidateAllSessions(ctx: Ctx, userId: string): void {
   ctx.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId)
-}
-
-export async function requestPasswordReset(ctx: Ctx, email: string, ip: string): Promise<void> {
-  const ipLimit = ctx.rateLimiter.check(`pwreset:${ip}`, 5, 60 * 60 * 1000)
-  if (!ipLimit.allowed) throw rateLimited(ipLimit.retryAfterMs)
-
-  let normalized: string
-  try {
-    normalized = validateEmail(email)
-  } catch {
-    return // same outward behaviour regardless of input validity
-  }
-  const user = ctx.db
-    .prepare('SELECT * FROM users WHERE email_lower = ? AND deleted = 0')
-    .get(normalized) as UserRow | undefined
-  if (!user) return // identical confirmation shown either way (US-003)
-
-  const token = newSecret()
-  ctx.db
-    .prepare('INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES (?, ?, ?)')
-    .run(sha256(token), user.id, ctx.now() + ctx.config.resetTokenTtlMs)
-  await ctx.mailer.send({
-    to: normalized,
-    subject: 'Parolanızı sıfırlayın',
-    text: `Merhaba ${user.username},\n\nParolanızı aşağıdaki bağlantıyla sıfırlayın (60 dakika geçerlidir):\n${ctx.config.baseUrl}/reset-password/${token}\n\nBu isteği siz yapmadıysanız bu e-postayı yok sayabilirsiniz.`,
-  })
-}
-
-export async function resetPassword(ctx: Ctx, token: string, newPassword: string): Promise<void> {
-  const password = validatePassword(newPassword)
-  const row = ctx.db
-    .prepare('SELECT * FROM password_resets WHERE token_hash = ?')
-    .get(sha256(token)) as { token_hash: string; user_id: string; expires_at: number; used: number } | undefined
-  if (!row || row.used || row.expires_at <= ctx.now()) {
-    throw badRequest('reset_invalid', 'Bu sıfırlama bağlantısı geçersiz ya da süresi dolmuş. Yeni bir tane isteyin.')
-  }
-  const passwordHash = await hashPassword(password)
-  transaction(ctx.db, () => {
-    ctx.db.prepare('UPDATE password_resets SET used = 1 WHERE token_hash = ?').run(row.token_hash)
-    ctx.db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, row.user_id)
-    ctx.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(row.user_id)
-  })
 }
 
 /** US-004: anonymise profile, purge credentials, keep content as "[deleted]". */
@@ -231,7 +271,6 @@ export async function deleteAccount(ctx: Ctx, user: UserRow, password: string): 
       )
       .run(user.id)
     ctx.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id)
-    ctx.db.prepare('DELETE FROM password_resets WHERE user_id = ?').run(user.id)
   })
 }
 

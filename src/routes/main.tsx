@@ -27,17 +27,18 @@ import {
 import { isAdminPower, userRankInfo } from '../services/ranks'
 import { requestUpload, receiveUpload } from '../services/uploads'
 import { getMyVotes } from '../services/votes'
-import { listNotifications, markAllRead, markRead } from '../services/notifications'
+import { listNotifications, markAllRead, markListedRead, markRead } from '../services/notifications'
 import { markAllConversationsRead, unreadConversations } from '../services/dm'
 import { Avatar } from '../views/dm'
 import { rankInfoFor } from '../services/ranks'
 import { UserByline } from '../views/rank'
 import { decodeCursor } from '../lib/cursor'
 import { AppError } from '../services/errors'
+import { referenceMapsForFeed } from '../services/references'
 import { ValidationError } from '../lib/validation'
 import { relativeTime, communityColor, communityInitials, profilePath } from '../views/helpers'
 import { visibilityLabel } from '../i18n/tr'
-import { type AppEnv, dmUnread, formData, safeNext, setFlash, takeFlash, unread } from './helpers'
+import { type AppEnv, clientIp, dmUnread, formData, safeNext, setFlash, takeFlash, unread } from './helpers'
 
 export function parseSort(raw: string | undefined): FeedSort {
   return parseFeedSort(raw)
@@ -110,6 +111,18 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
     const membership = membershipStates(ctx, viewer, all.map((i) => i.community_id))
     const authorRanks = authorRanksFor(ctx, all.map((i) => i.author_id))
     const flairs = flairMap(ctx, all.map((i) => i.community_id))
+    // `>>123` referansları: akıştaki tüm gönderiler için TEK sorguda çözülür
+    // (board başına gruplanır; numara yalnızca aynı board içinde anlamlıdır).
+    const refsByPost = new Map<string, Map<number, string>>()
+    const byCommunity = new Map<string, FeedItem[]>()
+    for (const item of all) {
+      const bucket = byCommunity.get(item.community_id)
+      if (bucket) bucket.push(item)
+      else byCommunity.set(item.community_id, [item])
+    }
+    for (const [communityId, bucket] of byCommunity) {
+      for (const [postId, map] of referenceMapsForFeed(ctx, communityId, bucket)) refsByPost.set(postId, map)
+    }
     const cards = (items: FeedItem[], pinned = false) =>
       items.map((item) => (
         <SocialCard
@@ -121,6 +134,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
           authorRanks={authorRanks}
           flair={item.flair_id ? flairs.get(item.flair_id) ?? null : null}
           pinned={pinned}
+          refs={refsByPost.get(item.id)}
         />
       ))
 
@@ -357,6 +371,19 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
     const viewer = c.get('viewer')
     const query = (c.req.query('q') ?? '').trim()
     const communityName = c.req.query('community')
+    // Arama pahalı bir uç nokta: yalnızca gerçekten sorgu varsa sınırla ve
+    // hesap + IP çiftine göre kısa bir pencere uygula.
+    if (query) {
+      const limit = ctx.rateLimiter.check(
+        `search:${viewer?.id ?? `anon:${clientIp(c, ctx)}`}`,
+        60,
+        60_000,
+      )
+      if (!limit.allowed) {
+        c.header('Retry-After', String(Math.ceil(limit.retryAfterMs / 1000)))
+        throw new AppError(429, 'rate_limited', t.errors.tooManyRequests)
+      }
+    }
     let communityId: string | undefined
     if (communityName) {
       const row = ctx.db.prepare('SELECT id FROM communities WHERE name = ?').get(communityName.toLowerCase()) as { id: string } | undefined
@@ -671,6 +698,12 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
     const viewer = c.get('viewer')
     if (!viewer) return c.redirect('/login?next=%2Fnotifications')
     const items = listNotifications(ctx, viewer.id)
+    // Sayfa açıldığı için listelenen bildirimler okunmuş sayılır (server-side).
+    // Rozet sayısı bundan SONRA hesaplanır; aksi halde görüntülenen sayı
+    // veritabanındaki gerçek durumla uyuşmaz ve sayfa yenileyince geri gelir.
+    markListedRead(ctx, viewer.id, items.map((n) => n.id))
+    // Görüntülenen satırlar artık okunmuş; arayüz de aynı durumu göstersin.
+    for (const n of items) n.read = 1
     const now = ctx.now()
     // Bildirimi tetikleyen kullanıcının rozetleri yanıt satırında görünür.
     const actors = usersByIds(ctx, items.map((n) => n.actor_id).filter((id): id is string => Boolean(id)))
@@ -684,7 +717,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
       <Layout title={t.notifications.title} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)} flash={takeFlash(c)} active="messages">
         <div class="card">
           <h2>{t.notifications.title}</h2>
-          {items.length > 0 && (
+          {items.some((n) => !n.read) && (
             <form method="post" action="/notifications/read-all">
               <button class="btn secondary small" type="submit">{t.notifications.markAll}</button>
             </form>

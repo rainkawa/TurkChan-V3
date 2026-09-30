@@ -6,6 +6,18 @@
   // tüm eylemler (arşivle / sil / yanıtla) çalışır.
   document.documentElement.setAttribute('data-js', '1')
 
+  // --- CSRF jetonu ---
+  // Sunucu jetonu sayfaya hem her forma gizli alan olarak hem de meta etiketi
+  // olarak gömer. Jetonu okumak bir doğrulama DEĞİLDİR: her durum değiştiren
+  // istek sunucu tarafında ayrıca karşılaştırılır. Buradaki tek görev, fetch()
+  // ile giden isteklere başlığı eklemektir.
+  var csrfMeta = document.querySelector('meta[name="csrf-token"]')
+  var csrfValue = csrfMeta ? csrfMeta.getAttribute('content') : ''
+
+  function csrfToken() {
+    return csrfValue || ''
+  }
+
   // --- Voting (optimistic UI, server-acknowledged; US-022) ---
   document.addEventListener('click', function (event) {
     var btn = event.target.closest('.vote-btn')
@@ -29,7 +41,7 @@
 
     fetch('/api/vote', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken() },
       body: JSON.stringify({
         targetType: rail.dataset.targetType,
         targetId: rail.dataset.targetId,
@@ -80,7 +92,7 @@
       if (!textarea || !target) return
       fetch('/api/markdown-preview', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken() },
         body: JSON.stringify({ text: textarea.value }),
       })
         .then(function (res) { return res.json() })
@@ -557,7 +569,7 @@
     if (!row || !messageId) return
     fetch('/api/dm/like', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken() },
       body: JSON.stringify({ messageId: messageId }),
     })
       .then(function (res) {
@@ -708,7 +720,7 @@
     function postJson(url, payload) {
       return fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken() },
         body: JSON.stringify(payload),
       }).catch(function () {})
     }

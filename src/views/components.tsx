@@ -56,13 +56,15 @@ export const PostCard: FC<{
   viewer: UserRow | null
   showCommunity?: boolean
   pinned?: boolean
+  /** Bu gönderinin çözülmüş `>>123` referansları (numara → gönderi kimliği). */
+  refs?: Map<number, string>
   /** Yazarın rütbesi / yetkisi (author_id ile eşleşir). */
   authorRanks?: Map<string, UserRank>
   /** Gönderinin board etiketi. */
   flair?: FlairRow | null
   /** Gönderinin ekli medya dosyaları (çoklu görsel/GIF/video). */
   media?: Array<{ key: string; kind: 'image' | 'gif' | 'video'; mime: string | null }>
-}> = ({ item, now, myVote, viewer, showCommunity = true, pinned = false, authorRanks, flair, media }) => {
+}> = ({ item, now, myVote, viewer, showCommunity = true, pinned = false, authorRanks, flair, media, refs }) => {
   const isOwn = viewer?.id === item.author_id
   const authorRank = authorRanks?.get(item.author_id) ?? null
   const thumb =
@@ -96,7 +98,7 @@ export const PostCard: FC<{
               <span class="spoiler-cta">{t.feed.spoilerReveal}</span>
             </button>
             <div class="spoiler-body" hidden>
-              <p class="social-card-preview">{previewText(item.body)}</p>
+              <CardBodyPreview item={item} refs={refs} />
             <MediaPreview
               kind={cardKind}
               src={cardSrc}
@@ -228,7 +230,8 @@ export const MediaGallery: FC<{
         }
         return (
           <a class={`media-item${m.kind === 'gif' ? ' is-gif' : ''}`} href={src} target="_blank" rel="noopener">
-            <img src={src} alt={title} loading="lazy" />
+            {/* Akışta küçük resim yüklenir; tam boyut yalnızca tıklanınca. */}
+            <img src={m.kind === 'image' ? `${src}?variant=thumb` : src} alt={title} loading="lazy" decoding="async" />
             {m.kind === 'gif' && <span class="media-badge">{t.feed.previewGif}</span>}
           </a>
         )
@@ -288,7 +291,8 @@ const MediaPreview: FC<{
   if (src) {
     return (
       <a class={`social-card-media${kind === 'gif' ? ' is-gif' : ''}`} href={href}>
-        <img src={src} alt={title} loading="lazy" />
+        {/* Akış kartı küçük resim kullanır; bağlantı tam boyuta gider. */}
+        <img src={kind === 'image' ? `${src}?variant=thumb` : src} alt={title} loading="lazy" decoding="async" />
         {kind === 'gif' && <span class="media-badge">{t.feed.previewGif}</span>}
       </a>
     )
@@ -300,6 +304,15 @@ const MediaPreview: FC<{
  * Mobil öncelikli sosyal gönderi kartı. Gerçek veriyi gösterir; kaydetme ve
  * paylaşma tarayıcı tarafında çalışır (public/app.js).
  */
+/**
+ * Gövde önizlemesi. `>>123` referansı çözülmüşse markdown olarak bağlantıya
+ * dönüşür; çözülmemişse güvenli düz metin olarak gösterilir.
+ */
+const CardBodyPreview: FC<{ item: FeedItem; refs?: Map<number, string> }> = ({ item, refs }) => {
+  if (refs && refs.size > 0) return <Markdown source={item.body ?? ''} refs={refs} />
+  return <p class="social-card-preview">{previewText(item.body)}</p>
+}
+
 export const SocialCard: FC<{
   item: FeedItem
   now: number
@@ -314,7 +327,9 @@ export const SocialCard: FC<{
   flair?: FlairRow | null
   /** Gönderinin ekli medya dosyaları (çoklu görsel/GIF/video). */
   media?: Array<{ key: string; kind: 'image' | 'gif' | 'video'; mime: string | null }>
-}> = ({ item, now, myVote, viewer, membership = 'none', showCommunity = true, pinned = false, authorRanks, flair, media }) => {
+  /** Bu gönderinin çözülmüş `>>123` referansları (numara → gönderi kimliği). */
+  refs?: Map<number, string>
+}> = ({ item, now, myVote, viewer, membership = 'none', showCommunity = true, pinned = false, authorRanks, flair, media, refs }) => {
   const isOwn = viewer?.id === item.author_id
   const authorRank = authorRanks?.get(item.author_id) ?? null
   const href = `/c/${item.community_name}/comments/${item.id}`
@@ -396,7 +411,7 @@ export const SocialCard: FC<{
             <span class="spoiler-cta">{t.feed.spoilerReveal}</span>
           </button>
           <div class="spoiler-body" hidden>
-            {preview && <p class="social-card-preview">{preview}</p>}
+            {preview && <CardBodyPreview item={item} refs={refs} />}
             {item.type === 'link' && item.url && (
               <a class="social-card-link" href={item.url} rel="nofollow noopener" target="_blank">
                 {item.link_preview_title ?? item.url}
@@ -410,7 +425,7 @@ export const SocialCard: FC<{
         <MediaGallery items={media} title={item.title} />
       ) : (
         <>
-          {preview && <p class="social-card-preview">{preview}</p>}
+          {preview && <CardBodyPreview item={item} refs={refs} />}
 
           {item.type === 'link' && item.url && (
             <a class="social-card-link" href={item.url} rel="nofollow noopener" target="_blank">
@@ -616,11 +631,19 @@ export const SortTabs: FC<{ basePath: string; sort: string; window?: string; ext
   </nav>
 )
 
-export const Markdown: FC<{ source: string; mentions?: string[] }> = ({ source, mentions }) => (
+export const Markdown: FC<{ source: string; mentions?: string[]; refs?: Map<number, string> }> = ({
+  source,
+  mentions,
+  refs,
+}) => (
   <div
     class="md"
     dangerouslySetInnerHTML={{
-      __html: renderMarkdown(source, mentions && mentions.length > 0 ? mentions : undefined),
+      __html: renderMarkdown(
+        source,
+        mentions && mentions.length > 0 ? mentions : undefined,
+        refs && refs.size > 0 ? refs : undefined,
+      ),
     }}
   />
 )

@@ -1,8 +1,17 @@
 import type { Ctx } from '../context'
 import type { UploadKind, UploadRow, UserRow } from '../types'
 import { newSecret, newUuid, sha256 } from '../lib/ids'
-import { detectImageType, mimeForImageType, stripImageMetadata } from '../lib/images'
-import { UPLOAD_LIMITS, detectUploadKind, mimeForUploadKind } from '../lib/media'
+import {
+  MAX_IMAGE_EDGE,
+  MAX_IMAGE_PIXELS,
+  detectImageType,
+  gifStats,
+  imageDimensions,
+  mimeForImageType,
+  stripImageMetadata,
+} from '../lib/images'
+import { MAX_GIF_FRAMES, UPLOAD_LIMITS, detectUploadKind, mimeForUploadKind } from '../lib/media'
+import { makeThumbnail } from '../lib/thumbnails'
 import { badRequest, forbidden, notFound, rateLimited, unauthorized } from './errors'
 
 /**
@@ -50,18 +59,61 @@ export async function receiveUpload(
     const label = kind === 'video' ? 'Videolar' : kind === 'gif' ? 'GIFler' : 'Görseller'
     throw badRequest('too_large', `${label} en fazla ${mb} MB olabilir.`)
   }
+  assertSaneDimensions(kind, bytes)
 
   // Yalnızca görsellerin metadata'sı soyulur; GIF/video başlıkları bozulur.
   const stored = kind === 'image' ? stripImageMetadata(bytes) : bytes
   // MIME yalnızca imzadan türetilir; istemcinin beyanı güvenilmez.
   const mime = kind === 'image' ? mimeForImageType(detectImageType(bytes) as 'jpeg') : mimeForUploadKind(kind, bytes)
   await ctx.storage.put(key, stored)
+  // Küçük resim: akış bunu kullanır, tam boyut yalnızca tıklanınca indirilir.
+  // Üretilemezse orijinal sunulur (zarif düşüş).
+  let thumbKey: string | null = null
+  if (kind === 'image') {
+    const thumb = await makeThumbnail(stored)
+    if (thumb) {
+      thumbKey = `${key}t`
+      await ctx.storage.put(thumbKey, thumb.bytes)
+    }
+  }
   ctx.db
-    .prepare("UPDATE uploads SET status = 'uploaded', mime = ?, size = ? WHERE key = ?")
-    .run(mime, stored.length, key)
+    .prepare("UPDATE uploads SET status = 'uploaded', mime = ?, size = ?, thumb_key = ? WHERE key = ?")
+    .run(mime, stored.length, thumbKey, key)
   return ctx.db.prepare('SELECT * FROM uploads WHERE key = ?').get(key) as unknown as UploadRow
 }
 
+
+/**
+ * Boyut/kare sınırları — decompression bomb ve aşırı kareli GIF koruması.
+ *
+ * Dosya bayt sayısı küçük olsa bile piksel sayısı devasa olabilir; sunucuda
+ * çözüldüğünde bellek ve CPU tüketir. Bu yüzden başlıktan okunan piksel
+ * boyutu da sınırlanır (piksel verisi çözülmez).
+ */
+function assertSaneDimensions(kind: UploadKind, bytes: Uint8Array): void {
+  if (kind === 'video') return
+  if (kind === 'gif') {
+    const stats = gifStats(bytes)
+    if (!stats) return
+    if (stats.frames > MAX_GIF_FRAMES) {
+      throw badRequest('too_many_frames', `GIF en fazla ${MAX_GIF_FRAMES} kare içerebilir.`)
+    }
+    assertPixels(stats.width, stats.height, 'GIF')
+    return
+  }
+  const size = imageDimensions(bytes)
+  if (size) assertPixels(size.width, size.height, 'Görsel')
+}
+
+function assertPixels(width: number, height: number, label: string): void {
+  if (width <= 0 || height <= 0) throw badRequest('bad_dimensions', `${label} boyutları geçersiz.`)
+  if (width > MAX_IMAGE_EDGE || height > MAX_IMAGE_EDGE) {
+    throw badRequest('too_large', `${label} en fazla ${MAX_IMAGE_EDGE} piksel genişlik/yükseklikte olabilir.`)
+  }
+  if (width * height > MAX_IMAGE_PIXELS) {
+    throw badRequest('too_large', `${label} çok fazla piksel içeriyor (en fazla ${MAX_IMAGE_PIXELS}).`)
+  }
+}
 
 /** Claim an uploaded image for a post. Enforces ownership and single use. */
 export function attachUpload(ctx: Ctx, viewer: UserRow, key: string): UploadRow {
@@ -75,9 +127,18 @@ export function attachUpload(ctx: Ctx, viewer: UserRow, key: string): UploadRow 
   return { ...upload, status: 'attached' }
 }
 
-export async function serveUpload(ctx: Ctx, key: string): Promise<{ bytes: Uint8Array; mime: string } | null> {
+export async function serveUpload(
+  ctx: Ctx,
+  key: string,
+  variant: 'full' | 'thumb' = 'full',
+): Promise<{ bytes: Uint8Array; mime: string } | null> {
   const upload = ctx.db.prepare('SELECT * FROM uploads WHERE key = ?').get(key) as UploadRow | undefined
   if (!upload || upload.status === 'pending') return null
+  // Küçük resim isteniyorsa ve üretilmişse o sunulur.
+  if (variant === 'thumb' && upload.thumb_key) {
+    const thumb = await ctx.storage.get(upload.thumb_key)
+    if (thumb) return { bytes: thumb, mime: 'image/jpeg' }
+  }
   const bytes = await ctx.storage.get(key)
   if (!bytes) return null
   return { bytes, mime: upload.mime ?? 'application/octet-stream' }

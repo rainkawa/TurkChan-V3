@@ -5,6 +5,7 @@ import {
   createPostVia,
   createTestWorld,
   registerUser,
+  relogin,
   type TestWorld,
 } from '../testUtils'
 
@@ -24,13 +25,16 @@ function extractOrder(html: string, titles: string[]): string[] {
 
 describe('US-025 hot sort', () => {
   test('a new post with score 0 outranks a week-old post with modest score', async () => {
-    const { agent } = await registerUser(world)
+    const { username } = await registerUser(world, 'frontuser')
+    let agent = await relogin(world, username)
     await createCommunityVia(agent, 'front')
     await createPostVia(agent, 'front', 'OLD-MODEST-POST')
     const oldId = (world.ctx.db.prepare('SELECT id FROM posts').get() as { id: string }).id
     world.ctx.db.prepare('UPDATE posts SET score = 15, upvotes = 15 WHERE id = ?').run(oldId)
 
     world.tick(7 * 24 * HOUR)
+    // Bir hafta idle süresi: oturum sunucuda sona erdi, yeniden giriş gerekir.
+    agent = await relogin(world, username)
     await createPostVia(agent, 'front', 'FRESH-ZERO-POST')
 
     const page = await agent.get('/c/front?sort=hot')
@@ -67,7 +71,8 @@ describe('US-026 new and top sorts', () => {
   })
 
   test('top respects the selected window and tie-breaks by recency', async () => {
-    const { agent } = await registerUser(world)
+    const { username } = await registerUser(world, 'peaker')
+    let agent = await relogin(world, username)
     await createCommunityVia(agent, 'peaks')
 
     await createPostVia(agent, 'peaks', 'ANCIENT-HIGH') // score 100, 10 days ago (outside the week window)
@@ -75,6 +80,8 @@ describe('US-026 new and top sorts', () => {
     world.ctx.db.prepare('UPDATE posts SET score = 100 WHERE id = ?').run(ancientId)
 
     world.tick(10 * 24 * HOUR)
+    // 10 gün idle süresini aştı: oturum sunucuda sona erdi.
+    agent = await relogin(world, username)
     await createPostVia(agent, 'peaks', 'RECENT-MID') // score 10, now
     const recentId = (world.ctx.db.prepare('SELECT id FROM posts ORDER BY created_at DESC LIMIT 1').get() as { id: string }).id
     world.ctx.db.prepare('UPDATE posts SET score = 10 WHERE id = ?').run(recentId)

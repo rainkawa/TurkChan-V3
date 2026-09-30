@@ -12,6 +12,7 @@ import {
   createTestWorld,
   registerAdmin,
   registerUser,
+  relogin,
   type TestWorld,
 } from '../testUtils'
 
@@ -90,12 +91,15 @@ describe('sıralama: Popüler / Yeni / En iyi', () => {
   })
 
   test('board akışında "En iyi" sekmesi zaman aralığına uyar', async () => {
-    const { agent } = await registerUser(world)
+    const { username } = await registerUser(world, 'windower')
+    let agent = await relogin(world, username)
     await createCommunityVia(agent, 'windows')
 
     await createPostVia(agent, 'windows', 'ANCIENT-BEST')
     patchPost(latestPostId(), { upvotes: 40, downvotes: 0, score: 40 })
     world.tick(10 * 24 * HOUR)
+    // 10 gün idle süresini aştığı için oturum sunucuda sona erdi.
+    agent = await relogin(world, username)
     await createPostVia(agent, 'windows', 'RECENT-WEAK')
     patchPost(latestPostId(), { upvotes: 1, downvotes: 0, score: 1 })
 

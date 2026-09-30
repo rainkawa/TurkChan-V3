@@ -91,6 +91,8 @@ export interface PostRow {
   community_id: string
   author_id: string
   type: 'text' | 'link' | 'image'
+  /** Topluluk içinde 1'den başlayan post numarası (>>12345 referansları için). */
+  number: number | null
   title: string
   body: string | null
   url: string | null
@@ -213,6 +215,8 @@ export interface UploadRow {
   mime: string | null
   size: number | null
   status: 'pending' | 'uploaded' | 'attached'
+  /** Sunucuda üretilen küçük resmin anahtarı (yoksa null). */
+  thumb_key: string | null
   created_at: number
 }
 

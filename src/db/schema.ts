@@ -29,24 +29,20 @@ CREATE TABLE IF NOT EXISTS users (
   created_at INTEGER NOT NULL
 );
 
+-- Oturum tablosunda bilerek IP adresi / User-Agent / cihaz bilgisi SAKLANMAZ.
+-- Hiçbir özellik bunları okumuyor; gizlilik ilkesi gereği toplanmamaları tercih
+-- edilir. Token'ın kendisi de düz metin değil yalnızca SHA-256 karmasıdır.
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id),
   created_at INTEGER NOT NULL,
-  expires_at INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS password_resets (
-  token_hash TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id),
   expires_at INTEGER NOT NULL,
-  used INTEGER NOT NULL DEFAULT 0
+  last_seen_at INTEGER NOT NULL DEFAULT 0  -- idle zaman aşımı için son kullanım
 );
 
 CREATE TABLE IF NOT EXISTS login_attempts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username_lower TEXT NOT NULL,
-  ip TEXT NOT NULL,
   success INTEGER NOT NULL,
   created_at INTEGER NOT NULL
 );
@@ -107,6 +103,7 @@ CREATE TABLE IF NOT EXISTS posts (
   community_id TEXT NOT NULL REFERENCES communities(id),
   author_id TEXT NOT NULL REFERENCES users(id),
   type TEXT NOT NULL CHECK (type IN ('text','link','image')),
+  number INTEGER,                    -- topluluk içinde 1'den başlayan post no (>>12345)
   title TEXT NOT NULL,
   body TEXT,                        -- markdown source (text posts)
   url TEXT,                         -- link posts
@@ -206,6 +203,16 @@ CREATE TABLE IF NOT EXISTS comment_media (
   created_at INTEGER NOT NULL
 );
 
+-- Imageboard tarzı gönderi referansları (>>12345).
+-- Numaralar topluluk içinde 1'den başlar ve atlanmaz; backlink için saklanır.
+CREATE TABLE IF NOT EXISTS post_references (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  target_post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  UNIQUE (source_post_id, target_post_id)
+);
+
 -- Yorumda geçen @kullanıcı bahsi (bildirim için).
 CREATE TABLE IF NOT EXISTS comment_mentions (
   comment_id TEXT NOT NULL REFERENCES comments(id),
@@ -276,6 +283,7 @@ CREATE TABLE IF NOT EXISTS conversation_members (
   conversation_id TEXT NOT NULL REFERENCES conversations(id),
   user_id TEXT NOT NULL REFERENCES users(id),
   last_read_at INTEGER NOT NULL DEFAULT 0,  -- epoch ms; okundu sayılma anı
+  last_read_rowid INTEGER NOT NULL DEFAULT 0, -- o ana kadar okunmuş son mesajın rowid'i
   archived INTEGER NOT NULL DEFAULT 0,       -- arşivde
   hidden INTEGER NOT NULL DEFAULT 0,        -- "sohbeti benden sil" (kendi listemden gizler)
   accepted INTEGER NOT NULL DEFAULT 1,       -- 0 = karşı taraf henüz kabul etmedi (istek)
@@ -324,6 +332,7 @@ CREATE TABLE IF NOT EXISTS uploads (  key TEXT PRIMARY KEY,             -- ungue
   mime TEXT,
   size INTEGER,
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','uploaded','attached')),
+  thumb_key TEXT,                   -- sunucuda üretilen küçük resim anahtarı
   created_at INTEGER NOT NULL
 );
 
@@ -366,6 +375,13 @@ CREATE INDEX IF NOT EXISTS idx_posts_community ON posts(community_id, created_at
 CREATE INDEX IF NOT EXISTS idx_posts_author ON posts(author_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_url ON posts(community_id, url);
 CREATE INDEX IF NOT EXISTS idx_post_media_post ON post_media(post_id, position);
+CREATE INDEX IF NOT EXISTS idx_post_references_target ON post_references(target_post_id);
+-- Yükleme sahipliği her gönderi/yorum oluşturulurken sorgulanır; indeks olmadan
+-- uploads tablosunun tamamı taranır.
+CREATE INDEX IF NOT EXISTS idx_uploads_uploader ON uploads(uploader_id, status);
+-- Kısmi benzersiz index: numarası olan gönderiler topluluk içinde tekildir.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_posts_community_number
+  ON posts(community_id, number) WHERE number IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_flairs_community ON board_flairs(community_id, position);
 CREATE INDEX IF NOT EXISTS idx_affinity_user ON community_affinity(user_id, affinity DESC);
 CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id, path);

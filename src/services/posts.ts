@@ -15,6 +15,8 @@ import { joinCommunity } from './communities'
 import { fetchLinkPreview } from './linkpreview'
 import { attachUpload } from './uploads'
 import { isAdminPower } from './ranks'
+import { assertNotDuplicate } from '../lib/spam'
+import { nextPostNumber, syncReferences } from './references'
 import { transaction } from '../db'
 
 const TEN_MINUTES_MS = 10 * 60 * 1000
@@ -24,6 +26,20 @@ function checkPostRateLimit(ctx: Ctx, user: UserRow): void {
   const settings = getSettings(ctx)
   const limit = ctx.rateLimiter.check(`post:${user.id}`, settings.postsPer10Min, TEN_MINUTES_MS)
   if (!limit.allowed) throw rateLimited(limit.retryAfterMs)
+}
+
+/**
+ * Aynı içerikle (başlık + gövde) kısa sürede ikinci gönderiyi engeller.
+ * Gönderi metni en fazla bir kez tekrarlanabilir.
+ */
+function checkDuplicatePost(ctx: Ctx, user: UserRow, communityId: string, title: string, body: string | null): void {
+  assertNotDuplicate(ctx, {
+    scope: `post:${communityId}`,
+    userId: user.id,
+    content: `${title}\n${body ?? ''}`,
+    max: 1,
+    windowMs: TEN_MINUTES_MS,
+  })
 }
 
 /**
@@ -62,20 +78,23 @@ export function createTextPost(
   checkPostRateLimit(ctx, user)
   const title = validatePostTitle(input.title)
   const body = validatePostBody(input.body)
+  checkDuplicatePost(ctx, user, community.id, title, body)
   const flairId = resolveFlair(ctx, community, user, input.flairId)
   const id = newId()
+  const number = nextPostNumber(ctx, community.id)
   const anon = resolveAnonymous(ctx, user, input.anonymous)
   const now = ctx.now()
   transaction(ctx.db, () => {
     ctx.db
       .prepare(
-        `INSERT INTO posts (id, community_id, author_id, type, title, body, spoiler, flair_id,
+        `INSERT INTO posts (id, community_id, author_id, number, type, title, body, spoiler, flair_id,
                             is_anonymous, anon_name, created_at)
-         VALUES (?, ?, ?, 'text', ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, 'text', ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, community.id, user.id, title, body, input.spoiler ? 1 : 0, flairId,
+      .run(id, community.id, user.id, number, title, body, input.spoiler ? 1 : 0, flairId,
         anon ? 1 : 0, anon, now)
     syncPostFts(ctx, getPost(ctx, id) as PostRow)
+    syncReferences(ctx, id, community.id, body)
   })
   bumpAffinity(ctx, user.id, community.id, AFFINITY_STEP.post)
   return getPost(ctx, id) as PostRow
@@ -125,6 +144,7 @@ export function createMediaPost(
   checkPostRateLimit(ctx, user)
   const title = validatePostTitle(input.title)
   const body = input.body ? validatePostBody(input.body) : null
+  checkDuplicatePost(ctx, user, community.id, title, body)
   const flairId = resolveFlair(ctx, community, user, input.flairId)
   if (input.keys.length === 0) throw badRequest('media_missing', 'En az bir dosya yükleyin.')
 
@@ -156,17 +176,18 @@ export function createMediaPost(
 
   const anon = resolveAnonymous(ctx, user, input.anonymous)
   const id = newId()
+  const number = nextPostNumber(ctx, community.id)
   const now = ctx.now()
   // Ana medya türü: video varsa video, yoksa ilk dosyanın türü.
   const primaryKind = items.some((i) => i.kind === 'video') ? 'video' : items[0]?.kind
   transaction(ctx.db, () => {
     ctx.db
       .prepare(
-        `INSERT INTO posts (id, community_id, author_id, type, title, body, image_key, media_kind, spoiler, flair_id,
+        `INSERT INTO posts (id, community_id, author_id, number, type, title, body, image_key, media_kind, spoiler, flair_id,
                             is_anonymous, anon_name, created_at)
-         VALUES (?, ?, ?, 'image', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, 'image', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, community.id, user.id, title, body, items[0]?.key ?? null, primaryKind ?? 'image',
+      .run(id, community.id, user.id, number, title, body, items[0]?.key ?? null, primaryKind ?? 'image',
         input.spoiler ? 1 : 0, flairId,
         anon ? 1 : 0, anon, now)
     const ins = ctx.db.prepare(
@@ -178,6 +199,7 @@ export function createMediaPost(
       ins.run(newId(), id, index, item.key, item.mime, item.kind, now)
     })
     syncPostFts(ctx, getPost(ctx, id) as PostRow)
+    syncReferences(ctx, id, community.id, input.body ?? null)
   })
   bumpAffinity(ctx, user.id, community.id, AFFINITY_STEP.post)
   return getPost(ctx, id) as PostRow
@@ -215,6 +237,7 @@ export async function createLinkPost(
   if (!isValidPublicUrlSyntax(url)) {
     throw badRequest('url', 'Geçerli herkese açık bir http(s) bağlantısı girin.')
   }
+  checkDuplicatePost(ctx, user, community.id, title, input.body ? validatePostBody(input.body) : null)
   const duplicateOf = findDuplicateLinkPost(ctx, community, url)
   // Preview fetch is best-effort and never blocks creation (US-014).
   const preview = await fetchLinkPreview(ctx, url)
@@ -223,19 +246,21 @@ export async function createLinkPost(
   const mediaKind = mediaKindForUrl(url)
 
   const id = newId()
+  const number = nextPostNumber(ctx, community.id)
   const anon = resolveAnonymous(ctx, user, input.anonymous)
   const now = ctx.now()
   transaction(ctx.db, () => {
     ctx.db
       .prepare(
-        `INSERT INTO posts (id, community_id, author_id, type, title, body, url, link_preview_title, link_preview_image,
+        `INSERT INTO posts (id, community_id, author_id, number, type, title, body, url, link_preview_title, link_preview_image,
                             media_kind, spoiler, flair_id, is_anonymous, anon_name, created_at)
-         VALUES (?, ?, ?, 'link', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, 'link', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
         community.id,
         user.id,
+        number,
         title,
         input.body ? validatePostBody(input.body) : null,
         url,
@@ -249,6 +274,7 @@ export async function createLinkPost(
         now,
       )
     syncPostFts(ctx, getPost(ctx, id) as PostRow)
+    syncReferences(ctx, id, community.id, `${title} ${url}`)
   })
   bumpAffinity(ctx, user.id, community.id, AFFINITY_STEP.post)
   return { post: getPost(ctx, id) as PostRow, duplicateOf }
@@ -296,6 +322,8 @@ export function editPostBody(ctx: Ctx, viewer: Viewer, postId: string, body: str
   transaction(ctx.db, () => {
     ctx.db.prepare('UPDATE posts SET body = ?, edited_at = ? WHERE id = ?').run(validBody, ctx.now(), postId)
     syncPostFts(ctx, getPost(ctx, postId) as PostRow)
+    // Düzenlemede referanslar yeniden hesaplanır; eskisi kalmamalı.
+    syncReferences(ctx, postId, post.community_id, validBody)
   })
   return getPost(ctx, postId) as PostRow
 }

@@ -9,6 +9,17 @@ export type DB = DatabaseSync
 export function openDatabase(path: string): DB {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
   const db = new DatabaseSync(path)
+  // Bağlantı ayarları her açılışta uygulanır:
+  //  - WAL: okuyucu/yazıcı birbirini bloklamaz (yazma sırasında akış okunabilir).
+  //  - foreign_keys: uygulama şemada tanımlı referansları gerçekten uygular.
+  //  - busy_timeout: eşzamanlı yazma girişimleri "database is locked" yerine bekler.
+  //  - synchronous=NORMAL: WAL kipiyle birlikte güvenli ve belirgin şekilde hızlı.
+  //    (FULL her commit'te fsync yapar; yedekleme stratejisi bunu telafi eder.)
+  if (path !== ':memory:') db.exec('PRAGMA journal_mode = WAL')
+  db.exec('PRAGMA foreign_keys = ON')
+  db.exec('PRAGMA busy_timeout = 5000')
+  db.exec('PRAGMA synchronous = NORMAL')
+  db.exec('PRAGMA temp_store = MEMORY')
   // Sıra önemlidir:
   //  1) tablolar oluşturulur — mevcut bir veritabanında CREATE TABLE IF NOT EXISTS
   //     yeni kolonları EKLEMEZ, yalnızca eksik tabloyu kurar,
@@ -67,6 +78,26 @@ function migrate(db: DatabaseSync): void {
     if (!postColumns.has(column)) db.exec(ddl)
   }
 
+  // Okundu işaretinin aynı milisaniyede gelen mesajları da ayırt edebilmesi
+  // için son görülen mesajın rowid'i saklanır (rozet kaybı düzeltmesi).
+  const sessionColumns = new Set(
+    (db.prepare('PRAGMA table_info(sessions)').all() as unknown as Array<{ name: string }>).map((c) => c.name),
+  )
+  if (!sessionColumns.has('last_seen_at')) {
+    db.exec('ALTER TABLE sessions ADD COLUMN last_seen_at INTEGER NOT NULL DEFAULT 0')
+  }
+  // Gizlilik: eski sürümlerde tutulan IP / User-Agent sütunları düşürülür.
+  for (const column of ['ip', 'user_agent']) {
+    if (sessionColumns.has(column)) dropColumnIfSupported(db, 'sessions', column)
+  }
+
+  const memberColumns = new Set(
+    (db.prepare('PRAGMA table_info(conversation_members)').all() as unknown as Array<{ name: string }>).map((c) => c.name),
+  )
+  if (!memberColumns.has('last_read_rowid')) {
+    db.exec('ALTER TABLE conversation_members ADD COLUMN last_read_rowid INTEGER NOT NULL DEFAULT 0')
+  }
+
   const commentColumns = new Set(
     (db.prepare('PRAGMA table_info(comments)').all() as unknown as Array<{ name: string }>).map((c) => c.name),
   )
@@ -93,6 +124,45 @@ function migrate(db: DatabaseSync): void {
   if (!userColumns.has('anon_by_default')) {
     db.exec('ALTER TABLE users ADD COLUMN anon_by_default INTEGER NOT NULL DEFAULT 0')
   }
+
+  const uploadColumns = new Set(
+    (db.prepare('PRAGMA table_info(uploads)').all() as unknown as Array<{ name: string }>).map((c) => c.name),
+  )
+  if (!uploadColumns.has('thumb_key')) {
+    db.exec('ALTER TABLE uploads ADD COLUMN thumb_key TEXT')
+  }
+
+  // >>12345 referansları için topluluk içinde sıralı post numarası.
+  const numbered = new Set(
+    (db.prepare('PRAGMA table_info(posts)').all() as unknown as Array<{ name: string }>).map((c) => c.name),
+  )
+  if (!numbered.has('number')) {
+    db.exec('ALTER TABLE posts ADD COLUMN number INTEGER')
+    // Mevcut gönderilere oluşturulma sırasına göre numara verilir; böylece
+    // eski içeriklerdeki referanslar yine doğru gönderiye bağlanır.
+    const rows = db
+      .prepare('SELECT rowid AS rid, community_id FROM posts ORDER BY community_id, created_at, rowid')
+      .all() as unknown as Array<{ rid: number; community_id: string }>
+    let seq = 0
+    let current: string | null = null
+    for (const row of rows) {
+      if (row.community_id !== current) {
+        current = row.community_id
+        seq = 0
+      }
+      seq += 1
+      db.prepare('UPDATE posts SET number = ? WHERE rowid = ?').run(seq, row.rid)
+    }
+  }
+
+  // Gizlilik: başarısız giriş denemelerinde IP adresi saklanmaz. Kaba kuvvet
+  // koruması kullanıcı adı üzerinden çalışır, IP bazlı sınır bellekte tutulur.
+  const attemptColumns = new Set(
+    (db.prepare('PRAGMA table_info(login_attempts)').all() as unknown as Array<{ name: string }>).map(
+      (c) => c.name,
+    ),
+  )
+  if (attemptColumns.has('ip')) dropColumnIfSupported(db, 'login_attempts', 'ip')
 }
 
 /**

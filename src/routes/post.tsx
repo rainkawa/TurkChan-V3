@@ -31,6 +31,7 @@ import { ValidationError } from '../lib/validation'
 import { relativeTime, formatDate } from '../views/helpers'
 import { embedSrcFor } from '../lib/media'
 import { requestUpload, receiveUpload } from '../services/uploads'
+import { referencesOut, repliesTo, syncReferences } from '../services/references'
 
 /** Kırık bağlantılarda detay sayfasının patlamaması için güvenli alan adı. */
 function safeHost(raw: string): string {
@@ -101,6 +102,12 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
     const hideMinutes = community.hide_comment_scores_minutes
     const scoreHidden = (createdAt: number) => hideMinutes > 0 && now - createdAt < hideMinutes * 60 * 1000
 
+    // >>12345 referansları: yalnızca AYNI topluluktaki gerçek gönderiler
+    // çözülür; backlink listesi de aynı eşleşmeden üretilir.
+    const postRefs = syncReferences(ctx, post.id, post.community_id, `${post.title} ${post.body ?? ''}`)
+    const inbound = contentHidden === null ? repliesTo(ctx, post.id) : []
+    const outbound = referencesOut(ctx, post.id)
+
     // Gövde tüm gönderi türlerinde markdown olarak çizilir; bağlantı önizlemesi
     // ve medya ayrı bloklarda, gövdenin altında gösterilir.
     const bodyBlock =
@@ -111,7 +118,7 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
       ) : contentHidden === 'pending_review' ? (
         <p class="placeholder">{t.post.pendingReview}</p>
       ) : post.body ? (
-        <Markdown source={post.body} />
+        <Markdown source={post.body} refs={postRefs} />
       ) : null
 
     // Bağlantı önizleme kartı (gövde olmasa da görünür).
@@ -332,6 +339,11 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
           {/* Kimlik, kalıcı bağlantı, tarihler ve istatistik */}
           <div class="post-meta-bar">
             <div class="post-meta-row">
+              {post.number !== null && (
+                <span class="post-meta-item post-number" title={t.post.numberHint}>
+                  № <code>{post.number}</code>
+                </span>
+              )}
               <span class="post-meta-item" title={t.post.permalink}>
                 🔗 <code class="post-id">{post.id}</code>
               </span>
@@ -360,6 +372,33 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
           </div>
 
           <div class="post-detail-body">{renderedBody}</div>
+
+          {/* >>12345 referansları: geri bağlantılar */}
+          {(inbound.length > 0 || outbound.length > 0) && (
+            <div class="post-refs">
+              {outbound.length > 0 && (
+                <div class="post-refs-row">
+                  <span class="post-refs-label">{t.post.referencesOut}</span>
+                  {outbound.map((ref) => (
+                    <a class="post-ref" href={`/p/${ref.id}`}>
+                      {ref.number !== null ? `>>${ref.number}` : '>>?'} {ref.title}
+                    </a>
+                  ))}
+                </div>
+              )}
+              {inbound.length > 0 && (
+                <div class="post-refs-row">
+                  <span class="post-refs-label">{t.post.repliesTo}</span>
+                  {inbound.map((ref) => (
+                    <a class="post-ref" href={`/p/${ref.id}`}>
+                      {ref.number !== null ? `>>${ref.number}` : '>>?'}{' '}
+                      {ref.anon_name ?? `@${ref.author_username ?? '?'}`}
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Aksiyonlar: oy, yorum, paylaş, kaydet — dikey öncelikli düzen */}
           <div class="social-card-actions post-detail-actions">

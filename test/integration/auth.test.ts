@@ -236,59 +236,47 @@ describe('US-002 login and logout', () => {
   })
 })
 
-describe('US-003 password reset', () => {
-  test('same confirmation whether or not the email exists', async () => {
-    await registerUser(world, 'resetme', { email: 'resetme@example.test' })
+describe('şifre sıfırlama özelliği kaldırıldı', () => {
+  test('parola sıfırlama rotaları artık yoktur', async () => {
     const agent = new Agent(world.app)
+    // Giriş ekranında "şifremi unuttum" bağlantısı bulunmaz.
+    const loginPage = await (await agent.get('/login')).text()
+    expect(loginPage).not.toContain('/forgot-password')
+    expect(loginPage).not.toContain('Parolanızı mı unuttunuz')
 
-    await agent.post('/forgot-password', { email: 'resetme@example.test' })
-    let page = await agent.get('/forgot-password')
-    const known = await page.text()
-
-    await agent.post('/forgot-password', { email: 'stranger@example.test' })
-    page = await agent.get('/forgot-password')
-    const unknown = await page.text()
-
-    expect(known).toContain('sıfırlama bağlantısı gönderildi')
-    expect(unknown).toContain('sıfırlama bağlantısı gönderildi')
-    expect(world.mailer.sent).toHaveLength(1) // only the real account got mail
+    // Rota tamamen kaldırıldı: oturum açıkken 404 (ölü route yok).
+    const { agent: member } = await registerUser(world, 'nogreset')
+    for (const path of ['/forgot-password', '/reset-password']) {
+      const res = await member.get(path)
+      expect(res.status, `${path} → ${res.status}`).toBe(404)
+    }
+    // POST da 404.
+    expect((await member.post('/forgot-password', { email: 'x@example.test' })).status).toBe(404)
+    // Oturumsuz istek zaten girişe yönlendirilir (fail-closed).
+    expect((await agent.get('/forgot-password')).status).toBe(302)
+    expect((world.ctx.db.prepare('SELECT COUNT(*) AS n FROM sqlite_master WHERE name = ?').get('password_resets') as { n: number }).n).toBe(0)
   })
 
-  test('reset link works once, expires after 60 minutes, and kills all sessions', async () => {
-    const { agent: existing, email } = await registerUser(world, 'resetflow')
-    const requester = new Agent(world.app)
-    await requester.post('/forgot-password', { email })
-    const mail = world.mailer.sent[0]
-    const token = mail?.text.match(/reset-password\/([A-Za-z0-9_-]+)/)?.[1] as string
-    expect(token).toBeTruthy()
+  test('parola değiştirme yalnızca oturum açıkken ve mevcut parola ile yapılır', async () => {
+    const { agent } = await registerUser(world, 'pwchange')
+    const stranger = new Agent(world.app)
+    // Oturumsuz istek giriş sayfasına yönlendirilir.
+    const anon = await stranger.post('/settings/password', {
+      currentPassword: 'password12345',
+      newPassword: 'brandnewpass99',
+    })
+    expect(anon.status).toBe(302)
+    expect(anon.headers.get('location')).toContain('/login')
 
-    const res = await requester.post(`/reset-password/${token}`, { password: 'brandnewpass99' })
-    expect(res.headers.get('location')).toBe('/login')
-
-    // Old session invalidated (US-003).
-    const settingsRes = await existing.get('/settings')
-    expect(settingsRes.status).toBe(302)
-
-    // New password works; token is single-use.
-    const fresh = new Agent(world.app)
-    await fresh.post('/login', { identifier: 'resetflow', password: 'brandnewpass99' })
-    expect(fresh.loggedIn()).toBe(true)
-    const reuse = await requester.post(`/reset-password/${token}`, { password: 'anotherpass99' })
-    await reuse.text()
-    const page = await requester.get(`/reset-password/${token}`)
-    expect(await page.text()).toContain('geçersiz ya da süresi dolmuş')
-  })
-
-  test('expired token is rejected', async () => {
-    const { email } = await registerUser(world, 'expiry')
-    const agent = new Agent(world.app)
-    await agent.post('/forgot-password', { email })
-    const token = world.mailer.sent[0]?.text.match(/reset-password\/([A-Za-z0-9_-]+)/)?.[1] as string
-    world.tick(61 * 60 * 1000)
-    await agent.post(`/reset-password/${token}`, { password: 'shouldnotwork1' })
-    const login = new Agent(world.app)
-    await login.post('/login', { identifier: 'expiry', password: 'shouldnotwork1' })
-    expect(login.loggedIn()).toBe(false)
+    // Yanlış mevcut parola reddedilir.
+    const wrong = await agent.post('/settings/password', {
+      currentPassword: 'wrongpassword',
+      newPassword: 'brandnewpass99',
+    })
+    expect(wrong.status).toBe(302)
+    const old = new Agent(world.app)
+    await old.post('/login', { identifier: 'pwchange', password: 'password12345' })
+    expect(old.loggedIn()).toBe(true)
   })
 })
 

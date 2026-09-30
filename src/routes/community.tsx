@@ -3,6 +3,7 @@ import type { Ctx } from '../context'
 import { t, visibilityLabel } from '../i18n/tr'
 import { Layout } from '../views/layout'
 import { PostCard, SortTabs } from '../views/components'
+import { referenceMapsForFeed } from '../services/references'
 import { authorRanksFor } from '../services/users'
 import {
   requireVisibleCommunity,
@@ -140,6 +141,8 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
     const flairById = new Map(flairs.map((f) => [f.id, f]))
     const flairCounts = flairFilterOptions(ctx, [community.id])
     const extraQuery = flairId ? `&flair=${encodeURIComponent(flairId)}` : ''
+    // `>>123` referansları tek sorguda çözülür (N+1 yok).
+    const refsByPost = referenceMapsForFeed(ctx, community.id, [...page.pinned, ...page.items])
 
     // Sonsuz kaydırma için kart listesinin devamı.
     if (c.req.query('partial') === '1' && cursor) {
@@ -154,6 +157,7 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
               showCommunity={false}
               authorRanks={authorRanks}
               flair={item.flair_id ? flairById.get(item.flair_id) ?? null : null}
+              refs={refsByPost.get(item.id)}
             />
           ))}
         </div>,
@@ -229,6 +233,7 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
                       showCommunity={false}
                       authorRanks={authorRanks}
                       flair={item.flair_id ? flairById.get(item.flair_id) ?? null : null}
+              refs={refsByPost.get(item.id)}
                       pinned
                     />
                   ))}
@@ -255,6 +260,7 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
                   showCommunity={false}
                   authorRanks={authorRanks}
                   flair={item.flair_id ? flairById.get(item.flair_id) ?? null : null}
+              refs={refsByPost.get(item.id)}
                 />
               ))}
             </div>

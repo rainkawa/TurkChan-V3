@@ -15,6 +15,7 @@ import type { MessageRow, UserRow } from '../types'
 import { newId } from '../lib/ids'
 import { LIMITS } from '../lib/validation'
 import { badRequest, forbidden, notFound, rateLimited } from './errors'
+import { assertNotDuplicate } from '../lib/spam'
 import { isSuspended } from './access'
 import { getUserById } from './users'
 import { t } from '../i18n/tr'
@@ -113,6 +114,13 @@ export function sendMessage(
   }
   const limit = ctx.rateLimiter.check(`dm:${viewer.id}`, LIMITS.dmMessagesPerHour, HOUR_MS)
   if (!limit.allowed) throw rateLimited(limit.retryAfterMs)
+  assertNotDuplicate(ctx, {
+    scope: `dm:${conversationId}`,
+    userId: viewer.id,
+    content: text,
+    max: 2,
+    windowMs: 5 * 60_000,
+  })
 
   const now = ctx.now()
   const id = newId()
@@ -174,6 +182,7 @@ export interface ConversationList {
 interface RawSummaryRow {
   id: string
   last_read_at: number
+  last_read_rowid: number
   archived: number
   hidden: number
   accepted: number
@@ -187,7 +196,7 @@ interface RawSummaryRow {
 function summaryRows(ctx: Ctx, userId: string): RawSummaryRow[] {
   return ctx.db
     .prepare(
-      `SELECT cm.conversation_id AS id, cm.last_read_at, cm.archived, cm.hidden, cm.accepted,
+      `SELECT cm.conversation_id AS id, cm.last_read_at, cm.last_read_rowid, cm.archived, cm.hidden, cm.accepted,
               (SELECT MAX(created_at) FROM messages m WHERE m.conversation_id = cm.conversation_id) AS last_message_at,
               (SELECT body FROM messages m WHERE m.conversation_id = cm.conversation_id
                 ORDER BY created_at DESC, id DESC LIMIT 1) AS last_body,
@@ -208,7 +217,7 @@ function toSummary(ctx: Ctx, row: RawSummaryRow, userId: string, onlineIds: Set<
   const peer = getUserById(ctx, peerId)
   if (!peer || peer.deleted === 1) return null
   const lastAt = row.last_message_at ?? 0
-  const unread = countUnreadIn(ctx, row.id, userId, row.last_read_at, lastAt)
+  const unread = countUnreadIn(ctx, row.id, userId, row.last_read_rowid, lastAt)
   return {
     id: row.id,
     peer,
@@ -223,14 +232,23 @@ function toSummary(ctx: Ctx, row: RawSummaryRow, userId: string, onlineIds: Set<
   }
 }
 
-function countUnreadIn(ctx: Ctx, conversationId: string, userId: string, lastReadAt: number, lastAt: number): number {
+/**
+ * Sohbetteki okunmamış mesaj sayısı.
+ *
+ * Karşılaştırma zaman damgasıyla değil `rowid` ile yapılır: mesajlar aynı
+ * milisaniyede geldiğinde zaman damgası ayrım yapamaz ve yeni mesaj "okunmuş"
+ * sayılıp rozet kaybolurdu. `rowid` yazılma sırasına göre artar ve tek
+ * yönlüdür; bu yüzden aynı kapsama yazan eşzamanlı isteklerde "daha eski" bir
+ * su damgası yazılsa bile okunmamış sayımı bozulmaz.
+ */
+function countUnreadIn(ctx: Ctx, conversationId: string, userId: string, lastReadRowid: number, lastAt: number): number {
   if (lastAt === 0) return 0
   const row = ctx.db
     .prepare(
       `SELECT COUNT(*) AS n FROM messages
-        WHERE conversation_id = ? AND sender_id != ? AND created_at > ?`,
+        WHERE conversation_id = ? AND sender_id != ? AND rowid > ?`,
     )
-    .get(conversationId, userId, lastReadAt) as { n: number }
+    .get(conversationId, userId, lastReadRowid) as { n: number }
   return row.n
 }
 
@@ -259,16 +277,66 @@ export function dmUnreadCount(ctx: Ctx, userId: string): number {
 }
 
 export function markConversationRead(ctx: Ctx, userId: string, conversationId: string): void {
-  ctx.db
-    .prepare('UPDATE conversation_members SET last_read_at = ? WHERE conversation_id = ? AND user_id = ?')
-    .run(ctx.now(), conversationId, userId)
+  markConversationsRead(ctx, userId, [conversationId])
 }
 
-/** Bildirimler sayfasındaki "Tümünü okundu işaretle" düğmesi için. */
+/**
+ * DM ekranı açıldığında rozeti etkileyen tüm sohbetleri okunmuş işaretler.
+ *
+ * Arşivlenen sohbetler rozet sayısına girmediği için burada dokunulmaz; aksi
+ * halde kullanıcı arşivlediği bir sohbeti açmadan rozeti sıfırlayamaz.
+ */
+export function markVisibleConversationsRead(ctx: Ctx, userId: string): void {
+  const rows = ctx.db
+    .prepare(
+      'SELECT conversation_id FROM conversation_members WHERE user_id = ? AND hidden = 0 AND archived = 0',
+    )
+    .all(userId) as unknown as Array<{ conversation_id: string }>
+  markConversationsRead(
+    ctx,
+    userId,
+    rows.map((r) => r.conversation_id),
+  )
+}
+
+/**
+ * Sohbetleri okundu işaretler ve su damgasını (watermark) ilerletir.
+ *
+ * Damga, o anda sohbetteki en büyük `rowid` değerine çekilir; `last_read_at`
+ * ise bildirim ekranındaki "okundu zamanı" bilgisi için tutulur.
+ */
+function markConversationsRead(ctx: Ctx, userId: string, conversationIds: string[]): void {
+  if (conversationIds.length === 0) return
+  const now = ctx.now()
+  const update = ctx.db.prepare(
+    `UPDATE conversation_members
+        SET last_read_at = ?,
+            last_read_rowid = MAX(last_read_rowid, ?)
+      WHERE conversation_id = ? AND user_id = ?`,
+  )
+  const newest = ctx.db.prepare('SELECT MAX(rowid) AS r FROM messages WHERE conversation_id = ?')
+  for (const conversationId of conversationIds) {
+    const row = newest.get(conversationId) as { r: number | null }
+    update.run(now, row.r ?? 0, conversationId, userId)
+  }
+}
+
+/**
+ * Bildirimler sayfasındaki "Tümünü okundu işaretle" düğmesi için.
+ *
+ * Tüm sohbetler (arşiv dahil) işaretlenir ve su damgası ilerletilir; aksi
+ * halde aynı milisaniyede gelen mesaj okunmamış sayılır ve düğme hiçbir işe
+ * yaramaz.
+ */
 export function markAllConversationsRead(ctx: Ctx, userId: string): void {
-  ctx.db
-    .prepare('UPDATE conversation_members SET last_read_at = ? WHERE user_id = ?')
-    .run(ctx.now(), userId)
+  const rows = ctx.db
+    .prepare('SELECT conversation_id FROM conversation_members WHERE user_id = ?')
+    .all(userId) as unknown as Array<{ conversation_id: string }>
+  markConversationsRead(
+    ctx,
+    userId,
+    rows.map((r) => r.conversation_id),
+  )
 }
 
 /** Yalnızca okunmamış mesajı olan sohbetler (bildirimler sayfasında listelenir). */

@@ -6,6 +6,7 @@ import {
   createPostVia,
   createTestWorld,
   registerUser,
+  relogin,
   type TestWorld,
 } from '../testUtils'
 
@@ -49,14 +50,18 @@ describe('US-036 account suspension', () => {
   })
 
   test('indefinite suspension persists; unsuspend restores access; content stays visible', async () => {
-    const { agent: admin } = await registerUser(world)
+    const { username: adminName } = await registerUser(world, 'suspadmin')
+    let admin = await relogin(world, adminName)
     const { agent: author, username, password } = await registerUser(world)
     await createCommunityVia(admin, 'plaza')
     const postId = await createPostVia(author, 'plaza', 'Suspended author post')
     const userId = (world.ctx.db.prepare('SELECT id FROM users WHERE username = ?').get(username) as { id: string }).id
 
     await admin.post(`/admin/users/${userId}/suspend`, { days: 'indefinite', reason: '' })
-    world.tick(20 * DAY) // well past any timed duration; admin session (30d) stays valid
+    world.tick(20 * DAY) // well past any timed duration
+    // 20 gün, idle oturum ömrünü (7 gün) aştığı için yönetici de yeniden
+    // giriş yapmak zorunda — sunucu tarafı davranışı doğrulanır.
+    admin = await relogin(world, adminName)
     const attempt = new Agent(world.app)
     await attempt.post('/login', { identifier: username, password })
     expect(attempt.loggedIn()).toBe(false)

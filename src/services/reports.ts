@@ -4,6 +4,7 @@ import { newId } from '../lib/ids'
 import { LIMITS } from '../lib/validation'
 import { getSettings } from './settings'
 import { badRequest, forbidden, notFound, rateLimited, unauthorized } from './errors'
+import { assertNotDuplicate } from '../lib/spam'
 import { canReadCommunity, getCommunityById, isSuspended, requireModerator } from './access'
 import { syncPostFts, getPost } from './posts'
 import { getComment } from './comments'
@@ -44,6 +45,16 @@ export function createReport(ctx: Ctx, viewer: Viewer, input: ReportInput): void
   const detail = (input.detail ?? '').trim().slice(0, LIMITS.reportDetailMax)
   if (input.reasonType === 'other' && !detail) {
     throw badRequest('detail_required', '“Diğer” seçeneğini kullanırken sorunu açıklayın.')
+  }
+  // Aynı içeriğe arka arkaya aynı gerekçeyle rapor gönderilemez.
+  if (detail) {
+    assertNotDuplicate(ctx, {
+      scope: `report:${input.targetType}:${input.targetId}`,
+      userId: viewer.id,
+      content: `${input.reasonType}|${detail}`,
+      max: 1,
+      windowMs: HOUR_MS,
+    })
   }
   let ruleId: string | null = null
   if (input.reasonType === 'rule') {

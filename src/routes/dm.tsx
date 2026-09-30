@@ -35,6 +35,7 @@ import {
   isMember,
   listConversations,
   markConversationRead,
+  markVisibleConversationsRead,
   ownReadStates,
   reportMessage,
   searchUsersForDm,
@@ -80,6 +81,10 @@ export function dmRoutes(ctx: Ctx): Hono<AppEnv> {
 
     const query = (c.req.query('q') ?? '').trim()
     const now = ctx.now()
+    // Gelen kutusu açıldı: listelenen sohbetler okunmuş sayılır (server-side).
+    // Rozet bundan SONRA hesaplanır; önce hesaplansaydı görüntülenen sayı
+    // veritabanıyla uyuşmaz ve sayfa yenileyince rozet geri gelirdi.
+    markVisibleConversationsRead(ctx, viewer.id)
     const list = listConversations(ctx, viewer.id, onlinePeers(ctx, viewer.id))
     const results = query ? searchUsersForDm(ctx, viewer.id, query) : []
     const resultRanks = authorRanksFor(ctx, results.map((u) => u.id))

@@ -250,7 +250,8 @@ export function listBans(ctx: Ctx, viewer: Viewer, community: CommunityRow): Ban
       `SELECT b.user_id, u.username, b.expires_at, b.reason, b.created_at
        FROM bans b JOIN users u ON u.id = b.user_id
        WHERE b.community_id = ? AND (b.expires_at IS NULL OR b.expires_at > ?)
-       ORDER BY b.created_at DESC`,
+       ORDER BY b.created_at DESC
+       LIMIT 200`,
     )
     .all(community.id, ctx.now()) as unknown as BanEntry[]
 }

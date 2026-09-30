@@ -220,7 +220,7 @@ describe('rota duman testi', () => {
     const publicPaths = [
       '/login',
       '/register',
-      '/forgot-password',
+
       '/',
       '/communities',
       '/c/open',

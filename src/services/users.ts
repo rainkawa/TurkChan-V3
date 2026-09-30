@@ -1,7 +1,7 @@
 import type { Ctx } from '../context'
 import type { CommentRow, PostRow, UserRow, Viewer } from '../types'
 import { validateBio, validateDisplayName, validateUsername, validatePassword } from '../lib/validation'
-import { conflict, forbidden, unauthorized } from './errors'
+import { conflict, forbidden, rateLimited, unauthorized } from './errors'
 import { hashPassword, verifyPassword } from '../lib/passwords'
 import { attachUpload } from './uploads'
 import { rankInfoFor, type UserRank } from './ranks'
@@ -13,6 +13,8 @@ export interface Karma {
   postKarma: number
   commentKarma: number
 }
+
+const HOUR_MS = 60 * 60 * 1000
 
 /**
  * US-007: karma = sum of scores on non-deleted, non-removed content. Computed
@@ -186,6 +188,10 @@ export async function changePassword(
   keepSessionToken?: string,
 ): Promise<void> {
   if (!viewer) throw unauthorized()
+  // Parola değiştirme kaba kuvvet denemesi için dar bir pencereye tabidir:
+  // ele geçirilmiş bir oturum parolayı tahmin edip hesabı ele geçiremez.
+  const limit = ctx.rateLimiter.check(`password-change:${viewer.id}`, 5, HOUR_MS)
+  if (!limit.allowed) throw rateLimited(limit.retryAfterMs)
   const valid = await verifyPassword(viewer.password_hash, currentPassword)
   if (!valid) throw forbidden('Mevcut parola hatalı.')
   const next = validatePassword(newPassword)

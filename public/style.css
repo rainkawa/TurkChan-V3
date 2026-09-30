@@ -1610,6 +1610,32 @@ body.is-chat .bottom-nav { display: none; }
   border-radius: var(--radius); font-size: 0.78rem; color: var(--ink-soft);
 }
 .post-meta-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+/* --- Post numarası ve >>12345 referansları --- */
+.post-number code {
+  font-weight: 700; color: var(--ink);
+  background: var(--surface-raised); padding: 0.05rem 0.35rem;
+  border-radius: 4px; border: 1px solid var(--line);
+}
+.md a.post-ref {
+  font-weight: 600; font-variant-numeric: tabular-nums;
+  text-decoration: none; color: var(--accent);
+  border-bottom: 1px dashed currentColor;
+}
+.md a.post-ref:hover { border-bottom-style: solid; }
+.post-refs {
+  display: flex; flex-direction: column; gap: 6px;
+  margin: var(--space-3) 0; padding: var(--space-3);
+  background: var(--surface-raised); border: 1px solid var(--line);
+  border-radius: var(--radius); font-size: 0.8rem;
+}
+.post-refs-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.post-refs-label { color: var(--ink-soft); font-weight: 600; }
+a.post-ref {
+  text-decoration: none; color: var(--accent); max-width: 22rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+a.post-ref:hover { text-decoration: underline; }
 .post-meta-row.stats { border-top: 1px solid var(--line); padding-top: 6px; }
 .post-meta-item { display: inline-flex; align-items: center; gap: 4px; }
 .post-id {

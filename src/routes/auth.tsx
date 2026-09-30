@@ -2,14 +2,7 @@ import { Hono } from 'hono'
 import type { Ctx } from '../context'
 import { t } from '../i18n/tr'
 import { Layout } from '../views/layout'
-import {
-  register,
-  login,
-  logout,
-  requestPasswordReset,
-  resetPassword,
-  deleteAccount,
-} from '../services/auth'
+import { register, login, logout, deleteAccount } from '../services/auth'
 import { getSettings } from './../services/settings'
 import { AppError } from '../services/errors'
 import { ValidationError } from '../lib/validation'
@@ -50,8 +43,6 @@ export function authRoutes(ctx: Ctx): Hono<AppEnv> {
           </form>
           <p>
             <a href={`/register?next=${encodeURIComponent(next)}`}>{t.auth.needAccount}</a>
-            {' · '}
-            <a href="/forgot-password">{t.auth.forgot}</a>
           </p>
         </div>
       </Layout>,
@@ -65,7 +56,8 @@ export function authRoutes(ctx: Ctx): Hono<AppEnv> {
       const { sessionToken } = await login(ctx, {
         usernameOrEmail: body.identifier ?? '',
         password: body.password ?? '',
-        ip: clientIp(c),
+        ip: clientIp(c, ctx),
+        currentToken: c.get('sessionToken'),
       })
       setSessionCookie(ctx, c, sessionToken)
       return c.redirect(next)
@@ -149,7 +141,7 @@ export function authRoutes(ctx: Ctx): Hono<AppEnv> {
         // e-posta ile giriş ve parola sıfırlama mevcut hesaplar için çalışır.
         email: body.email ?? '',
         inviteCode: body.inviteCode,
-        ip: clientIp(c),
+        ip: clientIp(c, ctx),
       })
       setSessionCookie(ctx, c, sessionToken)
       // US-001: returned to the page/action that triggered registration.
@@ -167,68 +159,6 @@ export function authRoutes(ctx: Ctx): Hono<AppEnv> {
     logout(ctx, c.get('sessionToken'))
     clearSessionCookie(c)
     return c.redirect('/')
-  })
-
-  app.get('/forgot-password', (c) =>
-    c.html(
-      <Layout title={t.auth.resetTitle} viewer={c.get('viewer')} flash={takeFlash(c)}>
-        <div class="card form-narrow">
-          <h2>{t.auth.resetTitle}</h2>
-          <form method="post" action="/forgot-password">
-            <div class="field">
-              <label for="email">{t.auth.email}</label>
-              <input id="email" name="email" type="email" required />
-            </div>
-            <button class="btn" type="submit">{t.auth.sendResetLink}</button>
-          </form>
-        </div>
-      </Layout>,
-    ),
-  )
-
-  app.post('/forgot-password', async (c) => {
-    const body = await formData(c)
-    try {
-      await requestPasswordReset(ctx, body.email ?? '', clientIp(c))
-    } catch (err) {
-      if (!(err instanceof AppError && err.code === 'rate_limited')) throw err
-    }
-    // Identical confirmation regardless of whether the email exists (US-003).
-    setFlash(c, 'ok', t.auth.resetSent)
-    return c.redirect('/forgot-password')
-  })
-
-  app.get('/reset-password/:token', (c) =>
-    c.html(
-      <Layout title={t.auth.resetTitle} viewer={null} flash={takeFlash(c)}>
-        <div class="card form-narrow">
-          <h2>{t.auth.resetTitle}</h2>
-          <form method="post" action={`/reset-password/${c.req.param('token')}`}>
-            <div class="field">
-              <label for="password">{t.auth.resetNew}</label>
-              <input id="password" name="password" type="password" required minlength={6} autocomplete="new-password" />
-              <div class="hint">{t.auth.passwordHint}</div>
-            </div>
-            <button class="btn" type="submit">{t.auth.resetPassword}</button>
-          </form>
-        </div>
-      </Layout>,
-    ),
-  )
-
-  app.post('/reset-password/:token', async (c) => {
-    const body = await formData(c)
-    try {
-      await resetPassword(ctx, c.req.param('token'), body.password ?? '')
-      setFlash(c, 'ok', t.auth.resetDone)
-      return c.redirect('/login')
-    } catch (err) {
-      if (err instanceof AppError || err instanceof ValidationError) {
-        setFlash(c, 'error', err.message)
-        return c.redirect(`/reset-password/${c.req.param('token')}`)
-      }
-      throw err
-    }
   })
 
   app.get('/settings/delete-account', (c) => {

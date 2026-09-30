@@ -5,6 +5,7 @@ import { renderMarkdown } from '../lib/markdown'
 import { requestUpload, receiveUpload, serveUpload } from '../services/uploads'
 import { badRequest } from '../services/errors'
 import type { AppEnv } from './helpers'
+import { readBodyWithLimit } from './helpers'
 
 export function apiRoutes(ctx: Ctx): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
@@ -40,7 +41,9 @@ export function apiRoutes(ctx: Ctx): Hono<AppEnv> {
 
   app.put('/api/uploads/:key', async (c) => {
     const token = c.req.query('token') ?? ''
-    const bytes = new Uint8Array(await c.req.arrayBuffer())
+    // Sunucu tarafı gövde sınırı: en büyük kabul edilen video 60 MB, onun
+    // üzerine küçük bir tolerans. Sınır aşımı bellek tükenmesini (OOM) önler.
+    const bytes = await readBodyWithLimit(c, 65 * 1024 * 1024)
     const upload = await receiveUpload(ctx, c.req.param('key'), token, bytes)
     return c.json({ key: upload.key, mime: upload.mime, size: upload.size })
   })
@@ -50,7 +53,9 @@ export function apiRoutes(ctx: Ctx): Hono<AppEnv> {
    * route is the local-storage equivalent. Keys are unguessable UUIDs (US-044).
    */
   app.get('/media/:key', async (c) => {
-    const result = await serveUpload(ctx, c.req.param('key'))
+    // `?variant=thumb` küçük resmi döndürür; üretilmemişse orijinal sunulur.
+    const variant = c.req.query('variant') === 'thumb' ? 'thumb' : 'full'
+    const result = await serveUpload(ctx, c.req.param('key'), variant)
     if (!result) return c.notFound()
     return c.body(result.bytes.buffer as ArrayBuffer, 200, {
       'Content-Type': result.mime,
