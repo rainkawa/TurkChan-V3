@@ -52,7 +52,7 @@ beforeEach(async () => {
   resetPresence()
   world = createTestWorld()
   alice = (await registerUser(world, 'alice')).agent
-  bob = (await registerUser(world, 'bob')).agent
+  bob = (await registerUser(world, 'bobby')).agent
   carol = (await registerUser(world, 'carol')).agent
 })
 
@@ -68,7 +68,7 @@ describe('DM — giriş ve arama', () => {
     expect(short).toContain('En az 2 karakter')
 
     const found = await (await alice.get('/messages?q=bo')).text()
-    expect(found).toContain('@bob')
+    expect(found).toContain('@bobby')
     expect(found).toContain('Sohbet başlat')
 
     const missing = await (await alice.get('/messages?q=zzzzz')).text()
@@ -76,12 +76,42 @@ describe('DM — giriş ve arama', () => {
   })
 
   test('kullanıcı aramasından sohbet açılır ve profil bilgileri görünür', async () => {
-    const conversation = await openChat(alice, 'bob')
+    const conversation = await openChat(alice, 'bobby')
     const page = await (await alice.get(`/messages/${conversation}`)).text()
-    expect(page).toContain('/tc/bob')
-    expect(page).toContain('@bob')
+    expect(page).toContain('/tc/bobby')
+    expect(page).toContain('@bobby')
     // Sohbet başlığında profil resmi (avatar) bulunur.
     expect(page).toContain('dm-avatar')
+  })
+
+  test('arama sonucunda "Sohbet başlat" düğmesi formu gönderir', async () => {
+    const page = await (await alice.get('/messages?q=bobby')).text()
+    // Tıklanabilir bir gönder düğmesi olmadan form gönderilemez.
+    expect(page).toContain('action="/messages/new"')
+    expect(page).toMatch(/<form method="post" action="\/messages\/new"[\s\S]{0,400}type="submit"/)
+    expect(page).toContain('name="username" value="bobby"')
+
+    // Düğmeye basmak sohbeti başlatır.
+    const res = await alice.post('/messages/new', { username: 'bobby' })
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toMatch(/^\/messages\/[a-z0-9]+$/)
+  })
+
+  test('kullanıcı adına basıldığında profile gider, satırın geri kalanı sohbete', async () => {
+    const conversation = await openChat(alice, 'bobby')
+    await send(alice, conversation, 'Satır testi')
+
+    const inbox = await (await alice.get('/messages')).text()
+    // Kullanıcı adı profille, satır sohbetle bağlı (uzatılmış bağlantı).
+    expect(inbox).toContain(`class="dm-row-username" href="/tc/bobby"`)
+    expect(inbox).toContain(`class="dm-row-open" href="/messages/${conversation}"`)
+  })
+
+  test('başlıktaki DM simgesi kaldırıldı, gelen kutusu alt barda', async () => {
+    const home = await (await alice.get('/')).text()
+    expect(home).not.toContain('header-messages')
+    expect(home).toContain('bottom-nav')
+    expect(home).toContain('href="/messages"')
   })
 
   test('kendine mesaj gönderilemez', async () => {
@@ -93,7 +123,7 @@ describe('DM — giriş ve arama', () => {
 
 describe('DM — mesaj gönderme ve okundu durumu', () => {
   test('mesaj gönderilir ve alıcıda okunmamış olarak koyu satır çıkar', async () => {
-    const conversation = await openChat(alice, 'bob')
+    const conversation = await openChat(alice, 'bobby')
     const sent = await send(alice, conversation, 'Merhaba Bob')
     expect(sent.status).toBe(302)
 
@@ -110,7 +140,7 @@ describe('DM — mesaj gönderme ve okundu durumu', () => {
   })
 
   test('okunduğunda satır normal renge döner ve rozet kaybolur', async () => {
-    const conversation = await openChat(alice, 'bob')
+    const conversation = await openChat(alice, 'bobby')
     await send(alice, conversation, 'Birinci')
 
     expect(await (await bob.get('/messages')).text()).toContain('is-unread')
@@ -124,7 +154,7 @@ describe('DM — mesaj gönderme ve okundu durumu', () => {
   })
 
   test('gönderene okundu bilgisi (tik) düşer', async () => {
-    const conversation = await openChat(alice, 'bob')
+    const conversation = await openChat(alice, 'bobby')
     await send(alice, conversation, 'Okunacak mı?')
 
     let page = await (await alice.get(`/messages/${conversation}`)).text()
@@ -137,7 +167,7 @@ describe('DM — mesaj gönderme ve okundu durumu', () => {
   })
 
   test('boş ve aşırı uzun mesaj gönderilemez', async () => {
-    const conversation = await openChat(alice, 'bob')
+    const conversation = await openChat(alice, 'bobby')
     expect((await send(alice, conversation, '   ')).status).toBe(302)
 
     const tooLong = await send(alice, conversation, 'x'.repeat(2001))
@@ -148,7 +178,7 @@ describe('DM — mesaj gönderme ve okundu durumu', () => {
   })
 
   test('üye olmayan kullanıcı sohbeti göremez', async () => {
-    const conversation = await openChat(alice, 'bob')
+    const conversation = await openChat(alice, 'bobby')
     const res = await carol.get(`/messages/${conversation}`)
     expect(res.status).toBe(302)
     expect(res.headers.get('location')).toContain('/messages')
@@ -157,7 +187,7 @@ describe('DM — mesaj gönderme ve okundu durumu', () => {
 
 describe('DM — istekler, arşiv ve sohbet silme', () => {
   test('yeni sohbet alıcının istekler bölümüne düşer ve kabul edilebilir', async () => {
-    const conversation = await openChat(alice, 'bob')
+    const conversation = await openChat(alice, 'bobby')
     await send(alice, conversation, 'Merhaba')
 
     const inbox = await (await bob.get('/messages')).text()
@@ -176,7 +206,7 @@ describe('DM — istekler, arşiv ve sohbet silme', () => {
   })
 
   test('basılı tutma menüsü arşivler ve sohbet arşivden çıkarılabilir', async () => {
-    const conversation = await openChat(alice, 'bob')
+    const conversation = await openChat(alice, 'bobby')
     await send(alice, conversation, 'Arşiv testi')
 
     const inboxBefore = await (await alice.get('/messages')).text()
@@ -196,7 +226,7 @@ describe('DM — istekler, arşiv ve sohbet silme', () => {
   })
 
   test('sohbeti silmek yalnızca kendi listesinden kaldırır', async () => {
-    const conversation = await openChat(alice, 'bob')
+    const conversation = await openChat(alice, 'bobby')
     await send(alice, conversation, 'Silinecek sohbet')
 
     const res = await alice.post(`/messages/${conversation}/conversation`, { intent: 'delete' })
@@ -213,7 +243,7 @@ describe('DM — istekler, arşiv ve sohbet silme', () => {
 
 describe('DM — mesaj eylemleri', () => {
   test('kendi mesajını herkesten silmek iki tarafta da gizler', async () => {
-    const conversation = await openChat(alice, 'bob')
+    const conversation = await openChat(alice, 'bobby')
     await send(alice, conversation, 'Gizli olacak')
     const chat = await (await alice.get(`/messages/${conversation}`)).text()
     const messageId = chat.match(/data-dm-message="([a-z0-9]+)"/)?.[1] as string
@@ -230,7 +260,7 @@ describe('DM — mesaj eylemleri', () => {
   })
 
   test('karşı tarafın mesajını sadece benden silmek', async () => {
-    const conversation = await openChat(alice, 'bob')
+    const conversation = await openChat(alice, 'bobby')
     await send(bob, conversation, 'Sadece bende silinsin')
     const chat = await (await alice.get(`/messages/${conversation}`)).text()
     const messageId = chat.match(/data-dm-message="([a-z0-9]+)"/)?.[1] as string
@@ -247,7 +277,7 @@ describe('DM — mesaj eylemleri', () => {
   })
 
   test('başkasının mesajını herkesten silmek reddedilir', async () => {
-    const conversation = await openChat(alice, 'bob')
+    const conversation = await openChat(alice, 'bobby')
     await send(bob, conversation, 'Bob mesajı')
     const chat = await (await alice.get(`/messages/${conversation}`)).text()
     const messageId = chat.match(/data-dm-message="([a-z0-9]+)"/)?.[1] as string
@@ -259,7 +289,7 @@ describe('DM — mesaj eylemleri', () => {
   })
 
   test('çift dokunma beğeniyi açar ve kapatır', async () => {
-    const conversation = await openChat(alice, 'bob')
+    const conversation = await openChat(alice, 'bobby')
     await send(alice, conversation, 'Beğenilecek')
 
     const liked = await alice.json('/api/dm/like', { messageId: 'yok-boyle-bir-mesaj' })
@@ -280,7 +310,7 @@ describe('DM — mesaj eylemleri', () => {
   })
 
   test('basılı tutarak raporlama kaydedilir, kendi mesajı raporlanamaz', async () => {
-    const conversation = await openChat(alice, 'bob')
+    const conversation = await openChat(alice, 'bobby')
     await send(bob, conversation, 'Raporlanacak mesaj')
 
     const chat = await (await alice.get(`/messages/${conversation}`)).text()
@@ -310,7 +340,7 @@ describe('DM — mesaj eylemleri', () => {
   })
 
   test('soldan sağa kaydırarak yanıtlama alanı doldurulur', async () => {
-    const conversation = await openChat(alice, 'bob')
+    const conversation = await openChat(alice, 'bobby')
     await send(bob, conversation, 'Şu mesajı yanıtla')
     const chat = await (await bob.get(`/messages/${conversation}`)).text()
     const messageId = chat.match(/data-dm-message="([a-z0-9]+)"/)?.[1] as string
@@ -328,7 +358,7 @@ describe('DM — mesaj eylemleri', () => {
 
 describe('DM — çevrimiçi, yazıyor ve yoklama', () => {
   test('karşı taraf çevrimiçi görünür ve "yazıyor" göstergesi çalışır', async () => {
-    const conversation = await openChat(alice, 'bob')
+    const conversation = await openChat(alice, 'bobby')
     await send(alice, conversation, 'Sohbet açık')
 
     // Alice sohbeti açtı → presence dokundu, Bob çevrimiçi sayılır.
@@ -350,7 +380,7 @@ describe('DM — çevrimiçi, yazıyor ve yoklama', () => {
   })
 
   test('yoklama ucu yeni mesajları ve okundu bilgisini döndürür', async () => {
-    const conversation = await openChat(alice, 'bob')
+    const conversation = await openChat(alice, 'bobby')
     await send(alice, conversation, 'İlk')
 
     const first = await poll(bob, `conversation=${conversation}`)
@@ -376,7 +406,7 @@ describe('DM — çevrimiçi, yazıyor ve yoklama', () => {
   })
 
   test('üye olmayan kullanıcı yoklama ucuna erişemez', async () => {
-    const conversation = await openChat(alice, 'bob')
+    const conversation = await openChat(alice, 'bobby')
     const res = await carol.get(`/api/dm/thread?conversation=${conversation}`)
     expect(res.status).toBe(403)
   })

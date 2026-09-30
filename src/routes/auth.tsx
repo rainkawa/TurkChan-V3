@@ -100,17 +100,25 @@ export function authRoutes(ctx: Ctx): Hono<AppEnv> {
           <h2>{t.auth.registerTitle}</h2>
           <form method="post" action={`/register?next=${encodeURIComponent(next)}`}>
             <div class="field">
+              <label for="displayName">{t.settings.displayName}</label>
+              <input
+                id="displayName"
+                name="displayName"
+                type="text"
+                required
+                maxlength={40}
+                autocomplete="name"
+                placeholder={t.profile.displayNamePlaceholder}
+              />
+            </div>
+            <div class="field">
               <label for="username">{t.auth.username}</label>
-              <input id="username" name="username" type="text" required minlength={3} maxlength={20} pattern="[A-Za-z0-9_]+" autocomplete="username" />
+              <input id="username" name="username" type="text" required minlength={4} maxlength={20} pattern="[A-Za-z0-9_]+" autocomplete="username" />
               <div class="hint">{t.auth.usernameHint}</div>
             </div>
             <div class="field">
-              <label for="email">{t.auth.email}</label>
-              <input id="email" name="email" type="email" required autocomplete="email" />
-            </div>
-            <div class="field">
               <label for="password">{t.auth.password}</label>
-              <input id="password" name="password" type="password" required minlength={10} autocomplete="new-password" />
+              <input id="password" name="password" type="password" required minlength={6} autocomplete="new-password" />
               <div class="hint">{t.auth.passwordHint}</div>
             </div>
             {settings.registrationMode === 'invite' && (
@@ -135,8 +143,11 @@ export function authRoutes(ctx: Ctx): Hono<AppEnv> {
     try {
       const { sessionToken } = await register(ctx, {
         username: body.username ?? '',
-        email: body.email ?? '',
         password: body.password ?? '',
+        displayName: body.displayName ?? '',
+        // Formda e-posta alanı yok; sunucu tarafı yine de kabul eder, böylece
+        // e-posta ile giriş ve parola sıfırlama mevcut hesaplar için çalışır.
+        email: body.email ?? '',
         inviteCode: body.inviteCode,
         ip: clientIp(c),
       })
@@ -195,7 +206,7 @@ export function authRoutes(ctx: Ctx): Hono<AppEnv> {
           <form method="post" action={`/reset-password/${c.req.param('token')}`}>
             <div class="field">
               <label for="password">{t.auth.resetNew}</label>
-              <input id="password" name="password" type="password" required minlength={10} autocomplete="new-password" />
+              <input id="password" name="password" type="password" required minlength={6} autocomplete="new-password" />
               <div class="hint">{t.auth.passwordHint}</div>
             </div>
             <button class="btn" type="submit">{t.auth.resetPassword}</button>

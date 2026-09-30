@@ -52,7 +52,7 @@ const AdminUserForm: FC<{ user: UserRow; rank: UserRank | null; isSelf: boolean 
       <form method="post" action={`/admin/users/${user.id}`} enctype="multipart/form-data">
         <div class="field">
           <label for="admin-username">{t.settings.username}</label>
-          <input id="admin-username" name="username" type="text" minlength={3} maxlength={20} value={user.username} required />
+          <input id="admin-username" name="username" type="text" minlength={2} maxlength={20} value={user.username} required />
         </div>
         <div class="field">
           <label for="admin-displayName">{t.settings.displayName}</label>
@@ -124,7 +124,7 @@ const AdminUserForm: FC<{ user: UserRow; rank: UserRank | null; isSelf: boolean 
         </div>
         <div class="field">
           <label for="admin-password">{t.admin.newPassword}</label>
-          <input id="admin-password" name="password" type="password" minlength={10} autocomplete="new-password" />
+          <input id="admin-password" name="password" type="password" minlength={6} autocomplete="new-password" />
         </div>
         <div class="admin-user-meta">
           <span>{t.admin.registrationDate}: {formatDate(user.created_at)}</span>

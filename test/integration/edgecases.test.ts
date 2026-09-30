@@ -52,7 +52,8 @@ describe('request hardening', () => {
     })
     expect(res.status).toBe(403)
     const row = world.ctx.db.prepare('SELECT display_name FROM users WHERE username = ?').get(username) as { display_name: string | null }
-    expect(row.display_name).toBeNull()
+    // Kayıtta görünen ad kullanıcı adına eşitlenir; saldırı değiştirmedi.
+    expect(row.display_name).not.toBe('Hacked')
 
     // Same-origin passes.
     const ok = await agent.request('http://localhost/settings', {
@@ -128,7 +129,8 @@ describe('markdown preview API', () => {
 
 describe('US-043 graceful missing content', () => {
   test('unavailable-content pages always offer a way back home', async () => {
-    const guest = new Agent(world.app)
+    // Site kapalı olduğu için sayfalar giriş yapmış bir üye tarafından okunur.
+    const guest = (await registerUser(world)).agent
     for (const url of ['/c/never_existed', '/c/never_existed/comments/aaaaaaaaaaaaa', '/tc/nobody_here']) {
       const res = await guest.get(url)
       expect([403, 404]).toContain(res.status)

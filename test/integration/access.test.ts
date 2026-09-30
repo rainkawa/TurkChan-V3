@@ -20,6 +20,7 @@ let member: Agent
 let moderator: Agent
 let admin: Agent
 let outsideMod: Agent // moderator of an unrelated community
+let outsider: Agent // signed in, member of no community
 
 let publicPostId: string
 let privatePostId: string
@@ -45,6 +46,11 @@ beforeAll(async () => {
   outsideMod = outsideUser.agent
   await createCommunityVia(outsideMod, 'faraway', 'public')
 
+  // Site kapalıdır: giriş yapmamış ziyaretçi hiçbir sayfaya ulaşamaz.
+  // İçerik kontrolleri bu yüzden giriş yapmış ama üye olmayan biriyle yapılır.
+  const outsiderUser = await registerUser(world, 'plain_reader')
+  outsider = outsiderUser.agent
+
   guest = new Agent(world.app)
 
   publicPostId = await createPostVia(moderator, 'townsq', 'PUBLIC-SQUARE-POST', 'Open to all')
@@ -53,10 +59,22 @@ beforeAll(async () => {
 })
 
 describe('guest permissions', () => {
-  test('can read public communities and search', async () => {
-    expect((await guest.get('/c/townsq')).status).toBe(200)
-    expect((await guest.get(`/c/townsq/comments/${publicPostId}`)).status).toBe(200)
-    const search = await guest.get('/search?q=PUBLIC')
+  test('cannot reach any page before signing in', async () => {
+    for (const path of ['/', '/c/townsq', `/c/townsq/comments/${publicPostId}`, '/search?q=PUBLIC', '/communities', '/messages', '/notifications', '/settings']) {
+      const res = await guest.get(path)
+      expect(res.status).toBe(302)
+      expect(res.headers.get('location')).toContain('/login')
+    }
+    // Giriş sayfasında gezinme düğmesi yok.
+    const login = await (await guest.get('/login')).text()
+    expect(login).not.toContain('bottom-nav')
+    expect(login).not.toContain('data-drawer-toggle')
+  })
+
+  test('can read public communities and search once signed in', async () => {
+    expect((await outsider.get('/c/townsq')).status).toBe(200)
+    expect((await outsider.get(`/c/townsq/comments/${publicPostId}`)).status).toBe(200)
+    const search = await outsider.get('/search?q=PUBLIC')
     expect(await search.text()).toContain('PUBLIC-SQUARE-POST')
   })
 
@@ -69,12 +87,12 @@ describe('guest permissions', () => {
   })
 
   test('cannot read private communities: zero content leakage anywhere', async () => {
-    const gate = await guest.get('/c/vault')
+    const gate = await outsider.get('/c/vault')
     expect(gate.status).toBe(403)
     const gateText = await gate.text()
     expect(gateText).not.toContain('VAULT-SECRET-POST')
 
-    const post = await guest.get(`/c/vault/comments/${privatePostId}`)
+    const post = await outsider.get(`/c/vault/comments/${privatePostId}`)
     expect(post.status).toBe(403)
     const postText = await post.text()
     expect(postText).not.toContain('VAULT-SECRET-POST') // not even the title (US-017)
@@ -83,10 +101,10 @@ describe('guest permissions', () => {
     expect(postText).not.toContain('og:title') // no OG leakage either
 
     // Absent from feeds, search, directory, and the author's public profile.
-    expect(await (await guest.get('/')).text()).not.toContain('VAULT-SECRET-POST')
-    expect(await (await guest.get('/search?q=VAULT')).text()).not.toContain('VAULT-SECRET-POST')
-    expect(await (await guest.get('/communities')).text()).not.toContain('vault')
-    expect(await (await guest.get('/tc/the_mod')).text()).not.toContain('VAULT-SECRET-POST')
+    expect(await (await outsider.get('/')).text()).not.toContain('VAULT-SECRET-POST')
+    expect(await (await outsider.get('/search?q=VAULT')).text()).not.toContain('VAULT-SECRET-POST')
+    expect(await (await outsider.get('/communities')).text()).not.toContain('vault')
+    expect(await (await outsider.get('/tc/the_mod')).text()).not.toContain('VAULT-SECRET-POST')
   })
 })
 
@@ -175,7 +193,7 @@ describe('direct object reference hardening (US-044)', () => {
     expect(privatePostId).toMatch(/^[a-z0-9]{13}$/)
 
     // Even knowing a private post id exactly, access is checked server-side.
-    expect((await guest.get(`/c/vault/comments/${privatePostId}`)).status).toBe(403)
+    expect((await outsider.get(`/c/vault/comments/${privatePostId}`)).status).toBe(403)
 
     // Unknown media keys 404 without information leakage.
     expect((await guest.get('/media/00000000-0000-0000-0000-000000000000')).status).toBe(404)

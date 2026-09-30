@@ -16,6 +16,26 @@ import { modRoutes } from './routes/mod'
 import { apiRoutes } from './routes/api'
 import { adminRoutes } from './routes/admin'
 
+/**
+ * Giriş yapılmadan erişilebilen yollar. Site tamamen kapalıdır: üye olmayan
+ * bir ziyaretçi önce giriş yapar, ancak ondan sonra gezinir.
+ */
+const PUBLIC_PATHS = [
+  '/login',
+  '/register',
+  '/logout',
+  '/forgot-password',
+  '/reset-password',
+  '/static',
+  '/media',
+  '/favicon.ico',
+  '/robots.txt',
+]
+
+function isPublicPath(path: string): boolean {
+  return PUBLIC_PATHS.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))
+}
+
 export function createApp(ctx: Ctx): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
 
@@ -25,6 +45,15 @@ export function createApp(ctx: Ctx): Hono<AppEnv> {
     const token = getCookie(c, SESSION_COOKIE)
     c.set('sessionToken', token)
     c.set('viewer', getSessionUser(ctx, token))
+
+    // Kapı: giriş yoksa hiçbir sayfa ve uç nokta erişilemez.
+    if (!c.get('viewer') && !isPublicPath(c.req.path)) {
+      if (c.req.path.startsWith('/api/')) {
+        return c.json({ error: t.errors.loginRequired }, 401)
+      }
+      const next = encodeURIComponent(c.req.path + (c.req.url.includes('?') ? `?${c.req.url.split('?')[1]}` : ''))
+      return c.redirect(`/login?next=${next}`)
+    }
 
     if (c.req.method !== 'GET' && c.req.method !== 'HEAD') {
       const origin = c.req.header('origin')

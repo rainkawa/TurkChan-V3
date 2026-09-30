@@ -1069,10 +1069,19 @@ table.data th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0
 }
 
 /* ==========================================================================
-   12. Özel mesajlaşma (DM)
+   12. Giriş ekranı — giriş yapmadan gezinme görünmez
    ========================================================================== */
-.header-messages { position: relative; }
-.header-messages .notif-badge { top: 1px; right: 1px; }
+body.is-guest .page {
+  min-height: 100dvh;
+  display: flex; flex-direction: column;
+  padding-top: var(--space-6);
+  padding-bottom: var(--space-6);
+}
+body.is-guest .page > .card { margin: auto 0; width: 100%; }
+
+/* ==========================================================================
+   13. Özel mesajlaşma (DM)
+   ========================================================================== */
 
 /* --- Avatar -------------------------------------------------------------- */
 .dm-avatar {
@@ -1100,7 +1109,6 @@ table.data th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0
 .dm-search input { flex: 1; }
 
 .dm-search-results .dm-row { border: 1px solid var(--line); background: var(--surface-raised); border-radius: var(--radius); }
-.dm-row-form { display: flex; align-items: center; gap: var(--space-3); text-decoration: none; cursor: pointer; }
 
 .dm-section { display: flex; flex-direction: column; gap: var(--space-2); }
 .dm-section-title {
@@ -1126,21 +1134,27 @@ table.data th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0
 
 .dm-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 
-/* Sohbet satırı: profil resmi · isim / kullanıcı adı + mesaj önizlemesi */
+/* Sohbet satırı: profil resmi · isim / kullanıcı adı + mesaj önizlemesi.
+   Satırın geri kalanına tıklamak sohbeti açar; isim ve kullanıcı adı ise
+   profile gider (uzatılmış bağlantı deseni — iç içe <a> oluşmaz). */
 .dm-row {
   position: relative;
-  display: flex; align-items: stretch;
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-3);
   border-radius: var(--radius);
   background: var(--surface-raised);
   transition: background var(--dur) var(--ease), transform var(--dur) var(--ease);
 }
 .dm-row:hover { background: var(--surface-sunken); }
-.dm-row-link {
-  flex: 1; min-width: 0;
-  display: flex; align-items: center; gap: var(--space-3);
-  padding: var(--space-3);
-  color: inherit; text-decoration: none;
+.dm-row-open {
+  position: absolute; inset: 0; z-index: 1;
+  border-radius: inherit; text-decoration: none;
 }
+.dm-row-name a, .dm-row-username { position: relative; z-index: 2; }
+.dm-row-username { color: var(--ink-faint); font-size: 0.76rem; text-decoration: none; }
+.dm-row-username:hover { text-decoration: underline; }
+.dm-row-accept, .dm-row-startform, .dm-row-menu, .dm-row-fallback { position: relative; z-index: 3; }
+.dm-row-startform { flex: 0 0 auto; }
 /* Okunmayan sohbet koyu görünür; okununca normal renge döner. */
 .dm-row.is-unread { background: var(--ink); }
 .dm-row.is-unread:hover { background: #1b2436; }
@@ -1154,23 +1168,22 @@ table.data th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0
 
 .dm-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .dm-row-head { display: flex; align-items: baseline; gap: var(--space-2); }
-.dm-row-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dm-row-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .dm-row-time { margin-left: auto; flex: 0 0 auto; color: var(--ink-faint); font-size: 0.72rem; }
 .dm-row-sub { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.dm-row-username { color: var(--ink-faint); font-size: 0.76rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dm-row-sub .dm-row-username { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dm-row-preview {
   color: var(--ink-soft); font-size: 0.86rem;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .dm-row-badge {
-  align-self: center; margin-right: var(--space-3);
+  align-self: center; flex: 0 0 auto;
   min-width: 22px; height: 22px; padding: 0 7px;
   display: inline-flex; align-items: center; justify-content: center;
   border-radius: var(--radius-pill);
   background: var(--brand); color: #fff;
   font-size: 0.72rem; font-weight: 800;
 }
-.dm-row-accept { align-self: center; margin-right: var(--space-3); }
 
 /* Çevrimiçi göstergesi: avatarın sağ alt köşesinde yeşil nokta. */
 .dm-row.is-online .dm-avatar::after {
@@ -1191,6 +1204,7 @@ table.data th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0
   border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
   box-shadow: 0 12px 32px rgba(16, 24, 40, 0.18);
 }
+.dm-row-menu { position: absolute; }
 .dm-row-menu[hidden], .dm-msg-menu[hidden] { display: none; }
 .dm-menu-item {
   padding: var(--space-3); border: 0; border-radius: var(--radius-sm);

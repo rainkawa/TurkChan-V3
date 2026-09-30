@@ -31,19 +31,54 @@ describe('US-001 registration', () => {
     expect(denied.status).toBe(403)
   })
 
-  test('rejects invalid username, short password, bad email', async () => {
+  test('rejects short/invalid username and short password', async () => {
     const agent = new Agent(world.app)
     for (const [form, expectedError] of [
-      [{ username: 'ab', email: 'a@b.co', password: 'longenough123' }, 'Kullanıcı adı'],
-      [{ username: 'has space', email: 'a@b.co', password: 'longenough123' }, 'harf, rakam'],
-      [{ username: 'okname', email: 'not-an-email', password: 'longenough123' }, 'Geçerli bir e-posta'],
-      [{ username: 'okname', email: 'a@b.co', password: 'short' }, 'En az 10 karakter'],
+      [{ username: 'abc', password: 'longenough123' }, 'Kullanıcı adı'],
+      [{ username: 'has space', password: 'longenough123' }, 'harf, rakam'],
+      [{ username: 'okname', password: '12345' }, 'En az 6 karakter'],
     ] as const) {
       const res = await agent.post('/register', form as Record<string, string>)
       expect(res.status).toBe(302) // PRG back to form with flash
       const page = await agent.get('/register')
       expect(await page.text()).toContain(expectedError)
     }
+  })
+
+  test('registration form asks only for display name, username and password', async () => {
+    const page = await (await new Agent(world.app).get('/register')).text()
+    expect(page).toContain('name="displayName"')
+    expect(page).toContain('name="username"')
+    expect(page).toContain('name="password"')
+    // E-posta alanı artık istenmiyor.
+    expect(page).not.toContain('name="email"')
+  })
+
+  test('kullanıcı adı en az 4, parola en az 6 karakter kabul edilir', async () => {
+    const { agent, username } = await registerUser(world, 'abcd', { password: '123456' })
+    expect(agent.loggedIn()).toBe(true)
+    expect(username).toBe('abcd')
+    // Görünen ad verilmezse kullanıcı adına eşitlenir.
+    const row = world.ctx.db
+      .prepare('SELECT display_name FROM users WHERE username_lower = ?')
+      .get('abcd') as { display_name: string | null }
+    expect(row.display_name).toBe('abcd')
+  })
+
+  test('e-posta olmadan da kayıt olunabilir', async () => {
+    const fresh = new Agent(world.app)
+    const res = await fresh.post('/register', {
+      displayName: 'Adsız Kullanıcı',
+      username: 'noemailuser',
+      password: '123456',
+    })
+    expect(res.status).toBe(302)
+    expect(fresh.loggedIn()).toBe(true)
+    const row = world.ctx.db
+      .prepare('SELECT display_name, email_lower FROM users WHERE username_lower = ?')
+      .get('noemailuser') as { display_name: string | null; email_lower: string | null }
+    expect(row.display_name).toBe('Adsız Kullanıcı')
+    expect(row.email_lower).toBeNull()
   })
 
   test('duplicate username: clear error; duplicate email: non-enumerating message', async () => {
@@ -285,13 +320,14 @@ describe('US-004 account deletion', () => {
     expect(row.password_hash).toBe('')
 
     // Profile URL → not-available page, not an error (US-005).
-    const guest = new Agent(world.app)
-    const profile = await guest.get('/tc/leaver')
+    // Site kapalı olduğu için izleyici giriş yapmış bir üyedir.
+    const observer = mod
+    const profile = await observer.get('/tc/leaver')
     expect(profile.status).toBe(404)
     expect(await profile.text()).toContain('kullanılamıyor')
 
     // Content remains, attributed to [deleted].
-    const postPage = await guest.get(`/c/general/comments/${postId}`)
+    const postPage = await observer.get(`/c/general/comments/${postId}`)
     expect(postPage.status).toBe(200)
     const text = await postPage.text()
     expect(text).toContain('My question')

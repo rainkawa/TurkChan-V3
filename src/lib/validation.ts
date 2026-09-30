@@ -8,9 +8,11 @@ export class ValidationError extends Error {
 }
 
 export const LIMITS = {
-  usernameMin: 3,
+  usernameMin: 4,
+  /** Yönetim panelinden kullanıcı adı düzenlenirken kullanılan daha gevşek sınır. */
+  usernameMinAdmin: 2,
   usernameMax: 20,
-  passwordMin: 10,
+  passwordMin: 6,
   displayNameMax: 40,
   bioMax: 200,
   communityNameMin: 3,
@@ -33,10 +35,15 @@ const USERNAME_RE = /^[A-Za-z0-9_]+$/
 const COMMUNITY_NAME_RE = /^[a-z0-9_]+$/
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-export function validateUsername(username: string): string {
+/**
+ * Kullanıcı adı doğrulaması. `minLength` oyuncu admin panelinden bir kullanıcı
+ * adı düzenlerken gevşetilir (LIMITS.usernameMinAdmin); kayıt her zaman
+ * LIMITS.usernameMin sınırını kullanır.
+ */
+export function validateUsername(username: string, minLength: number = LIMITS.usernameMin): string {
   const trimmed = username.trim()
-  if (trimmed.length < LIMITS.usernameMin || trimmed.length > LIMITS.usernameMax) {
-    throw new ValidationError('username', `Kullanıcı adı ${LIMITS.usernameMin}-${LIMITS.usernameMax} karakter olmalıdır.`)
+  if (trimmed.length < minLength || trimmed.length > LIMITS.usernameMax) {
+    throw new ValidationError('username', `Kullanıcı adı ${minLength}-${LIMITS.usernameMax} karakter olmalıdır.`)
   }
   if (!USERNAME_RE.test(trimmed)) {
     throw new ValidationError('username', 'Kullanıcı adı yalnızca harf, rakam ve alt çizgi içerebilir.')

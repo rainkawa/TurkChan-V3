@@ -38,35 +38,39 @@ const ConversationRow: FC<{
       data-dm-conversation={conversation.id}
       data-unread={unread ? '1' : '0'}
     >
-      <a class="dm-row-link" href={`/messages/${conversation.id}`}>
-        <Avatar user={conversation.peer} size={48} />
-        <span class="dm-row-main">
-          <span class="dm-row-head">
-            <UserByline
-              username={conversation.peer.username}
-              info={ranks.get(conversation.peer.id) ?? null}
-              link={false}
-              class="dm-row-name"
-            />
-            <time class="dm-row-time">{conversation.lastMessageAt ? relativeTime(conversation.lastMessageAt, now) : ''}</time>
-          </span>
-          <span class="dm-row-sub">
-            <span class="dm-row-username">@{conversation.peer.username}</span>
-            <span class="dm-row-preview">
-              {conversation.lastMessageFromMe ? `${t.dm.you}: ` : ''}
-              {conversation.lastMessageDeleted ? t.dm.deletedPlaceholder : preview}
-            </span>
+      <Avatar user={conversation.peer} size={48} />
+      <span class="dm-row-main">
+        <span class="dm-row-head">
+          <UserByline
+            username={conversation.peer.username}
+            info={ranks.get(conversation.peer.id) ?? null}
+            class="dm-row-name"
+          />
+          <time class="dm-row-time">{conversation.lastMessageAt ? relativeTime(conversation.lastMessageAt, now) : ''}</time>
+        </span>
+        <span class="dm-row-sub">
+          {/* Kullanıcı adına basıldığında profille gider. */}
+          <a class="dm-row-username" href={profilePath(conversation.peer.username)}>
+            @{conversation.peer.username}
+          </a>
+          <span class="dm-row-preview">
+            {conversation.lastMessageFromMe ? `${t.dm.you}: ` : ''}
+            {conversation.lastMessageDeleted ? t.dm.deletedPlaceholder : preview}
           </span>
         </span>
-        {unread && <span class="dm-row-badge">{conversation.unread > 99 ? '99+' : conversation.unread}</span>}
-        {variant === 'request' && (
-          <form method="post" action={`/messages/${conversation.id}/accept`} class="dm-row-accept">
-            <button class="btn small" type="submit">
-              {t.dm.accept}
-            </button>
-          </form>
-        )}
+      </span>
+      {/* Satırın geri kalanı sohbeti açar (uzatılmış bağlantı deseni). */}
+      <a class="dm-row-open" href={`/messages/${conversation.id}`} aria-label={conversation.peer.username}>
+        <span class="visually-hidden">{t.dm.openChat}</span>
       </a>
+      {unread && <span class="dm-row-badge">{conversation.unread > 99 ? '99+' : conversation.unread}</span>}
+      {variant === 'request' && (
+        <form method="post" action={`/messages/${conversation.id}/accept`} class="dm-row-accept">
+          <button class="btn small" type="submit">
+            {t.dm.accept}
+          </button>
+        </form>
+      )}
       {/* Basılı tutma menüsü (JS'siz çalışan form düğmeleri de menüye bağlı) */}
       <div class="dm-row-menu" data-dm-menu hidden>
         <button class="dm-menu-item" type="button" data-dm-action={variant === 'archived' ? 'unarchive' : 'archive'}>
@@ -167,19 +171,24 @@ export const MessagesPage: FC<{
         ) : (
           <ul class="dm-list">
             {results.map((u) => (
-              <li class="dm-row">
-                <form method="post" action="/messages/new" class="dm-row-link dm-row-form">
-                  <input type="hidden" name="username" value={u.username} />
-                  <Avatar user={u} size={48} />
-                  <span class="dm-row-main">
-                    <span class="dm-row-head">
-                      <UserByline username={u.username} info={resultRanks.get(u.id) ?? null} link={false} class="dm-row-name" />
-                    </span>
-                    <span class="dm-row-sub">
-                      <span class="dm-row-username">@{u.username}</span>
-                    </span>
+              <li class="dm-row dm-row-start">
+                <Avatar user={u} size={48} />
+                <span class="dm-row-main">
+                  <span class="dm-row-head">
+                    <UserByline username={u.username} info={resultRanks.get(u.id) ?? null} class="dm-row-name" />
                   </span>
-                  <span class="btn small">{t.dm.startChat}</span>
+                  <span class="dm-row-sub">
+                    <a class="dm-row-username" href={profilePath(u.username)}>
+                      @{u.username}
+                    </a>
+                    {u.display_name?.trim() && <span class="dm-row-preview">{u.display_name}</span>}
+                  </span>
+                </span>
+                <form method="post" action="/messages/new" class="dm-row-startform">
+                  <input type="hidden" name="username" value={u.username} />
+                  <button class="btn small" type="submit">
+                    {t.dm.startChat}
+                  </button>
                 </form>
               </li>
             ))}
@@ -341,6 +350,7 @@ export const ChatPage: FC<{
           <UserByline username={peer.username} info={peerRank} link={false} class="dm-chat-name" />
           <span class="dm-chat-username">@{peer.username}</span>
         </span>
+        <span class="visually-hidden">{t.profile.viewProfile}</span>
       </a>
       <span class={`dm-presence${online ? ' is-online' : ''}`} data-dm-presence>
         {online ? t.dm.online : t.dm.offline}

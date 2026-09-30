@@ -104,8 +104,8 @@ export const t = {
     usernameOrEmail: 'Kullanıcı adı veya e-posta',
     email: 'E-posta',
     password: 'Parola',
-    passwordHint: 'En az 10 karakter.',
-    usernameHint: '3–20 karakter; harf, rakam ve alt çizgi.',
+    passwordHint: 'En az 6 karakter.',
+    usernameHint: '4–20 karakter; harf, rakam ve alt çizgi.',
     inviteCode: 'Davet kodu',
     forgot: 'Parolanızı mı unuttunuz?',
     resetTitle: 'Parolanızı sıfırlayın',
@@ -273,7 +273,9 @@ export const t = {
     comments: 'Yorumlar',
     notAvailable: 'Bu profil kullanılamıyor.',
     editProfile: 'Profili düzenle',
+    viewProfile: 'Profili görüntüle',
     displayName: 'Görünen ad',
+    displayNamePlaceholder: 'Adınız nasıl görünsün?',
     bio: 'Kısa tanıtım (düz metin)',
     deleteAccount: 'Hesabı sil',
     deleteWarning:
@@ -332,6 +334,7 @@ export const t = {
     genericBody: 'Beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.',
     internalError: 'Sunucu hatası',
     crossOrigin: 'Farklı kaynaklı istek reddedildi.',
+    loginRequired: 'Devam etmek için giriş yapın.',
   },
   admin: {
     dashboard: 'Yönetim paneli',
@@ -441,6 +444,7 @@ export const t = {
     searchHint: 'En az 2 karakter yazın.',
     searchEmpty: 'Kullanıcı bulunamadı.',
     startChat: 'Sohbet başlat',
+    openChat: 'Sohbeti aç',
     sections: {
       messages: 'Mesajlar',
       requests: 'İstekler',

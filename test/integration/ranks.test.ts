@@ -42,24 +42,24 @@ describe('rank rozetleri arayüzde', () => {
     // Karma 351 → Legend
     setKarma((world.ctx.db.prepare('SELECT id FROM users WHERE username_lower = ?').get(username) as { id: string }).id, 351)
 
-    const profile = await (await new Agent(world.app).get(`/tc/${username}`)).text()
+    // Site kapalı olduğu için sayfalar giriş yapmış bir üye tarafından okunur.
+    const profile = await (await admin.get(`/tc/${username}`)).text()
     expect(profile).toContain('rank-legend')
     expect(profile).toContain('/static/assets/ranks/legend.gif')
     expect(profile).toContain('Legend')
 
-    const post = await (await new Agent(world.app).get(`/c/plaza/comments/${postId}`)).text()
+    const post = await (await admin.get(`/c/plaza/comments/${postId}`)).text()
     expect(post).toContain('rank-legend')
     expect(post).toContain('/static/assets/ranks/legend.gif')
     expect(post).toContain('Legend')
 
-    const home = await (await new Agent(world.app).get('/')).text()
+    const home = await (await admin.get('/')).text()
     expect(home).toContain('rank-legend')
-    void admin
   })
 
   test('yeni kullanıcı New User görselini görür', async () => {
-    const { postId } = await setupAuthor()
-    const post = await (await new Agent(world.app).get(`/c/plaza/comments/${postId}`)).text()
+    const { admin, postId } = await setupAuthor()
+    const post = await (await admin.get(`/c/plaza/comments/${postId}`)).text()
     expect(post).toContain('rank-new_user')
     expect(post).toContain('/static/assets/ranks/new-user.gif')
     expect(post).toContain('New User')
@@ -72,7 +72,7 @@ describe('rank rozetleri arayüzde', () => {
     }).id
     setKarma(userId, 126)
 
-    const search = await (await new Agent(world.app).get('/search?q=Rank')).text()
+    const search = await (await author.get('/search?q=Rank')).text()
     expect(search).toContain('/tc/' + username)
     expect(search).toContain('/static/assets/ranks/super-user.gif')
     expect(search).toContain('Super User')
@@ -100,7 +100,7 @@ describe('kısıtlama (ban) rütbesi', () => {
       id: string
     }).id
     setKarma(userId, 400)
-    const guest = new Agent(world.app)
+    const guest = admin
 
     const before = await (await guest.get(`/tc/${username}`)).text()
     expect(before).toContain('Legend')
@@ -129,7 +129,10 @@ describe('kısıtlama (ban) rütbesi', () => {
     }).id
     await admin.post(`/admin/users/${userId}/suspend`, { days: 'indefinite', reason: 'test' })
     world.tick(365 * 24 * 60 * 60 * 1000)
-    const page = await (await new Agent(world.app).get(`/tc/${username}`)).text()
+    // Bir yıl geçtiği için eski oturumun süresi doldu; tekrar giriş yapılır.
+    const reader = new Agent(world.app)
+    await reader.post('/login', { identifier: 'patron', password: 'password12345' })
+    const page = await (await reader.get(`/tc/${username}`)).text()
     expect(page).toContain('rank-banned')
     expect(page).toContain('/static/assets/ranks/banned.gif')
   })
@@ -148,7 +151,7 @@ describe('yönetim yetkileri', () => {
 
     await admin.post(`/admin/users/${userId}`, { username, displayName: '', bio: '', rankMode: 'auto', staffRole: 'moderator' })
 
-    const profile = await (await new Agent(world.app).get(`/tc/${username}`)).text()
+    const profile = await (await admin.get(`/tc/${username}`)).text()
     expect(profile).toContain('role-moderator')
     expect(profile).toContain('/static/assets/ranks/moderator.gif')
     expect(profile).toContain('Moderator')
@@ -169,7 +172,7 @@ describe('yönetim yetkileri', () => {
     setKarma(userId, 600)
     await admin.post(`/admin/users/${userId}`, { username, displayName: '', bio: '', rankMode: 'auto', staffRole: 'admin' })
 
-    const profile = await (await new Agent(world.app).get(`/tc/${username}`)).text()
+    const profile = await (await admin.get(`/tc/${username}`)).text()
     expect(profile).toContain('/static/assets/ranks/admin.gif')
     expect(profile).toContain('rank-admin')
     expect(profile).not.toContain('/static/assets/ranks/god.gif')
@@ -193,10 +196,9 @@ describe('yönetim yetkileri', () => {
         id: string
       }).id
       await admin.post(`/admin/users/${userId}`, { username, displayName: '', bio: '', rankMode: 'auto', staffRole: role })
-      const page = await (await new Agent(world.app).get(`/tc/${username}`)).text()
+      const page = await (await agent.get(`/tc/${username}`)).text()
       expect(page, role).toContain(className)
       expect(page, role).toContain(asset)
-      void agent
     }
   })
 
@@ -216,7 +218,7 @@ describe('yönetim panelinden rütbe ve profil yönetimi', () => {
     const userId = (world.ctx.db.prepare('SELECT id FROM users WHERE username_lower = ?').get(username) as {
       id: string
     }).id
-    const guest = new Agent(world.app)
+    const guest = admin
 
     await admin.post(`/admin/users/${userId}`, { username, displayName: 'Mert', bio: 'Selam', rankMode: 'manual', rank: 'god' })
     const manual = await (await guest.get(`/tc/${username}`)).text()

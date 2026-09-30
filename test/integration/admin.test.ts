@@ -62,14 +62,31 @@ describe('US-036 account suspension', () => {
     expect(attempt.loggedIn()).toBe(false)
 
     // Suspended users' content remains visible unless separately removed (US-036).
-    // (Session may have aged out with the year-long tick; check as guest.)
-    const guest = new Agent(world.app)
-    const page = await guest.get(`/c/plaza/comments/${postId}`)
+    // Site kapalı olduğu için yönetici oturumuyla okunur.
+    const page = await admin.get(`/c/plaza/comments/${postId}`)
     expect(await page.text()).toContain('Suspended author post')
 
     await admin.post(`/admin/users/${userId}/unsuspend`)
     await attempt.post('/login', { identifier: username, password })
     expect(attempt.loggedIn()).toBe(true)
+  })
+
+  test('yönetim panelinden kullanıcı adı 2 karaktere kadar düşürülebilir', async () => {
+    const { agent: admin } = await registerUser(world)
+    const { agent: member, username } = await registerUser(world, 'longname')
+    const memberId = (world.ctx.db.prepare('SELECT id FROM users WHERE username = ?').get(username) as { id: string }).id
+
+    // Kayıt sınırı (4) yönetim panelinde gevşer: 2 karakter kabul edilir.
+    const res = await admin.post(`/admin/users/${memberId}`, {
+      username: 'ab',
+      displayName: '',
+      bio: '',
+      rankMode: 'auto',
+    })
+    expect(res.status).toBe(302)
+    const row = world.ctx.db.prepare('SELECT username FROM users WHERE id = ?').get(memberId) as { username: string }
+    expect(row.username).toBe('ab')
+    void member
   })
 
   test('non-admins cannot suspend; admins cannot be suspended', async () => {
@@ -102,7 +119,9 @@ describe('US-037 community administration', () => {
 
     // Correct confirmation → gone for everyone (404), content out of search.
     await admin.post(`/admin/communities/${communityId}/delete`, { confirmName: 'doomed' })
-    const guest = new Agent(world.app)
+    // Topluluğun kurucusu olmayan, giriş yapmış bir üye: site kapalı olduğu için
+    // "herkes" burada onu ifade eder.
+    const guest = (await registerUser(world)).agent
     expect((await guest.get('/c/doomed')).status).toBe(404)
     expect((await guest.get(`/c/doomed/comments/${postId}`)).status).toBe(404)
     const searchRes = await guest.get('/search?q=Doomed')

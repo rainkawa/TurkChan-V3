@@ -10,7 +10,7 @@ import { invalidateAllSessions } from './auth'
 import { logAction } from './modlog'
 import { attachUpload } from './uploads'
 import { isAdminPower, isRankId, parseStaffRole } from './ranks'
-import { validateBio, validateDisplayName, validateUsername } from '../lib/validation'
+import { LIMITS, validateBio, validateDisplayName, validateUsername } from '../lib/validation'
 import { syncCommunityFts } from './communities'
 import { transaction } from '../db'
 
@@ -212,7 +212,8 @@ export function updateAdminUser(ctx: Ctx, viewer: Viewer, userId: string, input:
   const params: (string | number | null)[] = []
 
   if (input.username !== undefined) {
-    const username = validateUsername(input.username)
+    // Yönetici mevcut kısa kullanıcı adlarını kaybetmemek için daha gevşek sınıra tabidir.
+    const username = validateUsername(input.username, LIMITS.usernameMinAdmin)
     if (username.toLowerCase() !== user.username_lower) {
       const taken = ctx.db
         .prepare('SELECT 1 FROM users WHERE username_lower = ? AND id != ?')

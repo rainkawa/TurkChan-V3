@@ -422,7 +422,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
 
             <div class="field">
               <label for="username">{t.settings.username}</label>
-              <input id="username" name="username" type="text" minlength={3} maxlength={20} value={viewer.username} required />
+              <input id="username" name="username" type="text" minlength={4} maxlength={20} value={viewer.username} required />
               <div class="hint">{t.auth.usernameHint}</div>
             </div>
 
@@ -459,7 +459,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
                 name="newPassword"
                 type="password"
                 required
-                minlength={10}
+                minlength={6}
                 autocomplete="new-password"
               />
               <div class="hint">{t.auth.passwordHint}</div>

@@ -65,7 +65,8 @@ describe('US-009 directory', () => {
       await agent.post('/c/bigclub/join')
     }
 
-    const guest = new Agent(world.app)
+    // Site kapalı olduğu için dizin giriş yapmış bir üye tarafından okunur.
+    const guest = (await registerUser(world)).agent
     const page = await guest.get('/communities')
     const text = await page.text()
     expect(text).toContain('c/bigclub')

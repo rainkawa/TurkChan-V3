@@ -114,11 +114,17 @@ describe('US-024 home feed and cursor pagination', () => {
     expect(text).toContain('JOINED-CONTENT')
     expect(text).toContain('OTHER-CONTENT')
 
-    // Guests see the same fallback; private content never appears.
+    // Site kapalı: giriş yapmayan ziyaretçi ana sayfaya ulaşamaz.
     await createCommunityVia(owner, 'sanctum', 'private')
     await createPostVia(owner, 'sanctum', 'PRIVATE-CONTENT')
     const guest = new Agent(world.app)
-    page = await guest.get('/')
+    const guestHome = await guest.get('/')
+    expect(guestHome.status).toBe(302)
+    expect(guestHome.headers.get('location')).toContain('/login')
+
+    // Üye olmayan başka bir kullanıcı da özel içeriği görmez.
+    const other = (await registerUser(world)).agent
+    page = await other.get('/')
     text = await page.text()
     expect(text).toContain('JOINED-CONTENT')
     expect(text).not.toContain('PRIVATE-CONTENT')

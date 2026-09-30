@@ -20,7 +20,7 @@ describe('US-028 search', () => {
     await createCommunityVia(agent, 'quran_class')
     await createPostVia(agent, 'quran_class', 'Bring your own mushaf?', 'Question about the tajweed schedule')
 
-    const guest = new Agent(world.app)
+    const guest = agent
     let res = await guest.get('/search?q=mushaf')
     expect(await res.text()).toContain('Bring your own mushaf?')
 
@@ -38,7 +38,7 @@ describe('US-028 search', () => {
     const postId = await createPostVia(author, 'library', 'Searchable title', 'original findme-alpha text')
 
     await author.post(`/posts/${postId}/edit`, { body: 'now with findme-beta instead' })
-    const guest = new Agent(world.app)
+    const guest = mod
     expect(await (await guest.get('/search?q=findme-beta')).text()).toContain('Searchable title')
     expect(await (await guest.get('/search?q=findme-alpha')).text()).not.toContain('Searchable title')
 
@@ -61,9 +61,8 @@ describe('US-028 search', () => {
   })
 
   test('empty results prompt posting the question', async () => {
-    await registerUser(world)
-    const guest = new Agent(world.app)
-    const res = await guest.get('/search?q=zzzunfindable')
+    const { agent } = await registerUser(world)
+    const res = await agent.get('/search?q=zzzunfindable')
     expect(await res.text()).toContain('ilgili bir toplulukta sorunuzu paylaşın')
   })
 
@@ -71,7 +70,7 @@ describe('US-028 search', () => {
     const { agent } = await registerUser(world)
     await createCommunityVia(agent, 'sturdy')
     await createPostVia(agent, 'sturdy', 'Regular post')
-    const guest = new Agent(world.app)
+    const guest = agent
     for (const q of ['"unclosed', 'a AND OR NOT', 'col:val', '(((', '*']) {
       const res = await guest.get(`/search?q=${encodeURIComponent(q)}`)
       expect(res.status).toBe(200) // never a raw error

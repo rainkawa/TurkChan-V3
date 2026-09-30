@@ -116,8 +116,10 @@ export const Layout: FC<LayoutProps> = ({ title, viewer, unread = 0, dmUnread = 
           </>
         )}
       </head>
-      <body>
+      <body class={viewer ? 'is-member' : 'is-guest'}>
         <a class="skip-link" href="#main">{t.nav.mainNavigation}</a>
+        {viewer && (
+          <>
 
         <header class="app-header">
           <div class="app-header-inner">
@@ -157,17 +159,6 @@ export const Layout: FC<LayoutProps> = ({ title, viewer, unread = 0, dmUnread = 
                 <path d="M10 18a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
               </svg>
               {totalBadge > 0 && <span class="notif-badge">{badgeText(totalBadge)}</span>}
-            </a>
-            <a
-              class="icon-btn header-messages"
-              href="/messages"
-              aria-label={t.nav.messages}
-              aria-current={active === 'messages' ? 'page' : undefined}
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H9l-5 4v-4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
-              </svg>
-              {dmUnread > 0 && <span class="notif-badge">{badgeText(dmUnread)}</span>}
             </a>
           </div>
         </header>
@@ -210,12 +201,16 @@ export const Layout: FC<LayoutProps> = ({ title, viewer, unread = 0, dmUnread = 
             </div>
           </nav>
         </div>
+          </>
+        )}
 
         <main class="page" id="main">
           {flash && <div class={`flash ${flash.kind}`}>{flash.message}</div>}
           {children}
         </main>
 
+        {viewer && (
+          <>
         <footer class="footer">
           <a href="/privacy">{t.footer.privacy}</a>
           <span>{t.tagline}</span>
@@ -264,6 +259,8 @@ export const Layout: FC<LayoutProps> = ({ title, viewer, unread = 0, dmUnread = 
             <span>{t.nav.me}</span>
           </a>
         </nav>
+          </>
+        )}
 
         <script src="/static/app.js" defer></script>
       </body>

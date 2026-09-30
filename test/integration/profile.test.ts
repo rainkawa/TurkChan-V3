@@ -24,7 +24,8 @@ describe('US-005/US-007 profiles and karma', () => {
     await createCommentVia(user, 'plaza', postId, 'And my comment')
     await mod.json('/api/vote', { targetType: 'post', targetId: postId, value: 1 })
 
-    const guest = new Agent(world.app)
+    // Site kapalı olduğu için profil başka bir giriş yapmış üye tarafından okunur.
+    const guest = mod
     const page = await guest.get(`/tc/${username}`)
     const text = await page.text()
     expect(text).toContain(`/tc/${username}`)
@@ -49,7 +50,7 @@ describe('US-005/US-007 profiles and karma', () => {
     await mod.json('/api/vote', { targetType: 'post', targetId: postId, value: 1 })
 
     // Outsider: karma counts, content hidden.
-    const guest = new Agent(world.app)
+    const guest = (await registerUser(world)).agent
     const page = await guest.get(`/tc/${username}`)
     const text = await page.text()
     expect(text).toContain('Gönderi karma: 1')

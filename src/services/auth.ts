@@ -6,6 +6,7 @@ import {
   validateUsername,
   validateEmail,
   validatePassword,
+  validateDisplayName,
   ValidationError,
 } from '../lib/validation'
 import { getSettings } from './settings'
@@ -34,7 +35,7 @@ export function getUserByUsername(ctx: Ctx, username: string): UserRow | null {
 
 export async function register(
   ctx: Ctx,
-  input: { username: string; email: string; password: string; ip: string; inviteCode?: string },
+  input: { username: string; password: string; displayName?: string; email?: string; ip: string; inviteCode?: string },
 ): Promise<SessionResult> {
   const ipLimit = ctx.rateLimiter.check(`register:${input.ip}`, 5, 60 * 60 * 1000)
   if (!ipLimit.allowed) throw rateLimited(ipLimit.retryAfterMs)
@@ -56,21 +57,28 @@ export async function register(
   }
 
   const username = validateUsername(input.username)
-  const email = validateEmail(input.email)
   const password = validatePassword(input.password)
+  // E-posta kayıtta istenmez; yalnızca sonradan (ayarlardan veya yönetimden)
+  // eklenirse doğrulanır. Boş bırakılırsa NULL olarak saklanır.
+  const rawEmail = (input.email ?? '').trim()
+  const email = rawEmail ? validateEmail(rawEmail) : null
+  // Görünen ad verilmezse kullanıcı adı varsayılan olur.
+  const displayName = validateDisplayName(input.displayName?.trim() || username)
 
   const usernameTaken = ctx.db
     .prepare('SELECT 1 FROM users WHERE username_lower = ?')
     .get(username.toLowerCase())
   if (usernameTaken) throw conflict('username_taken', 'Bu kullanıcı adı zaten alınmış.')
 
-  const emailTaken = ctx.db.prepare('SELECT 1 FROM users WHERE email_lower = ?').get(email)
-  if (emailTaken) {
-    // Non-enumerating (US-001): the message never confirms the address exists.
-    throw conflict(
-      'email_unavailable',
-      'Bu e-posta zaten kayıtlıysa giriş yapın ya da parola sıfırlama kullanın. Değilse farklı bir adres deneyin.',
-    )
+  if (email) {
+    const emailTaken = ctx.db.prepare('SELECT 1 FROM users WHERE email_lower = ?').get(email)
+    if (emailTaken) {
+      // Non-enumerating (US-001): the message never confirms the address exists.
+      throw conflict(
+        'email_unavailable',
+        'Bu e-posta zaten kayıtlıysa giriş yapın ya da parola sıfırlama kullanın. Değilse farklı bir adres deneyin.',
+      )
+    }
   }
 
   const passwordHash = await hashPassword(password)
@@ -80,10 +88,10 @@ export async function register(
   const user = transaction(ctx.db, () => {
     ctx.db
       .prepare(
-        `INSERT INTO users (id, username, username_lower, email_lower, password_hash, is_admin, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO users (id, username, username_lower, email_lower, password_hash, display_name, is_admin, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, username, username.toLowerCase(), email, passwordHash, isFirstUser ? 1 : 0, ctx.now())
+      .run(id, username, username.toLowerCase(), email, passwordHash, displayName, isFirstUser ? 1 : 0, ctx.now())
     if (inviteCode) {
       ctx.db.prepare('UPDATE invites SET uses = uses + 1 WHERE code = ?').run(inviteCode)
     }
