@@ -22,7 +22,8 @@ import {
 } from '../services/communities'
 import { communityFeed } from '../services/feeds'
 import { getMyVotes } from '../services/votes'
-import { createTextPost, createLinkPost, createImagePost, findDuplicateLinkPost } from '../services/posts'
+import {  createTextPost,
+  createMediaPost, createLinkPost, findDuplicateLinkPost } from '../services/posts'
 import { requestUpload, receiveUpload } from '../services/uploads'
 import { decodeCursor } from '../lib/cursor'
 import { AppError } from '../services/errors'
@@ -35,11 +36,45 @@ import { profilePath } from '../views/helpers'
 import { type AppEnv, dmUnread, formData, loginRedirect, setFlash, takeFlash, unread } from './helpers'
 import type { CommunityRow, UserRow } from '../types'
 
+/** Kompozitörde sunulan gönderi türleri. */
+const POST_TYPES = ['text', 'link', 'image', 'gif', 'video'] as const
+type PostType = (typeof POST_TYPES)[number]
+
+const POST_TYPE_LABEL: Record<PostType, string> = {
+  text: t.post.typeText,
+  link: t.post.typeLink,
+  image: t.post.typeImage,
+  gif: t.post.typeGif,
+  video: t.post.typeVideo,
+}
+
+/** accept özniteliği: her türün kabul ettiği MIME'ler. */
+const POST_TYPE_ACCEPT: Record<PostType, string> = {
+  text: '',
+  link: '',
+  image: 'image/jpeg,image/png,image/webp',
+  gif: 'image/gif',
+  video: 'video/mp4,video/webm',
+}
+
+function isPostType(raw: string | undefined | null): raw is PostType {
+  return !!raw && (POST_TYPES as readonly string[]).includes(raw)
+}
+
+/** multipart gövdesindeki tek veya çoklu dosya alanını dosya listesine çevirir. */
+function collectFiles(form: FormData, field: string): File[] {
+  const out: File[] = []
+  for (const value of form.getAll(field)) {
+    if (value instanceof File && value.size > 0) out.push(value)
+  }
+  return out
+}
+
 const PostTypeTabs = ({ name, active }: { name: string; active: string }) => (
   <nav class="type-tabs">
-    {(['text', 'link', 'image'] as const).map((type) => (
+    {POST_TYPES.map((type) => (
       <a href={`/c/${name}/submit?type=${type}`} class={active === type ? 'active' : ''}>
-        {type === 'text' ? t.post.typeText : type === 'link' ? t.post.typeLink : t.post.typeImage}
+        {POST_TYPE_LABEL[type]}
       </a>
     ))}
   </nav>
@@ -90,10 +125,12 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
     }
 
     const sort = parseSort(c.req.query('sort'))
+    const threadsOnlyRequested = c.req.query('threads') === '1'
     const window = parseWindow(c.req.query('t'))
     const cursor = decodeCursor(c.req.query('after'))
     const flairId = c.req.query('flair') ?? null
-    const page = communityFeed(ctx, viewer, community, sort, window, cursor, 25, flairId)
+    const threadsOnly = threadsOnlyRequested
+    const page = communityFeed(ctx, viewer, community, sort, window, cursor, 25, flairId, threadsOnly)
     const allIds = [...page.pinned, ...page.items].map((i) => i.id)
     const myVotes = getMyVotes(ctx, viewer, 'post', allIds)
     const rules = listRules(ctx, community.id)
@@ -171,6 +208,19 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
         <div class="layout with-sidebar">
           <section>
             <SortTabs basePath={`/c/${community.name}`} sort={sort} window={window} extraQuery={extraQuery} />
+            <div class="feed-filters">
+              <a
+                class={`filter-chip${threadsOnly ? ' active' : ''}`}
+                href={`/c/${community.name}?sort=${sort}&t=${window}${extraQuery}${threadsOnly ? '' : '&threads=1'}`}
+              >
+                🧵 {threadsOnly ? t.thread.threadsOnlyOn : t.thread.threadsOnly}
+              </a>
+              {threadsOnly && (
+                <a class={`filter-chip${sort === 'bump' ? ' active' : ''}`} href={`/c/${community.name}?sort=bump&t=all&threads=1`}>
+                  ⬆ {t.thread.sortByBump}
+                </a>
+              )}
+            </div>
             <FeedFilterBar
               basePath={`/c/${community.name}`}
               sort={sort}
@@ -308,8 +358,10 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
     const community = requireVisibleCommunity(ctx, viewer, c.req.param('name'))
     if (!viewer) return loginRedirect(c)
     if (!canReadCommunity(ctx, viewer, community)) return c.redirect(`/c/${community.name}`)
-    const type = ['text', 'link', 'image'].includes(c.req.query('type') ?? '') ? (c.req.query('type') as string) : 'text'
+    const type = isPostType(c.req.query('type')) ? c.req.query('type') as PostType : 'text'
     const flairs = listFlairs(ctx, community.id)
+    const isMedia = type === 'image' || type === 'gif' || type === 'video'
+    const anonDefault = viewer.anon_by_default === 1
     return c.html(
       <Layout title={t.post.submit} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)} flash={takeFlash(c)}>
         <div class="card">
@@ -318,39 +370,53 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
           <form
             method="post"
             action={`/c/${community.name}/submit?type=${type}`}
-            enctype={type === 'image' ? 'multipart/form-data' : undefined}
+            enctype={isMedia ? 'multipart/form-data' : undefined}
             data-draft-key={`${community.name}:${type}`}
           >
             <div class="field">
               <label for="title">{t.post.title}</label>
               <input id="title" name="title" type="text" required maxlength={300} />
             </div>
-            {type === 'text' && (
-              <div class="field">
-                <label for="body">{t.post.body}</label>
-                <textarea id="body" name="body" maxlength={40000}></textarea>
-                <button class="btn secondary small" type="button" data-md-preview="body" data-md-target="body-preview" style="margin-top:0.5rem">
-                  {t.post.preview}
-                </button>
-                <div id="body-preview" class="md card" style="display:none;margin-top:0.5rem"></div>
-              </div>
-            )}
             {type === 'link' && (
               <div class="field">
                 <label for="url">{t.post.url}</label>
                 <input id="url" name="url" type="url" required placeholder="https://" />
               </div>
             )}
-            {type === 'image' && (
+            {isMedia && (
               <div class="field">
-                <label for="image">{t.post.image}</label>
-                <input id="image" name="image" type="file" accept="image/jpeg,image/png,image/webp" required />
+                <label for="image">{POST_TYPE_LABEL[type]}</label>
+                <input
+                  id="image"
+                  name="image"
+                  type="file"
+                  accept={POST_TYPE_ACCEPT[type]}
+                  multiple={type === 'image'}
+                  required
+                />
+                <div class="hint">{type === 'video' ? t.post.videoHint : type === 'gif' ? t.post.gifHint : t.post.imageHint}</div>
               </div>
             )}
+            <div class="field">
+              <label for="body">{t.post.body}</label>
+              <textarea id="body" name="body" maxlength={40000}></textarea>
+              <button class="btn secondary small" type="button" data-md-preview="body" data-md-target="body-preview" style="margin-top:0.5rem">
+                {t.post.preview}
+              </button>
+              <div id="body-preview" class="md card" style="display:none;margin-top:0.5rem"></div>
+            </div>
             <div class="field post-extra-fields">
               <label class="checkbox">
                 <input type="checkbox" name="spoiler" value="1" />
                 <span>{t.feed.spoilerHidden}</span>
+              </label>
+              <label class="checkbox">
+                <input type="checkbox" name="anonymous" value="1" checked={anonDefault} />
+                <span>{t.post.anonymous}</span>
+              </label>
+              <label class="checkbox">
+                <input type="checkbox" name="isThread" value="1" />
+                <span>{t.thread.mode}</span>
               </label>
               {flairs.length > 0 && (
                 <div class="field">
@@ -376,16 +442,20 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
     if (!viewer) return loginRedirect(c)
     const community = requireVisibleCommunity(ctx, viewer, c.req.param('name'))
     const type = c.req.query('type') ?? 'text'
+    const safeType: PostType = isPostType(type) ? type : 'text'
     try {
-      if (type === 'link') {
+      if (safeType === 'link') {
         const body = await formData(c)
         const url = (body.url ?? '').trim()
         const duplicate = findDuplicateLinkPost(ctx, community, url)
         const { post } = await createLinkPost(ctx, viewer, community, {
           title: body.title ?? '',
           url,
+          body: body.body ?? '',
           spoiler: body.spoiler === '1',
           flairId: body.flairId ?? null,
+          anonymous: body.anonymous === '1',
+          isThread: body.isThread === '1',
         })
         if (duplicate) {
           // Non-blocking duplicate warning (US-014).
@@ -393,19 +463,26 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
         }
         return c.redirect(`/c/${community.name}/comments/${post.id}`)
       }
-      if (type === 'image') {
-        const parsed = await c.req.parseBody()
-        const file = parsed.image
-        if (!(file instanceof File)) throw new AppError(400, 'image', 'Yüklemek için bir görsel dosyası seçin.')
-        const bytes = new Uint8Array(await file.arrayBuffer())
-        const slot = requestUpload(ctx, viewer)
-        await receiveUpload(ctx, slot.key, slot.token, bytes)
-        const title = typeof parsed.title === 'string' ? parsed.title : ''
-        const post = createImagePost(ctx, viewer, community, {
-          title,
-          imageKey: slot.key,
-          spoiler: parsed.spoiler === '1',
-          flairId: typeof parsed.flairId === 'string' ? parsed.flairId : null,
+      if (safeType === 'image' || safeType === 'gif' || safeType === 'video') {
+        const allowed = safeType === 'gif' ? (['gif'] as const) : safeType === 'video' ? (['video'] as const) : (['image'] as const)
+        const parsed = await c.req.formData()
+        const files = collectFiles(parsed, 'image')
+        if (files.length === 0) throw new AppError(400, 'image', t.post.pickFile)
+        const keys: string[] = []
+        for (const file of files) {
+          const bytes = new Uint8Array(await file.arrayBuffer())
+          const slot = requestUpload(ctx, viewer)
+          await receiveUpload(ctx, slot.key, slot.token, bytes, [...allowed])
+          keys.push(slot.key)
+        }
+        const post = createMediaPost(ctx, viewer, community, {
+          title: (parsed.get('title') as string) ?? '',
+          body: (parsed.get('body') as string) ?? '',
+          keys,
+          spoiler: parsed.get('spoiler') === '1',
+          flairId: (parsed.get('flairId') as string) || null,
+          anonymous: parsed.get('anonymous') === '1',
+          isThread: parsed.get('isThread') === '1',
         })
         return c.redirect(`/c/${community.name}/comments/${post.id}`)
       }
@@ -415,12 +492,14 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
         body: body.body ?? '',
         spoiler: body.spoiler === '1',
         flairId: body.flairId ?? null,
+        anonymous: body.anonymous === '1',
+        isThread: body.isThread === '1',
       })
       return c.redirect(`/c/${community.name}/comments/${post.id}`)
     } catch (err) {
       if (err instanceof AppError || err instanceof ValidationError) {
         setFlash(c, 'error', err.message)
-        return c.redirect(`/c/${community.name}/submit?type=${type}`)
+        return c.redirect(`/c/${community.name}/submit?type=${safeType}`)
       }
       throw err
     }

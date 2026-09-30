@@ -171,6 +171,41 @@ describe('rota duman testi', () => {
     expect(css).toContain('.home-layout > *, .layout > * { min-width: 0; }')
   })
 
+  test('yeni rotalar (permalink, thread, admin istatistik) temiz üretilir', async () => {
+    const admin = await registerAdmin(world)
+    await createCommunityVia(admin.agent, 'newroutes')
+    const res = await admin.agent.post('/c/newroutes/submit?type=text', {
+      title: 'NEW-THREAD',
+      body: '',
+      isThread: '1',
+      anonymous: '1',
+    })
+    const postId = (res.headers.get('location') ?? '').match(/comments\/([a-z0-9]+)/)?.[1] as string
+    expect(postId).toBeTruthy()
+
+    const paths = [
+      '/',
+      `/c/newroutes/comments/${postId}`,
+      `/p/${postId}`,
+      '/c/newroutes?threads=1&sort=bump',
+      '/c/newroutes/submit?type=gif',
+      '/c/newroutes/submit?type=video',
+      '/c/newroutes/submit?type=image',
+      '/c/newroutes/submit?type=link',
+      '/admin?tab=anonymous',
+      '/admin?tab=stats',
+    ]
+    for (const path of paths) {
+      const res = await admin.agent.get(path)
+      expect(res.status, `${path} → ${res.status}`).toBeLessThan(500)
+      if (res.status >= 300 && res.status < 400) continue
+      if (res.status === 404) continue
+      const html = await res.text()
+      for (const bad of BAD) expect(html, `${path} içinde "${bad}"`).not.toContain(bad)
+      expect(html).toContain('<body')
+    }
+  })
+
   test('ziyaretçi ve girişsiz rotalar 5xx vermez', async () => {
     const owner = await registerUser(world)
     await createCommunityVia(owner.agent, 'open')

@@ -9,6 +9,7 @@ import { getCommunityById, requireParticipant } from './access'
 import { getPost, getPostForViewer } from './posts'
 import { AFFINITY_STEP, bumpAffinity } from './feeds'
 import { notify, withdrawForComment } from './notifications'
+import { registerThreadReply, threadState } from './threads'
 import { transaction } from '../db'
 
 /** Visual nesting cap (FR-6): depth is 1-based; replies beyond 8 flatten to 8. */
@@ -43,6 +44,13 @@ export function createComment(
 
   const body = validateCommentBody(input.body)
 
+  // Thread modu: kilitli/arsivlenmiş thread'lere yanıt verilemez.
+  if (post.is_thread === 1) {
+    const state = threadState(ctx, post)
+    if (state.archived) throw notFound('Gönderi bulunamadı.')
+    if (!state.canReply) throw forbidden('Bu thread kilitli.')
+  }
+
   let parent: CommentRow | null = null
   if (input.parentId) {
     parent = getComment(ctx, input.parentId)
@@ -65,6 +73,8 @@ export function createComment(
       )
       .run(id, postId, parent?.id ?? null, path, depth, user.id, body, ctx.now())
     ctx.db.prepare('UPDATE posts SET comment_count = comment_count + 1 WHERE id = ?').run(postId)
+    // Thread ise sıra numarası + alıntı ve bump güncellenir.
+    if (post.is_thread === 1) registerThreadReply(ctx, post, id)
 
     // Direct-reply notification (US-040): parent comment author, or post author
     // for top-level comments. Never for self-replies.

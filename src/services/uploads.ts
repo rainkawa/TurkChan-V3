@@ -1,7 +1,8 @@
 import type { Ctx } from '../context'
-import type { UploadRow, UserRow } from '../types'
+import type { UploadKind, UploadRow, UserRow } from '../types'
 import { newSecret, newUuid, sha256 } from '../lib/ids'
 import { detectImageType, mimeForImageType, stripImageMetadata } from '../lib/images'
+import { UPLOAD_LIMITS, detectUploadKind, mimeForUploadKind } from '../lib/media'
 import { badRequest, forbidden, notFound, rateLimited, unauthorized } from './errors'
 
 /**
@@ -23,24 +24,44 @@ export function requestUpload(ctx: Ctx, viewer: UserRow | null): { key: string; 
   return { key, token }
 }
 
-export async function receiveUpload(ctx: Ctx, key: string, token: string, bytes: Uint8Array): Promise<UploadRow> {
+export async function receiveUpload(
+  ctx: Ctx,
+  key: string,
+  token: string,
+  bytes: Uint8Array,
+  /** Bu alanın kabul ettiği türler; verilmezse hepsi kabul edilir. */
+  allowed?: UploadKind[],
+): Promise<UploadRow> {
   const upload = ctx.db.prepare('SELECT * FROM uploads WHERE key = ?').get(key) as UploadRow | undefined
   if (!upload || upload.token_hash !== sha256(token)) throw notFound('Yükleme alanı bulunamadı.')
   if (upload.status !== 'pending') throw badRequest('upload_used', 'Bu yükleme alanı zaten kullanılmış.')
   if (bytes.length === 0) throw badRequest('empty', 'Yüklenen dosya boş.')
-  if (bytes.length > ctx.config.maxImageBytes) {
-    throw badRequest('too_large', 'Görseller 10 MB veya daha küçük olmalıdır.')
-  }
-  const type = detectImageType(bytes)
-  if (!type)    throw badRequest('bad_type', 'Yalnızca JPEG, PNG ve WebP görselleri kabul edilir.')
 
-  const stripped = stripImageMetadata(bytes)
-  await ctx.storage.put(key, stripped)
+  const kind = detectUploadKind(bytes)
+  if (!kind) {
+    throw badRequest('bad_type', 'Yalnızca JPEG, PNG, WebP, GIF, MP4 ve WebM dosyaları kabul edilir.')
+  }
+  if (allowed && !allowed.includes(kind)) {
+    throw badRequest('bad_type', `Bu alan yalnızca ${allowed.map((k) => (k === 'image' ? 'görsel' : k === 'gif' ? 'GIF' : 'video')).join(', ')} kabul eder.`)
+  }
+  const limit = UPLOAD_LIMITS[kind]
+  if (bytes.length > limit) {
+    const mb = Math.round(limit / (1024 * 1024))
+    const label = kind === 'video' ? 'Videolar' : kind === 'gif' ? 'GIFler' : 'Görseller'
+    throw badRequest('too_large', `${label} en fazla ${mb} MB olabilir.`)
+  }
+
+  // Yalnızca görsellerin metadata'sı soyulur; GIF/video başlıkları bozulur.
+  const stored = kind === 'image' ? stripImageMetadata(bytes) : bytes
+  // MIME yalnızca imzadan türetilir; istemcinin beyanı güvenilmez.
+  const mime = kind === 'image' ? mimeForImageType(detectImageType(bytes) as 'jpeg') : mimeForUploadKind(kind, bytes)
+  await ctx.storage.put(key, stored)
   ctx.db
     .prepare("UPDATE uploads SET status = 'uploaded', mime = ?, size = ? WHERE key = ?")
-    .run(mimeForImageType(type), stripped.length, key)
+    .run(mime, stored.length, key)
   return ctx.db.prepare('SELECT * FROM uploads WHERE key = ?').get(key) as unknown as UploadRow
 }
+
 
 /** Claim an uploaded image for a post. Enforces ownership and single use. */
 export function attachUpload(ctx: Ctx, viewer: UserRow, key: string): UploadRow {

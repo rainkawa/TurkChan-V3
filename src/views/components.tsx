@@ -60,7 +60,9 @@ export const PostCard: FC<{
   authorRanks?: Map<string, UserRank>
   /** Gönderinin board etiketi. */
   flair?: FlairRow | null
-}> = ({ item, now, myVote, viewer, showCommunity = true, pinned = false, authorRanks, flair }) => {
+  /** Gönderinin ekli medya dosyaları (çoklu görsel/GIF/video). */
+  media?: Array<{ key: string; kind: 'image' | 'gif' | 'video'; mime: string | null }>
+}> = ({ item, now, myVote, viewer, showCommunity = true, pinned = false, authorRanks, flair, media }) => {
   const isOwn = viewer?.id === item.author_id
   const authorRank = authorRanks?.get(item.author_id) ?? null
   const thumb =
@@ -111,10 +113,16 @@ export const PostCard: FC<{
           {showCommunity && <a href={`/c/${item.community_name}`}>c/{item.community_name}</a>}
           <span class="user-byline">
             {item.author_username ? (
-              <>
-                <a href={profilePath(item.author_username)}>/tc/{item.author_username}</a>
-                <RankBadges info={authorRank} />
-              </>
+              item.anon === 1 ? (
+                <span class="anon-author" title={t.post.anonymousHint}>
+                  {t.post.anonByline} · <b>{item.author_username}</b>
+                </span>
+              ) : (
+                <>
+                  <a href={profilePath(item.author_username)}>/tc/{item.author_username}</a>
+                  <RankBadges info={authorRank} />
+                </>
+              )
             ) : (
               t.post.deletedBody
             )}
@@ -134,14 +142,20 @@ export const PostCard: FC<{
           )}
         </h3>
         {item.spoiler !== 1 && (
-          <MediaPreview
-            kind={cardKind}
-            src={cardSrc}
-            embed={embedSrcFor(item.url)}
-            poster={item.link_preview_image}
-            title={item.title}
-            href={`/c/${item.community_name}/comments/${item.id}`}
-          />
+          <>
+            {media && media.length > 0 ? (
+              <MediaGallery items={media.slice(0, 4)} title={item.title} compact />
+            ) : (
+              <MediaPreview
+                kind={cardKind}
+                src={cardSrc}
+                embed={embedSrcFor(item.url)}
+                poster={item.link_preview_image}
+                title={item.title}
+                href={`/c/${item.community_name}/comments/${item.id}`}
+              />
+            )}
+          </>
         )}
         <div class="post-actions">
           <a href={`/c/${item.community_name}/comments/${item.id}`}>
@@ -194,6 +208,49 @@ function safeHost(raw: string): string {
  * (YouTube/Vimeo/X) ayrı ayrı çizilir. Hiçbir medya yoksa hiçbir şey
  * basılmaz.
  */
+/** Bir gönderinin çoklu medya listesi (galeri düzeni). */
+export const MediaGallery: FC<{
+  items: Array<{ key: string; kind: 'image' | 'gif' | 'video'; mime: string | null }>
+  title: string
+  compact?: boolean
+}> = ({ items, title, compact = false }) => {
+  if (items.length === 0) return null
+  return (
+    <div class={`media-gallery${compact ? ' compact' : ''}`} data-gallery={String(items.length)}>
+      {items.map((m) => {
+        const src = `/media/${m.key}`
+        if (m.kind === 'video') {
+          return (
+            <div class="media-item is-video">
+              <video src={src} controls preload="none" playsinline poster={undefined} />
+            </div>
+          )
+        }
+        return (
+          <a class={`media-item${m.kind === 'gif' ? ' is-gif' : ''}`} href={src} target="_blank" rel="noopener">
+            <img src={src} alt={title} loading="lazy" />
+            {m.kind === 'gif' && <span class="media-badge">{t.feed.previewGif}</span>}
+          </a>
+        )
+      })}
+    </div>
+  )
+}
+
+/** Bir medya öğesi (detay sayfasında spoiler'ın altında). */
+export const SingleMedia: FC<{ key: string; kind: 'image' | 'gif' | 'video' }> = ({ key, kind }) => {
+  const src = `/media/${key}`
+  if (kind === 'video') {
+    return <video class="post-media-video" src={src} controls preload="metadata" playsinline />
+  }
+  return (
+    <div class={`post-media${kind === 'gif' ? ' is-gif' : ''}`}>
+      <img src={src} alt="" />
+      {kind === 'gif' && <span class="media-badge">{t.feed.previewGif}</span>}
+    </div>
+  )
+}
+
 const MediaPreview: FC<{
   kind: 'none' | 'image' | 'gif' | 'video' | 'embed'
   src: string | null
@@ -255,7 +312,9 @@ export const SocialCard: FC<{
   authorRanks?: Map<string, UserRank>
   /** Gönderinin board etiketi. */
   flair?: FlairRow | null
-}> = ({ item, now, myVote, viewer, membership = 'none', showCommunity = true, pinned = false, authorRanks, flair }) => {
+  /** Gönderinin ekli medya dosyaları (çoklu görsel/GIF/video). */
+  media?: Array<{ key: string; kind: 'image' | 'gif' | 'video'; mime: string | null }>
+}> = ({ item, now, myVote, viewer, membership = 'none', showCommunity = true, pinned = false, authorRanks, flair, media }) => {
   const isOwn = viewer?.id === item.author_id
   const authorRank = authorRanks?.get(item.author_id) ?? null
   const href = `/c/${item.community_name}/comments/${item.id}`
@@ -347,6 +406,8 @@ export const SocialCard: FC<{
             <MediaPreview kind={kind} src={playableSrc} embed={embedSrc} poster={mediaSrc} title={item.title} href={href} />
           </div>
         </div>
+      ) : media && media.length > 0 ? (
+        <MediaGallery items={media} title={item.title} />
       ) : (
         <>
           {preview && <p class="social-card-preview">{preview}</p>}
@@ -365,8 +426,17 @@ export const SocialCard: FC<{
       <div class="social-card-author">
         {item.author_username ? (
           <span class="user-byline">
-            <a href={profilePath(item.author_username)}>/tc/{item.author_username}</a>
-            <RankBadges info={authorRank} />
+            {item.anon === 1 ? (
+              // Anonim gönderilerde gerçek hesaba link verilmez, rütbe gizlenir.
+              <span class="anon-author" title={t.post.anonymousHint}>
+                {t.post.anonByline} · <b>{item.author_username}</b>
+              </span>
+            ) : (
+              <>
+                <a href={profilePath(item.author_username)}>/tc/{item.author_username}</a>
+                <RankBadges info={authorRank} />
+              </>
+            )}
           </span>
         ) : (
           <span class="placeholder">{t.post.deletedBody}</span>
@@ -567,6 +637,10 @@ export const CommentTreeView: FC<{
   maxRendered?: number
   /** Yazar rütbeleri (author_id ile eşleşir). */
   authorRanks?: Map<string, UserRank>
+  /** Thread modunda yanıtlar sıralı zincir hâlinde çizilir. */
+  threadMode?: boolean
+  /** Önceki yanıtın kısa metni (alıntı bloğu). */
+  quoteOf?: (node: CommentNode) => string | null
 }> = (props) => {
   let rendered = 0
   const limit = props.maxRendered ?? 50
@@ -593,7 +667,11 @@ export const CommentTreeView: FC<{
     }
 
     return (
-      <div class={`comment${props.highlightId === c.id ? ' highlight' : ''}`} data-depth={String(Math.min(c.depth, 8))} id={`comment-${c.id}`}>
+      <div
+        class={`comment${props.highlightId === c.id ? ' highlight' : ''}${props.threadMode && c.thread_no ? ' thread-reply' : ''}`}
+        data-depth={String(Math.min(c.depth, 8))}
+        id={`comment-${c.id}`}
+      >
         <details class="subtree" open={!collapsed}>
           <summary>
             {node.authorUsername ? (
@@ -610,6 +688,15 @@ export const CommentTreeView: FC<{
             {replyCount > 0 && ` · ${replyCount} ${t.comment.replies}`}
           </summary>
           <div class="comment-main">
+            {props.threadMode && c.thread_no && (
+              <div class="thread-heading">
+                <span class="thread-reply-no">#{c.thread_no}</span>
+                {c.thread_no > 1 && <span class="thread-heading-text">{t.thread.replyTo}</span>}
+              </div>
+            )}
+            {props.threadMode && props.quoteOf?.(node) && (
+              <p class="thread-quote">{props.quoteOf(node)}</p>
+            )}
             <VoteRail
               targetType="comment"
               targetId={c.id}

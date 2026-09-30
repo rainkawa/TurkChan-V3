@@ -8,6 +8,8 @@ export interface UserRow {
   bio: string | null
   avatar_key: string | null
   cover_key: string | null
+  /** Kullanıcı gönderilerini anonim paylaşmak istiyor. */
+  anon_by_default: number
   rank_mode: 'auto' | 'manual'
   rank_override: string | null
   staff_role: string
@@ -62,6 +64,19 @@ export interface BanRow {
 /** Gönderi önizlemesinin nasıl gösterileceği. */
 export type MediaKind = 'none' | 'image' | 'gif' | 'video' | 'embed'
 
+/** Bir gönderiye eklenebilen dosya türü. */
+export type UploadKind = 'image' | 'gif' | 'video'
+
+export interface PostMediaRow {
+  id: string
+  post_id: string
+  position: number
+  media_key: string
+  mime: string | null
+  kind: UploadKind
+  created_at: number
+}
+
 export interface FlairRow {
   id: string
   community_id: string
@@ -95,6 +110,19 @@ export interface PostRow {
   deleted: number
   edited_at: number | null
   created_at: number
+  // Anonim paylaşım
+  is_anonymous: number
+  anon_name: string | null
+  // Thread modu
+  is_thread: number
+  thread_sticky: number
+  thread_locked: number
+  thread_archived: number
+  bumped_at: number | null
+  bump_count: number
+  reply_count: number
+  // İstatistik
+  view_count: number
 }
 
 export interface CommentRow {
@@ -113,6 +141,9 @@ export interface CommentRow {
   deleted: number
   edited_at: number | null
   created_at: number
+  /** Thread gönderilerinde 1..n yanıt sırası. */
+  thread_no: number | null
+  reply_to_comment_id: string | null
 }
 
 export interface ReportRow {

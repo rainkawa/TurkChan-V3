@@ -97,10 +97,13 @@ export function getProfile(ctx: Ctx, viewer: Viewer, username: string): ProfileV
   if (!user) return null
 
   const readable = readableCommunitiesClause(ctx, viewer, 'c')
+  // Anonim gönderiler profil dönemimlerinde hiç görünmez: aksi halde gerçek
+  // yazar kimliği sızar. Yalnızca yönetim paneli (admin.tsx) bunları listeler.
   const posts = ctx.db
     .prepare(
       `SELECT p.*, c.name AS community_name FROM posts p JOIN communities c ON c.id = p.community_id
-       WHERE p.author_id = ? AND p.deleted = 0 AND p.removed = 0 AND p.auto_hidden = 0 AND ${readable.clause}
+       WHERE p.author_id = ? AND p.is_anonymous = 0
+         AND p.deleted = 0 AND p.removed = 0 AND p.auto_hidden = 0 AND ${readable.clause}
        ORDER BY p.created_at DESC LIMIT 50`,
     )
     .all(user.id, ...readable.params) as unknown as Array<PostRow & { community_name: string }>
@@ -137,6 +140,12 @@ export function getProfile(ctx: Ctx, viewer: Viewer, username: string): ProfileV
 }
 
 /** US-006: display name and bio; bio renders as plain text (escaped at render). */
+/** Kullanıcının varsayılan anonim paylaşım tercihini günceller. */
+export function setAnonDefault(ctx: Ctx, user: UserRow, enabled: boolean): UserRow {
+  ctx.db.prepare('UPDATE users SET anon_by_default = ? WHERE id = ?').run(enabled ? 1 : 0, user.id)
+  return { ...user, anon_by_default: enabled ? 1 : 0 }
+}
+
 export function updateProfile(ctx: Ctx, viewer: Viewer, input: { displayName: string; bio: string }): UserRow {
   if (!viewer) throw unauthorized()
   const displayName = validateDisplayName(input.displayName)

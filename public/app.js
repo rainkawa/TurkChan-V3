@@ -161,6 +161,23 @@
     })
   })
 
+  // --- Post ID kopyalama (permalink) ---
+  document.querySelectorAll('[data-copy]').forEach(function (el) {
+    el.addEventListener('click', function (event) {
+      event.preventDefault()
+      var text = el.dataset.copy
+      var done = function () {
+        var label = el.dataset.copiedLabel
+        if (!label) return
+        var original = el.textContent
+        el.textContent = label
+        setTimeout(function () { el.textContent = original }, 1400)
+      }
+      if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, done)
+      else done()
+    })
+  })
+
   // --- Saved posts (this device only; no server table exists) ---
   var SAVED_KEY = 'turkchan:saved'
   function readSaved() {

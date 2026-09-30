@@ -5,6 +5,8 @@ import { readableCommunitiesClause } from './access'
 export interface PostSearchResult extends PostRow {
   community_name: string
   author_username: string | null
+  /** 1 = anonim gönderi. */
+  anon?: number
 }
 
 export interface CommunitySearchResult {
@@ -42,7 +44,10 @@ export function search(ctx: Ctx, viewer: Viewer, rawQuery: string, communityId?:
   const posts = ctx.db
     .prepare(
       `SELECT p.*, c.name AS community_name,
-              CASE WHEN u.deleted = 1 THEN NULL ELSE u.username END AS author_username
+              CASE WHEN u.deleted = 1 THEN NULL
+                   WHEN p.is_anonymous = 1 THEN p.anon_name
+                   ELSE u.username END AS author_username,
+              p.is_anonymous AS anon
        FROM posts_fts f
        JOIN posts p ON p.id = f.post_id
        JOIN communities c ON c.id = p.community_id

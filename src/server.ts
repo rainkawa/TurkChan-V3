@@ -8,6 +8,7 @@ import { ConsoleMailer } from './lib/mailer'
 import { RateLimiter } from './lib/ratelimit'
 import { LocalObjectStorage } from './services/storage'
 import { purgeExpiredCommunities } from './services/admin'
+import { autoArchiveThreads } from './services/threads'
 
 const config = loadConfig()
 const db = openDatabase(config.dbPath)
@@ -25,9 +26,14 @@ const ctx: Ctx = {
 const app = createApp(ctx)
 app.use('/static/*', serveStatic({ root: './public', rewriteRequestPath: (p) => p.replace(/^\/static/, '') }))
 
-// Daily maintenance: purge communities soft-deleted more than 30 days ago.
-purgeExpiredCommunities(ctx)
-setInterval(() => purgeExpiredCommunities(ctx), 24 * 60 * 60 * 1000).unref()
+/** Daily maintenance: purge soft-deleted communities and archive old threads. */
+function runMaintenance(): void {
+  purgeExpiredCommunities(ctx)
+  autoArchiveThreads(ctx)
+}
+
+runMaintenance()
+setInterval(runMaintenance, 24 * 60 * 60 * 1000).unref()
 
 serve({ fetch: app.fetch, port: config.port }, (info) => {
   console.log(`Community platform listening on http://localhost:${info.port}`)

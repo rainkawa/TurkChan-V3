@@ -1556,3 +1556,93 @@ body.is-chat .bottom-nav { display: none; }
 .btn.ghost { background: none; border: 1px solid var(--line-strong); color: var(--ink-soft); }
 .btn.ghost:hover { border-color: var(--ink-soft); color: var(--ink); }
 
+
+/* ==========================================================================
+   15. Gönderi medya, istatistik, anonim ve thread
+   ========================================================================== */
+
+/* Çoklu medya galerisi */
+.media-gallery {
+  display: grid; gap: 4px; margin: var(--space-3) 0;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+}
+.media-gallery[data-gallery="1"] { grid-template-columns: 1fr; }
+.media-gallery[data-gallery="2"], .media-gallery[data-gallery="4"] { grid-template-columns: 1fr 1fr; }
+.media-gallery[data-gallery="3"] { grid-template-columns: 2fr 1fr; }
+.media-gallery.compact { margin: var(--space-2) 0; }
+.media-gallery.compact[data-gallery="3"] { grid-template-columns: 1fr 1fr; }
+
+.media-item {
+  position: relative; display: block; overflow: hidden;
+  border-radius: var(--radius-sm); background: var(--surface-raised);
+  border: 1px solid var(--line);
+}
+.media-item img, .media-item video {
+  width: 100%; height: 100%; max-height: 22rem; object-fit: cover; display: block;
+}
+.media-gallery.compact .media-item img, .media-gallery.compact .media-item video { max-height: 9rem; }
+.media-item.is-video video { background: #000; }
+.media-item .media-badge { position: absolute; top: 6px; left: 6px; }
+
+.post-media { position: relative; margin: var(--space-3) 0; }
+.post-media img { width: 100%; border-radius: var(--radius); }
+.post-media-video { width: 100%; border-radius: var(--radius); background: #000; display: block; margin: var(--space-3) 0; }
+
+/* Anonim yazar */
+.anon-author { color: var(--ink-soft); }
+.anon-author b { color: var(--ink); letter-spacing: 0.04em; }
+
+/* Gönderi rozetleri (anonim / thread durumu) */
+.post-badges { display: flex; flex-wrap: wrap; gap: 6px; margin: var(--space-2) 0; }
+.post-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 9px; border-radius: var(--radius-pill);
+  font-size: 0.72rem; font-weight: 700;
+  background: var(--surface-raised); border: 1px solid var(--line-strong); color: var(--ink-soft);
+}
+.post-badge.anon { background: var(--brand-soft); color: var(--brand-strong); border-color: transparent; }
+.post-badge.thread { background: #eef2ff; color: #3730a3; border-color: transparent; }
+.post-badge.sticky { background: #fef3c7; color: #92400e; border-color: transparent; }
+.post-badge.locked { background: #fee2e2; color: #991b1b; border-color: transparent; }
+.post-badge.archived { background: var(--surface-raised); color: var(--ink-faint); border-color: transparent; }
+
+/* Kimlik / permalink / tarih / istatistik şeridi */
+.post-meta-bar {
+  display: flex; flex-direction: column; gap: 6px;
+  margin: var(--space-3) 0; padding: var(--space-3);
+  background: var(--surface-raised); border: 1px solid var(--line);
+  border-radius: var(--radius); font-size: 0.78rem; color: var(--ink-soft);
+}
+.post-meta-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.post-meta-row.stats { border-top: 1px solid var(--line); padding-top: 6px; }
+.post-meta-item { display: inline-flex; align-items: center; gap: 4px; }
+.post-id {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.72rem; background: var(--surface); padding: 1px 5px;
+  border-radius: 4px; border: 1px solid var(--line);
+}
+
+/* Thread başlığı ve kontrolleri */
+.thread-banner {
+  margin: var(--space-4) 0; padding: var(--space-3);
+  border: 1px solid var(--line-strong); border-left: 3px solid #6366f1;
+  border-radius: var(--radius); background: var(--surface-raised);
+}
+.thread-banner.is-locked { border-left-color: #dc2626; }
+.thread-banner-text { font-size: 0.85rem; color: var(--ink-soft); }
+.thread-counts, .thread-bumped { display: block; margin-top: 2px; font-size: 0.75rem; color: var(--ink-faint); }
+.thread-locked-note { margin: 6px 0 0; font-size: 0.8rem; color: #991b1b; font-weight: 700; }
+.thread-controls { display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--space-3); }
+
+/* Thread yanıt zinciri */
+.thread-reply { border-left: 2px solid var(--line-strong); padding-left: var(--space-3); }
+.thread-reply-no {
+  display: inline-block; min-width: 1.6rem; margin-right: 6px;
+  font-weight: 800; color: #3730a3; font-size: 0.8rem;
+}
+.thread-quote {
+  margin: 0 0 6px; padding: 6px 8px; font-size: 0.8rem;
+  border-left: 2px solid var(--line-strong); color: var(--ink-faint);
+  background: var(--surface-raised); border-radius: 0 4px 4px 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}

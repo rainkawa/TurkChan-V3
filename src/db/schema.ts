@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS users (
   bio TEXT,
   avatar_key TEXT,                    -- profile picture (uploads key)
   cover_key TEXT,                     -- profile cover image (uploads key)
+  anon_by_default INTEGER NOT NULL DEFAULT 0,  -- gönderileri anonim paylaş
   rank_mode TEXT NOT NULL DEFAULT 'auto' CHECK (rank_mode IN ('auto','manual')),
   rank_override TEXT,                 -- manual rank id; NULL = follow karma
   staff_role TEXT NOT NULL DEFAULT '' CHECK (staff_role IN ('','moderator','super_moderator','co_admin','admin')),
@@ -128,11 +129,45 @@ CREATE TABLE IF NOT EXISTS posts (
   auto_hidden INTEGER NOT NULL DEFAULT 0,  -- hidden pending review (report threshold)
   deleted INTEGER NOT NULL DEFAULT 0,      -- by author
   edited_at INTEGER,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  -- Anonim paylaşım: gerçek yazar yalnızca yöneticilere görünür.
+  is_anonymous INTEGER NOT NULL DEFAULT 0,
+  anon_name TEXT,
+  -- Thread modu
+  is_thread INTEGER NOT NULL DEFAULT 0,
+  thread_sticky INTEGER NOT NULL DEFAULT 0,
+  thread_locked INTEGER NOT NULL DEFAULT 0,
+  thread_archived INTEGER NOT NULL DEFAULT 0,
+  bumped_at INTEGER,                -- son thread yanıtı (bump sıralaması)
+  bump_count INTEGER NOT NULL DEFAULT 0,
+  reply_count INTEGER NOT NULL DEFAULT 0,
+  -- İstatistik
+  view_count INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_posts_community ON posts(community_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_author ON posts(author_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_url ON posts(community_id, url);
+CREATE INDEX IF NOT EXISTS idx_posts_thread ON posts(community_id, is_thread, bumped_at DESC);
+
+-- Gönderiye eklenen çoklu medya (görsel / GIF / video). Sıra pozisyonla korunur.
+CREATE TABLE IF NOT EXISTS post_media (
+  id TEXT PRIMARY KEY,
+  post_id TEXT NOT NULL REFERENCES posts(id),
+  position INTEGER NOT NULL,
+  media_key TEXT NOT NULL,           -- uploads.key
+  mime TEXT,
+  kind TEXT NOT NULL,                -- image | gif | video
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_post_media_post ON post_media(post_id, position);
+
+-- Görüntülenme sayacı: aynı ziyaretçi bir gönderiyi iki kez saymaz.
+CREATE TABLE IF NOT EXISTS post_views (
+  post_id TEXT NOT NULL REFERENCES posts(id),
+  viewer_key TEXT NOT NULL,          -- kullanıcı id veya 'ip:<hash>'
+  viewed_at INTEGER NOT NULL,
+  PRIMARY KEY (post_id, viewer_key)
+);
 
 -- Board etiketleri (flair): her board kendi etiket kümesini yönetir.
 CREATE TABLE IF NOT EXISTS board_flairs (
@@ -171,10 +206,14 @@ CREATE TABLE IF NOT EXISTS comments (
   auto_hidden INTEGER NOT NULL DEFAULT 0,
   deleted INTEGER NOT NULL DEFAULT 0,
   edited_at INTEGER,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  -- Thread modu: sıra numarası ve yanıtlanan yorum.
+  thread_no INTEGER,                 -- 1..n, thread gönderilerinde
+  reply_to_comment_id TEXT REFERENCES comments(id)
 );
 CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id, path);
 CREATE INDEX IF NOT EXISTS idx_comments_author ON comments(author_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_comments_thread ON comments(post_id, thread_no);
 
 CREATE TABLE IF NOT EXISTS votes (
   user_id TEXT NOT NULL REFERENCES users(id),

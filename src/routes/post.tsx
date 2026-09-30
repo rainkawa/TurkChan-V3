@@ -6,6 +6,10 @@ import { Layout } from '../views/layout'
 import { CommentTreeView, Markdown, VoteRail, CommunityAvatar } from '../views/components'
 import { getPostForViewer, editPostBody, deletePost, getPost, updatePostMeta } from '../services/posts'
 import { listFlairs } from '../services/flairs'
+import { listPostMedia } from '../services/posts'
+import { postStats, recordView } from '../services/stats'
+import { canSeeThread, setThreadFlag, threadState } from '../services/threads'
+import { MediaGallery, SingleMedia } from '../views/components'
 import {
   createComment,
   editComment,
@@ -22,7 +26,7 @@ import { listRules } from '../services/communities'
 import { isModerator, getCommunityById, canReadCommunity } from '../services/access'
 import { AppError, notFound } from '../services/errors'
 import { ValidationError } from '../lib/validation'
-import { relativeTime } from '../views/helpers'
+import { relativeTime, formatDate } from '../views/helpers'
 import { embedSrcFor } from '../lib/media'
 
 /** Kırık bağlantılarda detay sayfasının patlamaması için güvenli alan adı. */
@@ -76,14 +80,36 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
     const now = ctx.now()
     const { post, community, authorUsername, contentHidden } = view
     const authorRank = authorRanks.get(post.author_id) ?? null
+    // Arşivlenmiş thread yalnızca moderatörlere/yöneticilere açıktır.
+    if (!canSeeThread(ctx, viewer, post)) throw notFound(t.errors.notFoundBody)
     const isMod = isModerator(ctx, viewer, community.id)
     const postFlairs = listFlairs(ctx, community.id)
+    const media = listPostMedia(ctx, postId)
+    const stats = postStats(ctx, post)
+    const thread = threadState(ctx, post)
+    // Görüntülenmeyi yalnızca erişebilen kullanıcılar için say.
+    if (contentHidden === null) {
+      recordView(ctx, post, viewer, c.req.header('x-forwarded-for') ?? null)
+    }
     const postFlair = post.flair_id ? postFlairs.find((f) => f.id === post.flair_id) ?? null : null
+    // Thread modunda her yanıt bir önceki yanıtı alıntılar.
+    const byThreadNo = new Map<number, string>()
+    for (const node of tree) {
+      if (node.comment.thread_no) byThreadNo.set(node.comment.thread_no, node.comment.body)
+    }
+    const quoteFor = (node: CommentNode): string | null => {
+      if (!thread.isThread || !node.comment.thread_no || node.comment.thread_no <= 1) return null
+      const prev = byThreadNo.get(node.comment.thread_no - 1)
+      return prev ? prev.slice(0, 160) : null
+    }
     const isOwn = viewer?.id === post.author_id
-    const canReply = Boolean(viewer) && !community.archived && contentHidden === null
+    // Kilitli thread'e yanıt verilemez.
+    const canReply = Boolean(viewer) && !community.archived && contentHidden === null && thread.canReply
     const hideMinutes = community.hide_comment_scores_minutes
     const scoreHidden = (createdAt: number) => hideMinutes > 0 && now - createdAt < hideMinutes * 60 * 1000
 
+    // Gövde tüm gönderi türlerinde markdown olarak çizilir; bağlantı önizlemesi
+    // ve medya ayrı bloklarda, gövdenin altında gösterilir.
     const bodyBlock =
       contentHidden === 'deleted' ? (
         <p class="placeholder">{t.post.deletedBody}</p>
@@ -91,16 +117,31 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
         <p class="placeholder">{t.post.removedBody}</p>
       ) : contentHidden === 'pending_review' ? (
         <p class="placeholder">{t.post.pendingReview}</p>
-      ) : post.type === 'text' && post.body ? (
+      ) : post.body ? (
         <Markdown source={post.body} />
-      ) : post.type === 'link' && post.url ? (
+      ) : null
+
+    // Bağlantı önizleme kartı (gövde olmasa da görünür).
+    const linkBlock =
+      contentHidden === null && post.type === 'link' && post.url ? (
         <a class="link-preview" href={post.url} rel="nofollow noopener">
           {post.link_preview_title ?? post.url}
           <div class="hint">{safeHost(post.url)}</div>
         </a>
-      ) : post.type === 'image' && post.image_key ? (
-        <img src={`/media/${post.image_key}`} alt={post.title} loading="eager" />
       ) : null
+
+    // Gönderiye eklenmiş çoklu medya (varsa eski image_key yolunun üstünde).
+    const mediaBlock =
+      contentHidden !== null ? null : media.length > 0 ? (
+        <MediaGallery items={media.map((m) => ({ key: m.media_key, kind: m.kind, mime: m.mime }))} title={post.title} />
+      ) : post.type === 'image' && post.image_key ? (
+        <SingleMedia
+          key={post.image_key}
+          kind={post.media_kind === 'video' ? 'video' : post.media_kind === 'gif' ? 'gif' : 'image'}
+        />
+      ) : null
+
+    const linkPreviewBlock = contentHidden === null ? linkBlock : null
 
     // Spoiler gönderilerde içerik "Göster" düğmesine kadar gizlenir.
     const renderedBody =
@@ -112,6 +153,8 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
           </button>
           <div class="spoiler-body" hidden>
             {bodyBlock}
+            {linkPreviewBlock}
+            {mediaBlock}
             {post.type === 'link' && post.url && (
               <div class="social-card-media is-embed">
                 {embedSrcFor(post.url) ? (
@@ -133,6 +176,8 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
       ) : (
         <>
           {bodyBlock}
+          {linkPreviewBlock}
+          {mediaBlock}
           {post.type === 'link' && post.url && embedSrcFor(post.url) && (
             <div class="social-card-media is-embed">
               <iframe
@@ -174,7 +219,13 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
                 <span class="social-card-community-name">c/{community.name}</span>
                 <span class="social-card-time">
                   {authorUsername ? (
-                    <UserByline username={authorUsername} info={authorRank} link={false} />
+                    post.is_anonymous === 1 ? (
+                      <span class="anon-author" title={t.post.anonymousHint}>
+                        {t.post.anonByline} · <b>{post.anon_name}</b>
+                      </span>
+                    ) : (
+                      <UserByline username={authorUsername} info={authorRank} link={false} />
+                    )
                   ) : (
                     t.post.deletedBody
                   )}
@@ -276,6 +327,54 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
                 : post.title}
           </h1>
 
+          {/* Anonim / thread rozetleri */}
+          <div class="post-badges">
+            {post.is_anonymous === 1 && (
+              <span class="post-badge anon" title={t.post.anonymousHint}>
+                🕶 {t.post.anonByline} · <b>{post.anon_name}</b>
+              </span>
+            )}
+            {thread.isThread && (
+              <span class="post-badge thread" title={t.thread.modeHint}>
+                🧵 {t.thread.mode} · {post.reply_count} {t.thread.replies}
+                {post.bump_count > 0 && ` · ${post.bump_count} ${t.thread.bumps}`}
+              </span>
+            )}
+            {thread.sticky && <span class="post-badge sticky" title={t.thread.stickyHint}>📌 {t.thread.sticky}</span>}
+            {thread.locked && <span class="post-badge locked" title={t.thread.lockedHint}>🔒 {t.thread.locked}</span>}
+            {thread.archived && <span class="post-badge archived" title={t.thread.archivedHint}>🗄 {t.thread.archived}</span>}
+          </div>
+
+          {/* Kimlik, kalıcı bağlantı, tarihler ve istatistik */}
+          <div class="post-meta-bar">
+            <div class="post-meta-row">
+              <span class="post-meta-item" title={t.post.permalink}>
+                🔗 <code class="post-id">{post.id}</code>
+              </span>
+              <button class="btn ghost small" type="button" data-copy={post.id} data-copied-label={t.post.copied}>
+                {t.post.copyId}
+              </button>
+              <button class="btn ghost small" type="button" data-share={`/p/${post.id}`}>
+                {t.post.permalink}
+              </button>
+            </div>
+            <div class="post-meta-row">
+              <span class="post-meta-item">📅 {t.post.createdAt}: <time datetime={new Date(post.created_at).toISOString()}>{formatDate(post.created_at)}</time></span>
+              <span class="post-meta-item">
+                ✏️ {t.post.editedAt}:{' '}
+                {post.edited_at !== null
+                  ? <time datetime={new Date(post.edited_at).toISOString()}>{formatDate(post.edited_at)}</time>
+                  : t.post.notEdited}
+              </span>
+            </div>
+            <div class="post-meta-row stats">
+              <span class="post-meta-item">👁 {stats.views} {t.post.views}</span>
+              <span class="post-meta-item">🧑 {stats.uniqueViewers} {t.post.uniqueViewers}</span>
+              <span class="post-meta-item">💬 {stats.comments} {t.feed.comments}</span>
+              <span class="post-meta-item">▲ {stats.upvotes} ▼ {stats.downvotes}</span>
+            </div>
+          </div>
+
           <div class="post-detail-body">{renderedBody}</div>
 
           {/* Aksiyonlar: oy, yorum, paylaş, kaydet — dikey öncelikli düzen */}
@@ -313,6 +412,45 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
             )}
           </div>
         </article>
+
+        {/* Thread uyarısı ve yönetici kontrolleri */}
+        {thread.isThread && contentHidden === null && (
+          <div class={`thread-banner${thread.locked ? ' is-locked' : ''}`}>
+            <div class="thread-banner-text">
+              <strong>🧵 {t.thread.mode}</strong> — {t.thread.modeHint}
+              <span class="thread-counts">
+                {post.reply_count} {t.thread.replies} · {post.bump_count} {t.thread.bumps}
+              </span>
+              {post.bumped_at !== null && (
+                <span class="thread-bumped">{t.thread.bumps}: {relativeTime(post.bumped_at, now)}</span>
+              )}
+            </div>
+            {thread.locked && <p class="thread-locked-note">🔒 {t.thread.lockedHint}</p>}
+            {isMod && (
+              <div class="thread-controls">
+                <form method="post" action={`/posts/${post.id}/thread`} style="display:inline">
+                  <input type="hidden" name="action" value={thread.sticky ? 'unsticky' : 'sticky'} />
+                  <input type="hidden" name="back" value={`/c/${community.name}/comments/${post.id}`} />
+                  <button class="btn secondary small" type="submit">{thread.sticky ? t.thread.unpin : t.thread.pin}</button>
+                </form>
+                <form method="post" action={`/posts/${post.id}/thread`} style="display:inline">
+                  <input type="hidden" name="action" value={thread.locked ? 'unlock' : 'lock'} />
+                  <input type="hidden" name="back" value={`/c/${community.name}/comments/${post.id}`} />
+                  <button class="btn secondary small" type="submit">{thread.locked ? t.thread.unlock : t.thread.lock}</button>
+                </form>
+                {isAdminPower(viewer) && (
+                  <form method="post" action={`/posts/${post.id}/thread`} style="display:inline">
+                    <input type="hidden" name="action" value={thread.archived ? 'unarchive' : 'archive'} />
+                    <input type="hidden" name="back" value={`/c/${community.name}/comments/${post.id}`} />
+                    <button class="btn secondary small" type="submit">
+                      {thread.archived ? t.thread.unarchive : t.thread.archive}
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         <div class="comments-block" id="comments">
           <div class="sort-tabs">
@@ -353,6 +491,8 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
             authorRanks={authorRanks}
             scoreHidden={scoreHidden}
             highlightId={highlightCommentId}
+            threadMode={thread.isThread}
+            quoteOf={(node) => quoteFor(node)}
           />
         </div>
       </Layout>,
@@ -360,6 +500,46 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
   }
 
   app.get('/c/:name/comments/:postId', (c) => renderPostPage(c, null))
+
+  /** Kısa kalıcı bağlantı: /p/:id */
+  app.get('/p/:id', (c) => {
+    const post = getPost(ctx, c.req.param('id'))
+    if (!post) return c.notFound()
+    const community = getCommunityById(ctx, post.community_id)
+    if (!community) return c.notFound()
+    // Arşivlenmiş thread yalnızca moderatörlere açık.
+    if (!canSeeThread(ctx, c.get('viewer'), post)) return c.notFound()
+    return c.redirect(`/c/${community.name}/comments/${post.id}`, 301)
+  })
+
+  /** Thread yönetimi: sabitle / kilitle / arşivle. */
+  app.post('/posts/:id/thread', async (c) => {
+    const viewer = c.get('viewer')
+    if (!viewer) return loginRedirect(c)
+    const body = await formData(c)
+    const action = body.action ?? ''
+    const map: Record<string, 'thread_sticky' | 'thread_locked' | 'thread_archived'> = {
+      sticky: 'thread_sticky',
+      unsticky: 'thread_sticky',
+      lock: 'thread_locked',
+      unlock: 'thread_locked',
+      archive: 'thread_archived',
+      unarchive: 'thread_archived',
+    }
+    const flag = map[action]
+    if (!flag) {
+      setFlash(c, 'error', t.errors.genericBody)
+      return c.redirect('/')
+    }
+    try {
+      setThreadFlag(ctx, viewer, c.req.param('id'), flag, action === 'sticky' || action === 'lock' || action === 'archive')
+      setFlash(c, 'ok', t.settings.saved)
+    } catch (err) {
+      if (err instanceof AppError) setFlash(c, 'error', err.message)
+      else throw err
+    }
+    return c.redirect(body.back ? safeNext(body.back) : '/')
+  })
 
   /** Permalink view: highlight the comment; render its ancestor context (US-019). */
   app.get('/c/:name/comments/:postId/comment/:commentId', (c) => {

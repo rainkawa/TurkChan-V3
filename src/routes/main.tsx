@@ -15,6 +15,7 @@ import { search } from '../services/search'
 import {
   getProfile,
   updateProfile,
+  setAnonDefault,
   moderatesAnyCommunity,
   changeUsername,
   changePassword,
@@ -414,7 +415,13 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
                   </p>
                   {p.author_username && (
                     <p class="desc">
-                      <UserByline username={p.author_username} info={searchRanks.get(p.author_id) ?? null} />
+                      {p.anon === 1 ? (
+                        <span class="anon-author" title={t.post.anonymousHint}>
+                          {t.post.anonByline} · <b>{p.author_username}</b>
+                        </span>
+                      ) : (
+                        <UserByline username={p.author_username} info={searchRanks.get(p.author_id) ?? null} />
+                      )}
                     </p>
                   )}
                 </div>
@@ -554,6 +561,14 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
               <textarea id="bio" name="bio" maxlength={200} rows={4}>{viewer.bio ?? ''}</textarea>
             </div>
 
+            <div class="field">
+              <label class="checkbox">
+                <input type="checkbox" name="anonByDefault" value="1" checked={viewer.anon_by_default === 1} />
+                <span>{t.post.anonymous}</span>
+              </label>
+              <div class="hint">{t.post.anonymousHint}</div>
+            </div>
+
             <button class="btn block" type="submit">{t.settings.saveChanges}</button>
           </form>
 
@@ -622,6 +637,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
       if (text('username') && text('username') !== user.username) {
         user = changeUsername(ctx, user, text('username'))
       }
+      setAnonDefault(ctx, user, parsed.anonByDefault === '1')
       updateProfile(ctx, user, { displayName: text('displayName'), bio: text('bio') })
       setFlash(c, 'ok', t.settings.saved)
     } catch (err) {

@@ -9,6 +9,14 @@ export interface SiteSettings {
   commentsPer10Min: number
   votesPerMinute: number
   reportsPerHour: number
+  /** Thread'in yukarı taşınabileceği toplam yanıt sayısı. */
+  threadBumpLimit: number
+  /** Bu yanıt sayısından sonra thread otomatik kilitlenir. */
+  threadReplyLimit: number
+  /** Bu günden eski thread'ler otomatik arşivlenir. */
+  threadArchiveAfterDays: number
+  /** Gönderi başına izin verilen azami medya sayısı. */
+  mediaPerPost: number
 }
 
 export const DEFAULT_SETTINGS: SiteSettings = {
@@ -19,6 +27,10 @@ export const DEFAULT_SETTINGS: SiteSettings = {
   commentsPer10Min: 20,
   votesPerMinute: 60,
   reportsPerHour: 10,
+  threadBumpLimit: 50,
+  threadReplyLimit: 500,
+  threadArchiveAfterDays: 90,
+  mediaPerPost: 10,
 }
 
 export function getSettings(ctx: Ctx): SiteSettings {

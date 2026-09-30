@@ -26,6 +26,7 @@ import { getSettings, updateSettings, type SiteSettings } from '../services/sett
 import { getComment } from '../services/comments'
 import { AppError, notFound } from '../services/errors'
 import { relativeTime, formatDate, modActionLabel, modDetailLabel, modTargetLabel } from '../views/helpers'
+import { topViewedPosts } from '../services/stats'
 import { UserByline } from '../views/rank'
 import { RANKS, STAFF_ROLES, STAFF_ROLE_LABELS, rankBadgeLabel, rankInfoFor, type UserRank } from '../services/ranks'
 import { usersByIds } from '../services/users'
@@ -158,9 +159,16 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
 
     const tabs = (
       <nav class="sort-tabs">
-        {(['reports', 'users', 'communities', 'settings', 'invites', 'log'] as const).map((tb) => (
+        {(['reports', 'users', 'communities', 'anonymous', 'stats', 'settings', 'invites', 'log'] as const).map((tb) => (
           <a href={`/admin?tab=${tb}`} class={tab === tb ? 'active' : ''}>
-            {tb === 'reports' ? t.admin.reports : tb === 'users' ? t.admin.users : tb === 'communities' ? t.admin.communities : tb === 'settings' ? t.admin.settings : tb === 'invites' ? t.admin.invites : t.admin.adminLog}
+            {tb === 'reports' ? t.admin.reports
+              : tb === 'users' ? t.admin.users
+              : tb === 'communities' ? t.admin.communities
+              : tb === 'anonymous' ? t.admin.anonymous
+              : tb === 'stats' ? t.admin.stats
+              : tb === 'settings' ? t.admin.settings
+              : tb === 'invites' ? t.admin.invites
+              : t.admin.adminLog}
           </a>
         ))}
       </nav>
@@ -329,6 +337,93 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
           </div>
         </div>
         </>
+      )
+    } else if (tab === 'anonymous') {
+      // Anonim gönderilerin gerçek yazarını yalnızca yönetim paneli görür.
+      const rows = ctx.db
+        .prepare(
+          `SELECT p.id, p.title, p.anon_name, p.created_at, u.username AS real_author, c.name AS community_name
+             FROM posts p
+             JOIN users u ON u.id = p.author_id
+             JOIN communities c ON c.id = p.community_id
+            WHERE p.is_anonymous = 1 AND p.deleted = 0
+            ORDER BY p.created_at DESC
+            LIMIT 200`,
+        )
+        .all() as unknown as Array<{
+        id: string
+        title: string
+        anon_name: string
+        created_at: number
+        real_author: string
+        community_name: string
+      }>
+      content = (
+        <div class="card">
+          <h2>{t.admin.anonymous}</h2>
+          <p class="hint">{t.admin.anonymousHint}</p>
+          {rows.length === 0 && <p class="placeholder">{t.admin.noAnonymous}</p>}
+          {rows.length > 0 && (
+            <div class="table-wrap">
+              <table class="data">
+                <thead>
+                  <tr>
+                    <th>{t.post.title}</th>
+                    <th>c/{t.admin.community}</th>
+                    <th>{t.admin.anonName}</th>
+                    <th>{t.admin.realAuthor}</th>
+                    <th>{t.post.createdAt}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr>
+                      <td>
+                        <a href={`/c/${r.community_name}/comments/${r.id}`}>{r.title}</a>
+                        <div class="hint post-id">{r.id}</div>
+                      </td>
+                      <td>c/{r.community_name}</td>
+                      <td><code>{r.anon_name}</code></td>
+                      <td><a href={`/tc/${r.real_author}`}>/tc/{r.real_author}</a></td>
+                      <td>{formatDate(r.created_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )
+    } else if (tab === 'stats') {
+      const viewed = topViewedPosts(ctx, 50)
+      content = (
+        <div class="card">
+          <h2>{t.admin.stats}</h2>
+          <p class="hint">{t.admin.statsHint}</p>
+          {viewed.length === 0 && <p class="placeholder">{t.admin.noStats}</p>}
+          {viewed.length > 0 && (
+            <div class="table-wrap">
+              <table class="data">
+                <thead>
+                  <tr>
+                    <th>{t.post.title}</th>
+                    <th>c/{t.admin.community}</th>
+                    <th>{t.post.views}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {viewed.map((r) => (
+                    <tr>
+                      <td><a href={`/c/${r.community_name}/comments/${r.id}`}>{r.title}</a></td>
+                      <td>c/{r.community_name}</td>
+                      <td>{r.view_count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       )
     } else if (tab === 'settings') {
       content = (

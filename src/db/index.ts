@@ -49,8 +49,36 @@ function migrate(db: DatabaseSync): void {
     ['media_kind', "ALTER TABLE posts ADD COLUMN media_kind TEXT NOT NULL DEFAULT 'none'"],
     ['spoiler', 'ALTER TABLE posts ADD COLUMN spoiler INTEGER NOT NULL DEFAULT 0'],
     ['flair_id', 'ALTER TABLE posts ADD COLUMN flair_id TEXT'],
+    // Anonim paylaşım, thread modu ve istatistik alanları.
+    ['is_anonymous', 'ALTER TABLE posts ADD COLUMN is_anonymous INTEGER NOT NULL DEFAULT 0'],
+    ['anon_name', 'ALTER TABLE posts ADD COLUMN anon_name TEXT'],
+    ['is_thread', 'ALTER TABLE posts ADD COLUMN is_thread INTEGER NOT NULL DEFAULT 0'],
+    ['thread_sticky', 'ALTER TABLE posts ADD COLUMN thread_sticky INTEGER NOT NULL DEFAULT 0'],
+    ['thread_locked', 'ALTER TABLE posts ADD COLUMN thread_locked INTEGER NOT NULL DEFAULT 0'],
+    ['thread_archived', 'ALTER TABLE posts ADD COLUMN thread_archived INTEGER NOT NULL DEFAULT 0'],
+    ['bumped_at', 'ALTER TABLE posts ADD COLUMN bumped_at INTEGER'],
+    ['bump_count', 'ALTER TABLE posts ADD COLUMN bump_count INTEGER NOT NULL DEFAULT 0'],
+    ['reply_count', 'ALTER TABLE posts ADD COLUMN reply_count INTEGER NOT NULL DEFAULT 0'],
+    ['view_count', 'ALTER TABLE posts ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0'],
   ] as const) {
     if (!postColumns.has(column)) db.exec(ddl)
+  }
+
+  const commentColumns = new Set(
+    (db.prepare('PRAGMA table_info(comments)').all() as unknown as Array<{ name: string }>).map((c) => c.name),
+  )
+  for (const [column, ddl] of [
+    ['thread_no', 'ALTER TABLE comments ADD COLUMN thread_no INTEGER'],
+    ['reply_to_comment_id', 'ALTER TABLE comments ADD COLUMN reply_to_comment_id TEXT'],
+  ] as const) {
+    if (!commentColumns.has(column)) db.exec(ddl)
+  }
+
+  const userColumns = new Set(
+    (db.prepare('PRAGMA table_info(users)').all() as unknown as Array<{ name: string }>).map((c) => c.name),
+  )
+  if (!userColumns.has('anon_by_default')) {
+    db.exec('ALTER TABLE users ADD COLUMN anon_by_default INTEGER NOT NULL DEFAULT 0')
   }
 }
 

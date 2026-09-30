@@ -123,14 +123,36 @@ describe('US-016 edit and delete', () => {
     expect(await feed.text()).not.toContain('Keep my thread')
   })
 
-  test('link and image posts are not editable', async () => {
+  test('link post gövdesi düzenlenebilir, medya gönderisi düzenlenemez', async () => {
     const { member } = await setup()
-    const res = await member.post('/c/lounge/submit?type=link', { title: 'A link', url: 'https://example.com/a' })
+    // Bağlantı gönderileri de markdown gövde taşır; yazarı gövdeyi düzeltebilmeli.
+    const res = await member.post('/c/lounge/submit?type=link', {
+      title: 'A link',
+      url: 'https://example.com/a',
+      body: 'ilk gövde',
+    })
     const postId = (res.headers.get('location') ?? '').match(/comments\/([a-z0-9]+)/)?.[1] as string
-    const editRes = await member.post(`/posts/${postId}/edit`, { body: 'nope' })
-    await editRes.text()
-    const post = world.ctx.db.prepare('SELECT body FROM posts WHERE id = ?').get(postId) as { body: string | null }
-    expect(post.body).toBeNull()
+    const editRes = await member.post(`/posts/${postId}/edit`, { body: 'düzeltilmiş gövde' })
+    expect(editRes.status).toBe(302)
+    const post = world.ctx.db.prepare('SELECT body, edited_at FROM posts WHERE id = ?').get(postId) as {
+      body: string | null
+      edited_at: number | null
+    }
+    expect(post.body).toBe('düzeltilmiş gövde')
+    expect(post.edited_at).not.toBeNull()
+
+    // Medya gönderisinin içeriği dosyadır; düzenlenemez.
+    const form = new FormData()
+    form.set('title', 'Media post')
+    form.set('image', new File([Buffer.from([0xff, 0xd8, 0xff, 0xda, 0x00, 0x04, 0x01, 0x02, 0xff, 0xd9])], 'x.jpg', { type: 'image/jpeg' }))
+    const mediaRes = await member.request('/c/lounge/submit?type=image', { method: 'POST', body: form })
+    const mediaId = (mediaRes.headers.get('location') ?? '').match(/comments\/([a-z0-9]+)/)?.[1] as string
+    await member.post(`/posts/${mediaId}/edit`, { body: 'nope' })
+    await (await member.get(`/c/lounge/comments/${mediaId}`)).text()
+    const mediaPost = world.ctx.db.prepare('SELECT body FROM posts WHERE id = ?').get(mediaId) as {
+      body: string | null
+    }
+    expect(mediaPost.body).toBeNull()
   })
 })
 
