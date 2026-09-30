@@ -17,6 +17,7 @@ import {
   type AppEnv,
   clientIp,
   clearSessionCookie,
+  dmUnread,
   formData,
   safeNext,
   setFlash,
@@ -223,7 +224,7 @@ export function authRoutes(ctx: Ctx): Hono<AppEnv> {
     const viewer = c.get('viewer')
     if (!viewer) return c.redirect('/login')
     return c.html(
-      <Layout title={t.profile.deleteAccount} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)}>
+      <Layout title={t.profile.deleteAccount} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)} flash={takeFlash(c)}>
         <div class="card form-narrow">
           <h2>{t.profile.deleteAccount}</h2>
           <div class="flash warn">{t.profile.deleteWarning}</div>

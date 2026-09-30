@@ -14,11 +14,14 @@ export interface OgTags {
 export interface LayoutProps {
   title?: string
   viewer: UserRow | null
+  /** Okunmamış bildirim sayısı (başlıktaki zil rozeti). */
   unread?: number
+  /** Okunmamış DM sayısı (başlıktaki mesaj rozeti ve alt bar). */
+  dmUnread?: number
   og?: OgTags
   flash?: { kind: 'ok' | 'error' | 'warn'; message: string } | null
   /** Bottom-nav active section. */
-  active?: 'home' | 'communities' | 'create' | 'inbox' | 'me'
+  active?: 'home' | 'communities' | 'create' | 'inbox' | 'messages' | 'me'
   /** Suppress the bottom bar (not used on the profile page itself). */
   children?: Child
 }
@@ -82,8 +85,11 @@ const NavIcon: FC<{ name: 'home' | 'communities' | 'create' | 'inbox' | 'me' }> 
   )
 }
 
-export const Layout: FC<LayoutProps> = ({ title, viewer, unread = 0, og, flash, active, children }) => {
+export const Layout: FC<LayoutProps> = ({ title, viewer, unread = 0, dmUnread = 0, og, flash, active, children }) => {
   const meHref = viewer ? profilePath(viewer.username) : '/login'
+  // Rozetler kırmızı; bildirim ve DM sayıları birlikte gösterilir.
+  const totalBadge = unread + dmUnread
+  const badgeText = (n: number) => (n > 99 ? '99+' : String(n))
   return (
     <html lang="tr">
       <head>
@@ -150,7 +156,18 @@ export const Layout: FC<LayoutProps> = ({ title, viewer, unread = 0, og, flash, 
                 <path d="M6 9a6 6 0 1 1 12 0c0 4 1.5 5.5 1.5 5.5h-15S6 13 6 9Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
                 <path d="M10 18a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
               </svg>
-              {unread > 0 && <span class="notif-badge">{unread > 99 ? '99+' : unread}</span>}
+              {totalBadge > 0 && <span class="notif-badge">{badgeText(totalBadge)}</span>}
+            </a>
+            <a
+              class="icon-btn header-messages"
+              href="/messages"
+              aria-label={t.nav.messages}
+              aria-current={active === 'messages' ? 'page' : undefined}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H9l-5 4v-4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+              </svg>
+              {dmUnread > 0 && <span class="notif-badge">{badgeText(dmUnread)}</span>}
             </a>
           </div>
         </header>
@@ -173,6 +190,7 @@ export const Layout: FC<LayoutProps> = ({ title, viewer, unread = 0, og, flash, 
               <li><a href="/">{t.nav.home}</a></li>
               <li><a href="/communities">{t.nav.communities}</a></li>
               <li><a href="/notifications">{t.nav.notifications}</a></li>
+              {viewer && <li><a href="/messages">{t.nav.messages}</a></li>}
               {viewer && <li><a href={profilePath(viewer.username)}>{t.nav.profile}</a></li>}
               {viewer && <li><a href="/settings">{t.nav.settings}</a></li>}
               {isAdminPower(viewer) && <li><a href="/admin">{t.nav.admin}</a></li>}
@@ -227,13 +245,13 @@ export const Layout: FC<LayoutProps> = ({ title, viewer, unread = 0, og, flash, 
             <span>{t.nav.create}</span>
           </a>
           <a
-            href="/notifications"
-            class={active === 'inbox' ? 'active' : ''}
-            aria-current={active === 'inbox' ? 'page' : undefined}
+            href="/messages"
+            class={active === 'messages' ? 'active' : ''}
+            aria-current="page"
           >
             <span class="bottom-inbox">
               <NavIcon name="inbox" />
-              {unread > 0 && <span class="notif-badge">{unread > 99 ? '99+' : unread}</span>}
+              {totalBadge > 0 && <span class="notif-badge">{badgeText(totalBadge)}</span>}
             </span>
             <span>{t.nav.inbox}</span>
           </a>
@@ -253,13 +271,14 @@ export const Layout: FC<LayoutProps> = ({ title, viewer, unread = 0, og, flash, 
   )
 }
 
-export const ErrorPage: FC<{ viewer: UserRow | null; unread?: number; heading: string; message: string }> = ({
+export const ErrorPage: FC<{ viewer: UserRow | null; unread?: number; dmUnread?: number; heading: string; message: string }> = ({
   viewer,
   unread,
+  dmUnread,
   heading,
   message,
 }) => (
-  <Layout title={heading} viewer={viewer} unread={unread}>
+  <Layout title={heading} viewer={viewer} unread={unread} dmUnread={dmUnread}>
     <div class="card empty-state">
       <div class="big">{heading}</div>
       <p>{message}</p>

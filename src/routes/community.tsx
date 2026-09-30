@@ -29,7 +29,7 @@ import { AppError } from '../services/errors'
 import { ValidationError } from '../lib/validation'
 import { parseSort, parseWindow } from './main'
 import { profilePath } from '../views/helpers'
-import { type AppEnv, formData, loginRedirect, setFlash, takeFlash, unread } from './helpers'
+import { type AppEnv, dmUnread, formData, loginRedirect, setFlash, takeFlash, unread } from './helpers'
 import type { CommunityRow, UserRow } from '../types'
 
 const PostTypeTabs = ({ name, active }: { name: string; active: string }) => (
@@ -64,7 +64,7 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
     if (!canReadCommunity(ctx, viewer, community)) {
       // US-017/US-043: access-required page with zero content leakage.
       return c.html(
-        <Layout title={t.community.privateTitle} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)}>
+        <Layout title={t.community.privateTitle} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)} flash={takeFlash(c)}>
           <div class="card empty-state">
             <div class="big">c/{community.name}</div>
             <p>{t.community.privateGate}</p>
@@ -102,7 +102,7 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
       <Layout
         title={community.title}
         viewer={viewer}
-        unread={unread(ctx, viewer)}
+        unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)}
         flash={takeFlash(c)}
         og={{ title: community.title, description: community.description }}
       >
@@ -231,7 +231,7 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
     if (!canReadCommunity(ctx, viewer, community)) return c.redirect(`/c/${community.name}`)
     const type = ['text', 'link', 'image'].includes(c.req.query('type') ?? '') ? (c.req.query('type') as string) : 'text'
     return c.html(
-      <Layout title={t.post.submit} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)}>
+      <Layout title={t.post.submit} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)} flash={takeFlash(c)}>
         <div class="card">
           <h2>{t.post.submit} — c/{community.name}</h2>
           <PostTypeTabs name={community.name} active={type} />
@@ -321,7 +321,7 @@ export function communityRoutes(ctx: Ctx): Hono<AppEnv> {
     const rules = listRules(ctx, community.id)
     const rulesText = rules.map((r) => (r.detail ? `${r.title} | ${r.detail}` : r.title)).join('\n')
     return c.html(
-      <Layout title={t.community.settings} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)}>
+      <Layout title={t.community.settings} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)} flash={takeFlash(c)}>
         <div class="card form-narrow">
           <h2>{t.community.settings} — c/{community.name}</h2>
           <form method="post" action={`/c/${community.name}/settings`}>

@@ -24,6 +24,9 @@ export const LIMITS = {
   postBodyMax: 40000,
   commentMax: 10000,
   reportDetailMax: 1000,
+  /** Özel mesaj (DM) sınırları. */
+  dmMessageMax: 2000,
+  dmMessagesPerHour: 120,
 } as const
 
 const USERNAME_RE = /^[A-Za-z0-9_]+$/

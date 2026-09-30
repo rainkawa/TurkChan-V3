@@ -2,6 +2,10 @@
 (function () {
   'use strict'
 
+  // JS açıksa gizli yedek formlar gizlenir; JS yoksa menüler açılmadan da
+  // tüm eylemler (arşivle / sil / yanıtla) çalışır.
+  document.documentElement.setAttribute('data-js', '1')
+
   // --- Voting (optimistic UI, server-acknowledged; US-022) ---
   document.addEventListener('click', function (event) {
     var btn = event.target.closest('.vote-btn')
@@ -254,4 +258,480 @@
       if (!menu.contains(event.target)) menu.removeAttribute('open')
     })
   })
+
+  /* ======================================================================
+     Özel mesajlaşma (DM)
+     - Uzun basma → işlem menüsü (arşivle / sil / yanıtla / beğen / şikayet)
+     - Sola kaydırma → yanıtlama
+     - Çift dokunma → beğeni
+     - Yoklama → yeni mesaj, okundu, çevrimiçi ve "yazıyor"
+     Her etkileşimin JS'siz çalışan bir form karşılığı vardır.
+     ====================================================================== */
+  var dmPage = document.querySelector('[data-dm-page]')
+  var dmChat = document.querySelector('[data-dm-chat]')
+
+  function closeDmMenus(except) {
+    document.querySelectorAll('[data-dm-menu]').forEach(function (menu) {
+      if (menu === except) return
+      menu.hidden = true
+      var fallback = menu.parentElement.querySelector('[data-dm-fallback]')
+      if (fallback) fallback.hidden = true
+    })
+  }
+
+  function openDmMenu(row) {
+    var menu = row.querySelector('[data-dm-menu]')
+    if (!menu) return false
+    closeDmMenus(menu)
+    menu.hidden = false
+    var fallback = row.querySelector('[data-dm-fallback]')
+    if (fallback) fallback.hidden = false
+    return true
+  }
+
+  // Uzun basma (basılı tutma) menüsü
+  var LONG_PRESS_MS = 450
+  var pressTimer = null
+  var pressMoved = false
+
+  function startPress(row) {
+    pressMoved = false
+    clearTimeout(pressTimer)
+    pressTimer = setTimeout(function () {
+      if (pressMoved) return
+      if (openDmMenu(row)) {
+        if (navigator.vibrate) navigator.vibrate(12)
+      }
+    }, LONG_PRESS_MS)
+  }
+  function cancelPress() {
+    clearTimeout(pressTimer)
+    pressTimer = null
+  }
+
+  document.addEventListener('touchstart', function (event) {
+    var row = event.target.closest('.dm-row, .dm-bubble-row')
+    if (!row) return
+    pressMoved = false
+    startPress(row)
+  }, { passive: true })
+
+  document.addEventListener('touchmove', function () { pressMoved = true; cancelPress() }, { passive: true })
+  document.addEventListener('touchend', cancelPress, { passive: true })
+  document.addEventListener('touchcancel', cancelPress, { passive: true })
+
+  document.addEventListener('mousedown', function (event) {
+    if (event.button !== 0) return
+    var row = event.target.closest('.dm-row, .dm-bubble-row')
+    if (!row) return
+    pressMoved = false
+    startPress(row)
+  })
+  document.addEventListener('mouseup', cancelPress)
+  document.addEventListener('mouseleave', cancelPress)
+  document.addEventListener('mouseout', function (event) {
+    if (event.relatedTarget) return
+    cancelPress()
+  })
+
+  // Menü eylemleri
+  document.addEventListener('click', function (event) {
+    var item = event.target.closest('[data-dm-action]')
+    if (!item) {
+      if (!event.target.closest('[data-dm-menu]')) closeDmMenus(null)
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    var action = item.dataset.dmAction
+    var row = item.closest('.dm-row, .dm-bubble-row')
+    var fallback = row ? row.querySelector('[data-dm-fallback]') : null
+    var conversationId = dmChat ? dmChat.dataset.conversation : ''
+
+    // Sohbet satırı eylemleri (arşivle / arşivden çıkar / sil)
+    if (row && row.classList.contains('dm-row') && fallback) {
+      var intent = action === 'delete-chat' ? 'delete' : action === 'unarchive' ? 'unarchive' : 'archive'
+      var hidden = fallback.querySelector('input[name="intent"]')
+      if (hidden) hidden.value = intent
+      if (!confirmDm(intent)) return
+      closeDmMenus(null)
+      fallback.submit()
+      return
+    }
+
+    // Mesaj eylemleri
+    var messageId = row ? row.dataset.dmMessage : ''
+    if (action === 'reply') {
+      window.location.href = (window.location.pathname.split('?')[0]) + '?reply=' + encodeURIComponent(messageId)
+      return
+    }
+    if (action === 'like') {
+      likeMessage(row, messageId)
+      closeDmMenus(null)
+      return
+    }
+    if (action === 'report') {
+      window.location.href = '/messages/report/' + encodeURIComponent(messageId)
+      return
+    }
+    if (!fallback) return
+    if (action === 'delete-everyone' || action === 'delete-self') {
+      var mode = action === 'delete-everyone' ? 'delete-everyone' : 'delete-self'
+      if (!confirmDm(mode)) return
+      closeDmMenus(null)
+      var intentInput = fallback.querySelector('input[name="intent"]')
+      if (intentInput) intentInput.value = mode
+      var back = fallback.querySelector('input[name="back"]')
+      if (!back) {
+        back = document.createElement('input')
+        back.type = 'hidden'
+        back.name = 'back'
+        fallback.appendChild(back)
+      }
+      back.value = conversationId
+      fallback.submit()
+    }
+  })
+
+  function confirmDm(intent) {
+    if (intent === 'delete' || intent === 'delete-everyone' || intent === 'delete-self') {
+      return window.confirm('Bu işlemi yapmak istediğinize emin misiniz?')
+    }
+    return true
+  }
+
+  /* --- Beğeni (çift dokunma ve menü) --- */
+  function likeMessage(row, messageId) {
+    if (!row || !messageId) return
+    fetch('/api/dm/like', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageId: messageId }),
+    })
+      .then(function (res) { return res.ok ? res.json() : null })
+      .then(function (data) {
+        if (!data) return
+        var bubble = row.querySelector('.dm-bubble')
+        if (bubble) {
+          bubble.classList.remove('just-liked')
+          void bubble.offsetWidth
+          bubble.classList.add('just-liked')
+        }
+        var like = row.querySelector('[data-dm-like]')
+        if (data.liked) {
+          row.dataset.liked = '1'
+          if (!like) {
+            like = document.createElement('span')
+            like.className = 'dm-bubble-like'
+            like.setAttribute('data-dm-like', '')
+            row.querySelector('.dm-bubble-body').appendChild(like)
+          }
+          like.textContent = '❤'
+        } else {
+          row.dataset.liked = '0'
+          if (like) like.remove()
+        }
+      })
+      .catch(function () { /* çevrimdışı: sunucu zaten durumu koruyor */ })
+  }
+
+  // --- Soldan sağa kaydırarak yanıtlama ---
+  var SWIPE_TRIGGER = 64
+  document.addEventListener('touchstart', function (event) {
+    var bubble = event.target.closest('.dm-bubble-row')
+    if (!bubble) return
+    var touch = event.touches[0]
+    bubble._swipe = { x: touch.clientX, y: touch.clientY, active: false }
+  }, { passive: true })
+
+  document.addEventListener('touchmove', function (event) {
+    var bubble = event.target.closest('.dm-bubble-row')
+    if (!bubble || !bubble._swipe) return
+    var touch = event.touches[0]
+    var dx = touch.clientX - bubble._swipe.x
+    var dy = touch.clientY - bubble._swipe.y
+    if (!bubble._swipe.active) {
+      if (Math.abs(dx) < 12 || Math.abs(dx) < Math.abs(dy)) return
+      bubble._swipe.active = true
+      bubble.classList.add('swiping')
+    }
+    var shift = Math.max(-140, Math.min(0, dx))
+    bubble.style.setProperty('--dm-swipe', Math.abs(shift) + 'px')
+    bubble.style.setProperty('--dm-swipe-opacity', String(Math.min(1, Math.abs(shift) / SWIPE_TRIGGER)))
+  }, { passive: true })
+
+  document.addEventListener('touchend', function (event) {
+    var bubble = event.target.closest('.dm-bubble-row')
+    if (!bubble || !bubble._swipe) return
+    var state = bubble._swipe
+    bubble._swipe = null
+    bubble.classList.remove('swiping')
+    var shift = parseFloat(bubble.style.getPropertyValue('--dm-swipe')) || 0
+    bubble.style.removeProperty('--dm-swipe')
+    bubble.style.removeProperty('--dm-swipe-opacity')
+    if (!state.active) return
+    if (Math.abs(shift) >= SWIPE_TRIGGER) {
+      var base = window.location.pathname.split('?')[0]
+      window.location.href = base + '?reply=' + encodeURIComponent(bubble.dataset.dmMessage)
+    }
+  }, { passive: true })
+
+  // --- Gelen kutusu: arama düğmesi ve bölüm katlama ---
+  if (dmPage) {
+    var searchToggle = dmPage.querySelector('[data-dm-search-toggle]')
+    var searchForm = dmPage.querySelector('[data-dm-search]')
+    if (searchToggle && searchForm) {
+      searchToggle.addEventListener('click', function () {
+        var open = searchForm.classList.toggle('is-open')
+        searchToggle.setAttribute('aria-expanded', open ? 'true' : 'false')
+        if (open) {
+          var input = searchForm.querySelector('input')
+          if (input) input.focus()
+        }
+      })
+      if (searchForm.classList.contains('is-open')) {
+        var first = searchForm.querySelector('input')
+        if (first) first.focus()
+      }
+    }
+    dmPage.querySelectorAll('[data-dm-toggle]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        var section = button.closest('.dm-section')
+        if (!section) return
+        var collapsed = section.dataset.collapsed === 'true'
+        section.dataset.collapsed = collapsed ? 'false' : 'true'
+        button.setAttribute('aria-expanded', collapsed ? 'true' : 'false')
+      })
+    })
+  }
+
+  /* --- Sohbet: yazıyor göstergesi, çift dokunma, yoklama --- */
+  if (dmChat) {
+    var conversationId = dmChat.dataset.conversation
+    var thread = dmChat.querySelector('[data-dm-thread]')
+    var since = parseInt(thread ? thread.dataset.since || '0' : '0', 10) || 0
+    var composer = dmChat.querySelector('[data-dm-composer]')
+    var input = dmChat.querySelector('[data-dm-input]')
+    var typingEl = dmChat.querySelector('[data-dm-typing]')
+    var presenceEl = dmChat.querySelector('[data-dm-presence]')
+    var typingTimer = null
+    var typingSent = false
+    var POLL_MS = 5000
+
+    if (input) {
+      input.addEventListener('input', function () {
+        input.style.height = 'auto'
+        input.style.height = Math.min(120, input.scrollHeight) + 'px'
+        if (typingSent) return
+        typingSent = true
+        postJson('/api/dm/typing', { conversation: conversationId, typing: true })
+      })
+      input.addEventListener('keydown', function (event) {
+        // Enter gönderir, Shift+Enter satır atlar.
+        if (event.key === 'Enter' && !event.shiftKey) {
+          event.preventDefault()
+          if (composer) composer.submit()
+        }
+      })
+    }
+
+    // Yanıt kutusu
+    var replyInput = dmChat.querySelector('[data-dm-reply-input]')
+    var replyBar = dmChat.querySelector('[data-dm-reply-bar]')
+    var cancelReply = dmChat.querySelector('[data-dm-cancel-reply]')
+    if (cancelReply && replyInput) {
+      cancelReply.addEventListener('click', function () {
+        replyInput.value = ''
+        if (replyBar) replyBar.remove()
+        if (input) input.focus()
+      })
+    }
+
+    function postJson(url, payload) {
+      return fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }).catch(function () {})
+    }
+
+    var lastTapAt = 0
+    var lastTapId = ''
+    dmChat.addEventListener('touchend', function (event) {
+      var row = event.target.closest('.dm-bubble-row')
+      if (!row) return
+      var now = Date.now()
+      if (lastTapId === row.dataset.dmMessage && now - lastTapAt < 320) {
+        likeMessage(row, row.dataset.dmMessage)
+        lastTapAt = 0
+        lastTapId = ''
+        return
+      }
+      lastTapAt = now
+      lastTapId = row.dataset.dmMessage
+    }, { passive: true })
+
+    dmChat.addEventListener('dblclick', function (event) {
+      var row = event.target.closest('.dm-bubble-row')
+      if (row) likeMessage(row, row.dataset.dmMessage)
+    })
+
+    function renderMessage(message) {
+      var row = document.createElement('li')
+      row.className = 'dm-bubble-row' + (message.mine ? ' is-mine' : '')
+      row.dataset.dmMessage = message.id
+      row.dataset.dmMine = message.mine ? '1' : '0'
+      row.dataset.deleted = message.deleted ? '1' : '0'
+      row.dataset.liked = message.liked ? '1' : '0'
+
+      var body = document.createElement('div')
+      body.className = 'dm-bubble-body'
+
+      if (message.replyTo) {
+        var quote = document.createElement('p')
+        quote.className = 'dm-bubble-reply'
+        var quoteText = document.createElement('span')
+        quoteText.className = 'dm-bubble-reply-text'
+        quoteText.textContent = message.replyTo.body
+        quote.appendChild(quoteText)
+        body.appendChild(quote)
+      }
+
+      var text = document.createElement('p')
+      text.className = 'dm-bubble-text' + (message.deleted ? ' is-deleted' : '')
+      text.textContent = message.deleted ? 'Silinmiş mesaj' : message.body
+      body.appendChild(text)
+
+      var meta = document.createElement('span')
+      meta.className = 'dm-bubble-meta'
+      var time = document.createElement('time')
+      time.className = 'dm-bubble-time'
+      time.textContent = formatClock(message.createdAt)
+      meta.appendChild(time)
+      if (message.mine && !message.deleted) {
+        var read = document.createElement('span')
+        read.className = 'dm-bubble-read' + (message.readByPeer ? ' is-read' : '')
+        read.dataset.dmRead = message.readByPeer ? '1' : '0'
+        meta.appendChild(read)
+      }
+      body.appendChild(meta)
+
+      if (message.liked) {
+        var like = document.createElement('span')
+        like.className = 'dm-bubble-like'
+        like.setAttribute('data-dm-like', '')
+        like.textContent = '❤'
+        body.appendChild(like)
+      }
+
+      var bubble = document.createElement('div')
+      bubble.className = 'dm-bubble'
+      bubble.appendChild(body)
+
+      var menu = document.createElement('div')
+      menu.className = 'dm-msg-menu'
+      menu.setAttribute('data-dm-menu', '')
+      menu.hidden = true
+      menu.appendChild(menuItem('Yanıtla', 'reply'))
+      menu.appendChild(menuItem('Beğen', 'like'))
+      menu.appendChild(menuItem('Şikayet et', 'report'))
+      if (message.mine) menu.appendChild(menuItem('Herkes için sil', 'delete-everyone', true))
+      menu.appendChild(menuItem('Benden sil', 'delete-self', true))
+
+      var fallback = document.createElement('form')
+      fallback.method = 'post'
+      fallback.action = '/messages/message/' + message.id
+      fallback.className = 'dm-msg-fallback'
+      fallback.setAttribute('data-dm-fallback', '')
+      fallback.hidden = true
+      var hidden = document.createElement('input')
+      hidden.type = 'hidden'
+      hidden.name = 'intent'
+      hidden.value = 'delete-self'
+      fallback.appendChild(hidden)
+
+      row.appendChild(bubble)
+      row.appendChild(menu)
+      row.appendChild(fallback)
+      return row
+    }
+
+    function menuItem(label, action, danger) {
+      var button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'dm-menu-item' + (danger ? ' danger' : '')
+      button.dataset.dmAction = action
+      button.textContent = label
+      return button
+    }
+
+    function formatClock(ms) {
+      var date = new Date(ms)
+      return String(date.getHours()).padStart(2, '0') + ':' + String(date.getMinutes()).padStart(2, '0')
+    }
+
+    function poll() {
+      var visible = document.visibilityState !== 'hidden'
+      var url = '/api/dm/thread?conversation=' + encodeURIComponent(conversationId) +
+        '&since=' + encodeURIComponent(String(since)) + (visible ? '&read=1' : '')
+      fetch(url, { headers: { Accept: 'application/json' } })
+        .then(function (res) { return res.ok ? res.json() : null })
+        .then(function (data) {
+          if (!data) return
+          if (typingEl) {
+            typingEl.classList.toggle('is-typing', !!data.typing)
+            typingEl.hidden = !data.typing
+          }
+          if (presenceEl) presenceEl.classList.toggle('is-online', !!data.online)
+          if (data.reads) {
+            Object.keys(data.reads).forEach(function (id) {
+              var read = document.querySelector('[data-dm-message="' + id + '"] .dm-bubble-read')
+              if (read) {
+                read.classList.toggle('is-read', !!data.reads[id])
+                read.dataset.dmRead = data.reads[id] ? '1' : '0'
+              }
+            })
+          }
+          if (!thread || !data.messages || data.messages.length === 0) return
+          var added = false
+          data.messages.forEach(function (message) {
+            if (message.createdAt < since) return
+            if (document.querySelector('[data-dm-message="' + message.id + '"]')) return
+            thread.appendChild(renderMessage(message))
+            since = Math.max(since, message.createdAt)
+            added = true
+          })
+          if (added) {
+            thread.dataset.since = String(since)
+            thread.scrollIntoView({ block: 'end' })
+            if (typingSent) {
+              postJson('/api/dm/typing', { conversation: conversationId, typing: false })
+              typingSent = false
+            }
+          }
+        })
+        .catch(function () { /* ağ yoksa bir sonraki turda yeniden dener */ })
+    }
+
+    if (composer) {
+      composer.addEventListener('submit', function () {
+        clearTimeout(typingTimer)
+        postJson('/api/dm/typing', { conversation: conversationId, typing: false })
+        typingSent = false
+      })
+    }
+    typingTimer = setInterval(function () {
+      if (typingSent && input && input.value === '') {
+        postJson('/api/dm/typing', { conversation: conversationId, typing: false })
+        typingSent = false
+      }
+    }, 3000)
+
+    poll()
+    var pollTimer = setInterval(poll, POLL_MS)
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') poll()
+    })
+    window.addEventListener('pagehide', function () { clearInterval(pollTimer) })
+  }
 })()

@@ -24,7 +24,7 @@ import { relativeTime } from '../views/helpers'
 import { UserByline } from '../views/rank'
 import { authorRanksFor } from '../services/users'
 import { isAdminPower } from '../services/ranks'
-import { type AppEnv, formData, loginRedirect, setFlash, takeFlash, unread } from './helpers'
+import { type AppEnv, dmUnread, formData, loginRedirect, setFlash, takeFlash, unread } from './helpers'
 
 function parseCommentSort(raw: string | undefined): CommentSort {
   return raw === 'new' || raw === 'top' ? raw : 'best'
@@ -92,7 +92,7 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
       <Layout
         title={contentHidden ? t.errors.notFoundTitle : post.title}
         viewer={viewer}
-        unread={unread(ctx, viewer)}
+        unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)}
         flash={takeFlash(c)}
         og={
           contentHidden
@@ -309,7 +309,7 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
     if (!post || post.deleted || post.author_id !== viewer.id) throw notFound()
     const community = getCommunityById(ctx, post.community_id)
     return c.html(
-      <Layout title={t.post.edit} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)}>
+      <Layout title={t.post.edit} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)} flash={takeFlash(c)}>
         <div class="card">
           <h2>{t.post.editingPost}: {post.title}</h2>
           <form method="post" action={`/posts/${post.id}/edit`}>
@@ -366,7 +366,7 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
     const post = getPost(ctx, comment.post_id)
     const community = post ? getCommunityById(ctx, post.community_id) : null
     return c.html(
-      <Layout title={t.post.edit} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)}>
+      <Layout title={t.post.edit} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)} flash={takeFlash(c)}>
         <div class="card">
           <h2>{t.post.editingComment}</h2>
           <form method="post" action={`/comments/${comment.id}/edit`}>
@@ -429,7 +429,7 @@ export function postRoutes(ctx: Ctx): Hono<AppEnv> {
     if (!community || !canReadCommunity(ctx, viewer, community)) throw notFound()
     const rules = listRules(ctx, community.id)
     return c.html(
-      <Layout title={t.report.title} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)}>
+      <Layout title={t.report.title} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)} flash={takeFlash(c)}>
         <div class="card form-narrow">
           <h2>{t.report.title}</h2>
           <p class="hint">{t.report.subtitle}</p>

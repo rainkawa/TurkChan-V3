@@ -1067,3 +1067,281 @@ table.data th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0
     scroll-behavior: auto !important;
   }
 }
+
+/* ==========================================================================
+   12. Özel mesajlaşma (DM)
+   ========================================================================== */
+.header-messages { position: relative; }
+.header-messages .notif-badge { top: 1px; right: 1px; }
+
+/* --- Avatar -------------------------------------------------------------- */
+.dm-avatar {
+  --dm-size: 44px;
+  position: relative;
+  flex: 0 0 auto;
+  width: var(--dm-size); height: var(--dm-size);
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: var(--c-bg, var(--brand));
+  color: #fff; font-size: calc(var(--dm-size) * 0.36); font-weight: 800;
+  letter-spacing: 0.02em; user-select: none;
+}
+.dm-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block; }
+
+/* --- Gelen kutusu sayfası ------------------------------------------------ */
+.dm-page { display: flex; flex-direction: column; gap: var(--space-4); }
+.dm-page-head {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+  padding: var(--space-2) 0;
+}
+.dm-title { margin: 0; font-family: var(--font-display); font-size: 1.5rem; letter-spacing: -0.02em; }
+.dm-search { display: flex; gap: var(--space-2); }
+.dm-search:not(.is-open) { display: none; }
+.dm-search input { flex: 1; }
+
+.dm-search-results .dm-row { border: 1px solid var(--line); background: var(--surface-raised); border-radius: var(--radius); }
+.dm-row-form { display: flex; align-items: center; gap: var(--space-3); text-decoration: none; cursor: pointer; }
+
+.dm-section { display: flex; flex-direction: column; gap: var(--space-2); }
+.dm-section-title {
+  display: flex; align-items: center; gap: var(--space-2);
+  margin: 0; font-family: var(--font-display);
+  font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.09em;
+  color: var(--ink-faint);
+}
+.dm-section-count {
+  min-width: 20px; padding: 1px 6px; border-radius: var(--radius-pill);
+  background: var(--surface-sunken); color: var(--ink-soft);
+  font-size: 0.7rem; font-weight: 800; text-align: center;
+}
+.dm-section-toggle {
+  margin-left: auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0;
+  background: none; border: 0; color: var(--ink-faint); cursor: pointer;
+  transition: transform var(--dur) var(--ease);
+}
+.dm-section-toggle svg { width: 16px; height: 16px; }
+.dm-section-toggle[aria-expanded='false'] { transform: rotate(-90deg); }
+.dm-section[data-collapsed='true'] .dm-list { display: none; }
+
+.dm-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+
+/* Sohbet satırı: profil resmi · isim / kullanıcı adı + mesaj önizlemesi */
+.dm-row {
+  position: relative;
+  display: flex; align-items: stretch;
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  transition: background var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.dm-row:hover { background: var(--surface-sunken); }
+.dm-row-link {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-3);
+  color: inherit; text-decoration: none;
+}
+/* Okunmayan sohbet koyu görünür; okununca normal renge döner. */
+.dm-row.is-unread { background: var(--ink); }
+.dm-row.is-unread:hover { background: #1b2436; }
+.dm-row.is-unread .dm-row-name,
+.dm-row.is-unread .dm-row-username,
+.dm-row.is-unread .dm-row-preview { color: #fff; }
+.dm-row.is-unread .dm-row-time { color: color-mix(in srgb, #fff 72%, transparent); }
+.dm-row.is-unread .user-byline a { color: #fff; }
+.dm-row.is-unread .dm-avatar { box-shadow: 0 0 0 2px var(--brand); }
+.dm-row.is-unread .dm-row-badge { background: var(--up); color: #fff; }
+
+.dm-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dm-row-head { display: flex; align-items: baseline; gap: var(--space-2); }
+.dm-row-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dm-row-time { margin-left: auto; flex: 0 0 auto; color: var(--ink-faint); font-size: 0.72rem; }
+.dm-row-sub { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.dm-row-username { color: var(--ink-faint); font-size: 0.76rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dm-row-preview {
+  color: var(--ink-soft); font-size: 0.86rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dm-row-badge {
+  align-self: center; margin-right: var(--space-3);
+  min-width: 22px; height: 22px; padding: 0 7px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-pill);
+  background: var(--brand); color: #fff;
+  font-size: 0.72rem; font-weight: 800;
+}
+.dm-row-accept { align-self: center; margin-right: var(--space-3); }
+
+/* Çevrimiçi göstergesi: avatarın sağ alt köşesinde yeşil nokta. */
+.dm-row.is-online .dm-avatar::after {
+  content: ''; position: absolute;
+  right: -1px; bottom: -1px;
+  width: 12px; height: 12px; border-radius: 50%;
+  background: #16a34a; border: 2px solid var(--surface-raised);
+}
+.dm-row.is-unread.is-online .dm-avatar::after { border-color: var(--ink); }
+.dm-bubble-avatar::after { display: none; }
+
+.dm-row-menu, .dm-msg-menu {
+  position: absolute; right: var(--space-2); top: 50%; transform: translateY(-50%);
+  z-index: 12;
+  display: flex; flex-direction: column; min-width: 190px;
+  padding: var(--space-1);
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+  box-shadow: 0 12px 32px rgba(16, 24, 40, 0.18);
+}
+.dm-row-menu[hidden], .dm-msg-menu[hidden] { display: none; }
+.dm-menu-item {
+  padding: var(--space-3); border: 0; border-radius: var(--radius-sm);
+  background: none; color: var(--ink);
+  font: inherit; font-size: 0.88rem; text-align: left; cursor: pointer;
+}
+.dm-menu-item:hover { background: var(--surface-sunken); }
+.dm-menu-item.danger { color: var(--danger); }
+.dm-row-fallback, .dm-msg-fallback { display: flex; gap: var(--space-2); align-items: center; padding: var(--space-2) var(--space-3); }
+.dm-row-fallback[hidden], .dm-msg-fallback[hidden] { display: none; }
+/* JS kapalıyken yedek formlar her zaman görünür: her eylem çalışır durumda kalır. */
+html:not([data-js]) .dm-row-fallback[hidden],
+html:not([data-js]) .dm-msg-fallback[hidden] { display: flex; }
+
+/* --- Sohbet ekranı ------------------------------------------------------- */
+.dm-chat {
+  display: flex; flex-direction: column; gap: var(--space-3);
+  min-height: calc(100dvh - var(--header-h) - var(--bottom-nav-h) - var(--space-6));
+  padding-bottom: var(--space-4);
+}
+.dm-chat-head {
+  position: sticky; top: 0; z-index: 8;
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-3) 0;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.dm-chat-person { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--space-3); text-decoration: none; color: inherit; }
+.dm-chat-ident { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.dm-chat-name { font-weight: 800; }
+.dm-chat-username { color: var(--ink-faint); font-size: 0.78rem; }
+.dm-presence {
+  flex: 0 0 auto; padding: 3px 9px; border-radius: var(--radius-pill);
+  background: var(--surface-sunken); color: var(--ink-faint);
+  font-size: 0.7rem; font-weight: 700;
+}
+.dm-presence.is-online { background: color-mix(in srgb, #16a34a 14%, transparent); color: #15803d; }
+
+.dm-typing { margin: 0; color: var(--brand); font-size: 0.8rem; font-weight: 600; min-height: 1.1em; }
+.dm-typing:not(.is-typing) { color: transparent; }
+
+.dm-thread {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: var(--space-2);
+  flex: 1;
+}
+.dm-bubble-row { position: relative; display: flex; }
+.dm-bubble-row.is-mine { justify-content: flex-end; }
+.dm-bubble {
+  display: flex; align-items: flex-end; gap: var(--space-2);
+  max-width: min(78%, 520px);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: 16px 16px 16px 4px;
+  transition: transform var(--dur) var(--ease);
+}
+.dm-bubble-row.is-mine .dm-bubble {
+  background: var(--brand); border-color: var(--brand-strong); color: #fff;
+  border-radius: 16px 16px 4px 16px;
+}
+.dm-bubble-row.is-mine .dm-bubble-time,
+.dm-bubble-row.is-mine .dm-bubble-reply-text { color: color-mix(in srgb, #fff 78%, transparent); }
+.dm-bubble-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+/* Yanıt önizlemesi */
+.dm-bubble-reply {
+  display: flex; flex-direction: column; gap: 1px; margin: 0 0 2px;
+  padding: var(--space-1) var(--space-2);
+  border-left: 3px solid currentColor; border-radius: 0 6px 6px 0;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  font-size: 0.78rem;
+}
+.dm-bubble-reply-name { font-weight: 800; }
+.dm-bubble-reply-text { color: var(--ink-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
+.dm-bubble-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dm-bubble-text.is-deleted { color: var(--ink-faint); font-style: italic; }
+.dm-bubble-row.is-mine .dm-bubble-text.is-deleted { color: color-mix(in srgb, #fff 70%, transparent); }
+.dm-bubble-meta { display: flex; align-items: center; gap: 4px; align-self: flex-end; color: var(--ink-faint); font-size: 0.68rem; }
+.dm-bubble-read { display: inline-flex; align-items: center; }
+.dm-bubble-read svg { width: 14px; height: 14px; color: var(--ink-faint); }
+.dm-bubble-read .dm-tick-double { display: none; }
+.dm-bubble-read.is-read svg { color: #38bdf8; }
+.dm-bubble-read.is-read .dm-tick-single { display: none; }
+.dm-bubble-read.is-read .dm-tick-double { display: inline; }
+.dm-bubble-like { align-self: flex-end; font-size: 0.78rem; color: var(--danger); font-weight: 700; }
+.dm-bubble-row.is-mine .dm-bubble-like { color: #fff; }
+/* Çift dokunma animasyonu */
+.dm-bubble-row.just-liked .dm-bubble { animation: dm-pop 320ms var(--ease); }
+@keyframes dm-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+
+/* Soldan sağa kaydırma: balon sola kayar, arkasından "Yanıtla" çıkar. */
+.dm-bubble-row.swiping { overflow: hidden; }
+.dm-bubble-row.swiping .dm-bubble { transform: translateX(calc(var(--dm-swipe, 0px) * -1)); }
+.dm-bubble-row::before {
+  content: '↩';
+  position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  width: 52px; text-align: center;
+  color: var(--brand); font-size: 1.2rem; font-weight: 800;
+  opacity: var(--dm-swipe-opacity, 0);
+  transition: opacity var(--dur) var(--ease);
+  pointer-events: none;
+}
+
+.dm-msg-menu { top: auto; bottom: calc(100% - 8px); transform: none; }
+.dm-bubble-row.is-mine .dm-msg-menu { right: 0; }
+
+/* Yanıt kutusu ve yazma alanı */
+.dm-reply-bar {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-raised);
+  border: 1px solid var(--line); border-left: 3px solid var(--brand);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+}
+.dm-reply-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dm-reply-label { font-weight: 800; color: var(--brand); }
+.dm-composer {
+  position: sticky; bottom: calc(var(--bottom-nav-h) + var(--safe-b));
+  display: flex; align-items: flex-end; gap: var(--space-2);
+  padding: var(--space-2);
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+}
+.dm-composer textarea {
+  flex: 1; min-width: 0; max-height: 120px; resize: none;
+  border: 0; padding: var(--space-2); background: none;
+  font: inherit; font-size: 0.95rem; line-height: 1.4;
+}
+.dm-composer textarea:focus { outline: none; }
+.dm-send { flex: 0 0 auto; }
+.dm-hint { margin: 0; color: var(--ink-faint); font-size: 0.7rem; text-align: center; }
+
+/* --- Şikayet ------------------------------------------------------------- */
+.dm-report-quote {
+  margin: 0 0 var(--space-4); padding: var(--space-3);
+  background: var(--surface-sunken); border-left: 3px solid var(--brand);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.dm-report-quote p { margin: var(--space-1) 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dm-report-from { color: var(--ink-faint); font-size: 0.78rem; font-weight: 700; }
+
+@media (max-width: 480px) {
+  .dm-row-preview { font-size: 0.82rem; }
+  .dm-bubble { max-width: 86%; }
+}
+

@@ -31,7 +31,7 @@ import { AppError } from '../services/errors'
 import { ValidationError } from '../lib/validation'
 import { relativeTime, formatDate, communityColor, communityInitials } from '../views/helpers'
 import { visibilityLabel } from '../i18n/tr'
-import { type AppEnv, formData, setFlash, takeFlash, unread } from './helpers'
+import { type AppEnv, dmUnread, formData, setFlash, takeFlash, unread } from './helpers'
 
 export function parseSort(raw: string | undefined): FeedSort {
   return raw === 'new' || raw === 'top' ? raw : 'hot'
@@ -55,7 +55,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
     const membership = membershipStates(ctx, viewer, all.map((i) => i.community_id))
     const authorRanks = authorRanksFor(ctx, all.map((i) => i.author_id))
     return c.html(
-      <Layout viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)} active="home" og={{ title: t.siteTitle, description: t.ogDescription }}>
+      <Layout viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)} flash={takeFlash(c)} active="home" og={{ title: t.siteTitle, description: t.ogDescription }}>
         <div class="home-layout">
           <div class="home-main">
             <SortTabs basePath="/" sort={sort} window={window} />
@@ -113,7 +113,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
     const settings = getSettings(ctx)
     const canCreate = viewer && (settings.communityCreation === 'member' || isAdminPower(viewer))
     return c.html(
-      <Layout title={t.nav.communities} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)} active="communities">
+      <Layout title={t.nav.communities} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)} flash={takeFlash(c)} active="communities">
         <div class="card">
           <h2>{t.nav.communities}</h2>
           {canCreate && (
@@ -149,7 +149,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
       <Layout
         title={t.nav.createPost}
         viewer={viewer}
-        unread={unread(ctx, viewer)}
+        unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)}
         flash={takeFlash(c)}
         active="create"
       >
@@ -182,7 +182,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
     const viewer = c.get('viewer')
     if (!viewer) return c.redirect(`/login?next=${encodeURIComponent('/communities/new')}`)
     return c.html(
-      <Layout title={t.community.create} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)}>
+      <Layout title={t.community.create} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)} flash={takeFlash(c)}>
         <div class="card form-narrow">
           <h2>{t.community.create}</h2>
           <form method="post" action="/communities/new">
@@ -247,7 +247,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
     const now = ctx.now()
     const searchRanks = authorRanksFor(ctx, results.posts.map((p) => p.author_id))
     return c.html(
-      <Layout title={`${t.nav.search}: ${query}`} viewer={viewer} unread={unread(ctx, viewer)}>
+      <Layout title={`${t.nav.search}: ${query}`} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)}>
         <div class="card">
           <h2>{t.nav.search}</h2>
           <form method="get" action="/search">
@@ -317,7 +317,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
     const now = ctx.now()
     if (!profile) {
       return c.html(
-        <Layout title={t.profile.notAvailable} viewer={viewer} unread={unread(ctx, viewer)}>
+        <Layout title={t.profile.notAvailable} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)}>
           <div class="card empty-state">
             <div class="big">{t.profile.notAvailable}</div>
             <a class="btn" href="/">{t.errors.backHome}</a>
@@ -337,7 +337,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
       <Layout
         title={`/tc/${profile.user.username}`}
         viewer={viewer}
-        unread={unread(ctx, viewer)}
+        unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)}
         flash={takeFlash(c)}
         active="me"
         og={{ title: `/tc/${profile.user.username}`, description: profile.user.bio ?? t.ogDescription }}
@@ -359,7 +359,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
     const viewer = c.get('viewer')
     if (!viewer) return c.redirect('/login?next=%2Fsettings')
     return c.html(
-      <Layout title={t.nav.settings} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)} active="me">
+      <Layout title={t.nav.settings} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)} flash={takeFlash(c)} active="me">
         <div class="settings-page">
           <h1 class="settings-title">{t.settings.title}</h1>
 
@@ -543,7 +543,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
     const notificationActors = new Map(actors.map((u) => [u.id, u.username]))
     const notificationRanks = rankInfoFor(ctx, actors)
     return c.html(
-      <Layout title={t.notifications.title} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)} active="inbox">
+      <Layout title={t.notifications.title} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)} flash={takeFlash(c)} active="inbox">
         <div class="card">
           <h2>{t.notifications.title}</h2>
           {items.length > 0 && (
@@ -595,7 +595,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
 
   app.get('/privacy', (c) => {
     const viewer = c.get('viewer')
-    return c.html(        <Layout title={t.footer.privacy} viewer={viewer} unread={unread(ctx, viewer)}>
+    return c.html(        <Layout title={t.footer.privacy} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)}>
         <div class="card">
           <h2>{t.footer.privacy}</h2>
           <p>{t.privacy.intro}</p>

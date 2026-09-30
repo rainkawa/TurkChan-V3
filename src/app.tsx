@@ -9,6 +9,7 @@ import { t } from './i18n/tr'
 import { type AppEnv, SESSION_COOKIE } from './routes/helpers'
 import { authRoutes } from './routes/auth'
 import { mainRoutes } from './routes/main'
+import { dmRoutes } from './routes/dm'
 import { communityRoutes } from './routes/community'
 import { postRoutes } from './routes/post'
 import { modRoutes } from './routes/mod'
@@ -45,6 +46,7 @@ export function createApp(ctx: Ctx): Hono<AppEnv> {
 
   app.route('/', authRoutes(ctx))
   app.route('/', mainRoutes(ctx))
+  app.route('/', dmRoutes(ctx))
   app.route('/', apiRoutes(ctx))
   app.route('/', postRoutes(ctx))
   app.route('/', modRoutes(ctx))

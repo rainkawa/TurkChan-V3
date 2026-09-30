@@ -3,6 +3,7 @@ import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import type { Ctx } from '../context'
 import type { UserRow } from '../types'
 import { unreadCount } from '../services/notifications'
+import { dmUnreadCount } from '../services/dm'
 
 export interface AppEnv {
   Variables: {
@@ -72,6 +73,16 @@ export function safeNext(raw: string | undefined, fallback = '/'): string {
 export function unread(ctxApp: Ctx, viewer: UserRow | null): number {
   if (!viewer) return 0
   return unreadCount(ctxApp, viewer.id)
+}
+
+/** Alt bardaki kırmızı rozet için okunmamış DM sayısı (bildirimlerle birlikte). */
+export function dmUnread(ctxApp: Ctx, viewer: UserRow | null): number {
+  if (!viewer) return 0
+  try {
+    return dmUnreadCount(ctxApp, viewer.id)
+  } catch {
+    return 0
+  }
 }
 
 export function loginRedirect(c: C): Response {

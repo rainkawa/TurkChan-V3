@@ -24,7 +24,7 @@ import { relativeTime, profilePath, modActionLabel, modDetailLabel, modTargetLab
 import { UserByline } from '../views/rank'
 import { authorRanksFor, usersByIds } from '../services/users'
 import { rankInfoFor } from '../services/ranks'
-import { type AppEnv, formData, loginRedirect, setFlash, takeFlash, unread } from './helpers'
+import { type AppEnv, dmUnread, formData, loginRedirect, setFlash, takeFlash, unread } from './helpers'
 
 export function modRoutes(ctx: Ctx): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
@@ -39,7 +39,7 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
     const now = ctx.now()
     const queueRanks = rankInfoFor(ctx, usersByIds(ctx, queue.map((e) => e.author_id).filter((id): id is string => Boolean(id))))
     return c.html(
-      <Layout title={t.community.modQueue} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)}>
+      <Layout title={t.community.modQueue} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)} flash={takeFlash(c)}>
         <div class="card">
           <h2>{t.community.modQueue} — c/{community.name}</h2>
           {queue.length === 0 && <p class="placeholder">{t.mod.queueClear}</p>}
@@ -204,7 +204,7 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
     const listUsers = usersByIds(ctx, listIds)
     const listRanks = rankInfoFor(ctx, listUsers)
     return c.html(
-      <Layout title={t.community.approvals} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)}>
+      <Layout title={t.community.approvals} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)} flash={takeFlash(c)}>
         <div class="card">
           <h2>{t.community.approvals} — c/{community.name}</h2>
           {pending.length === 0 && <p class="placeholder">{t.community.noPendingRequests}</p>}
@@ -386,7 +386,7 @@ export function modRoutes(ctx: Ctx): Hono<AppEnv> {
       }
     }
     return c.html(
-      <Layout title={t.community.modLog} viewer={viewer} unread={unread(ctx, viewer)}>
+      <Layout title={t.community.modLog} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)}>
         <div class="card">
           <h2>{t.community.modLog} — c/{community.name}</h2>
           <div class="table-wrap">

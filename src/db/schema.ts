@@ -206,8 +206,63 @@ CREATE TABLE IF NOT EXISTS notifications (
 );
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, read, created_at DESC);
 
-CREATE TABLE IF NOT EXISTS uploads (
-  key TEXT PRIMARY KEY,             -- unguessable UUID
+-- Özel mesajlar (DM) ------------------------------------------------------
+-- Bir sohbet iki üyeden oluşur; mesajlar conversation_id üzerinden toplanır.
+CREATE TABLE IF NOT EXISTS conversations (
+  id TEXT PRIMARY KEY,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS conversation_members (
+  conversation_id TEXT NOT NULL REFERENCES conversations(id),
+  user_id TEXT NOT NULL REFERENCES users(id),
+  last_read_at INTEGER NOT NULL DEFAULT 0,  -- epoch ms; okundu sayılma anı
+  archived INTEGER NOT NULL DEFAULT 0,       -- arşivde
+  hidden INTEGER NOT NULL DEFAULT 0,        -- "sohbeti benden sil" (kendi listemden gizler)
+  accepted INTEGER NOT NULL DEFAULT 1,       -- 0 = karşı taraf henüz kabul etmedi (istek)
+  PRIMARY KEY (conversation_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_conversation_members_user ON conversation_members(user_id);
+
+CREATE TABLE IF NOT EXISTS messages (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL REFERENCES conversations(id),
+  sender_id TEXT NOT NULL REFERENCES users(id),
+  body TEXT NOT NULL,
+  reply_to_id TEXT REFERENCES messages(id),
+  created_at INTEGER NOT NULL,
+  deleted_for_everyone INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, created_at);
+
+-- "Sadece benden sil": mesajı silen kişi dışında herkes görmeye devam eder.
+CREATE TABLE IF NOT EXISTS message_deletions (
+  message_id TEXT NOT NULL REFERENCES messages(id),
+  user_id TEXT NOT NULL REFERENCES users(id),
+  PRIMARY KEY (message_id, user_id)
+);
+
+-- Çift dokunma ile beğeni (kalp).
+CREATE TABLE IF NOT EXISTS message_reactions (
+  message_id TEXT NOT NULL REFERENCES messages(id),
+  user_id TEXT NOT NULL REFERENCES users(id),
+  emoji TEXT NOT NULL DEFAULT '❤',
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (message_id, user_id)
+);
+
+-- Basılı tutarak mesaj şikayeti (site yönetimine gider).
+CREATE TABLE IF NOT EXISTS message_reports (
+  id TEXT PRIMARY KEY,
+  message_id TEXT NOT NULL REFERENCES messages(id),
+  reporter_id TEXT NOT NULL REFERENCES users(id),
+  reason TEXT NOT NULL,
+  detail TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_message_reports_message ON message_reports(message_id);
+
+CREATE TABLE IF NOT EXISTS uploads (  key TEXT PRIMARY KEY,             -- unguessable UUID
   uploader_id TEXT NOT NULL REFERENCES users(id),
   token_hash TEXT NOT NULL,         -- pre-signed upload token
   mime TEXT,

@@ -141,6 +141,31 @@ export interface NotificationRow {
   created_at: number
 }
 
+/** Özel mesajlaşma (DM) satırları. */
+export interface ConversationRow {
+  id: string
+  created_at: number
+}
+
+export interface ConversationMemberRow {
+  conversation_id: string
+  user_id: string
+  last_read_at: number
+  archived: number
+  hidden: number
+  accepted: number
+}
+
+export interface MessageRow {
+  id: string
+  conversation_id: string
+  sender_id: string
+  body: string
+  reply_to_id: string | null
+  created_at: number
+  deleted_for_everyone: number
+}
+
 export interface UploadRow {
   key: string
   uploader_id: string

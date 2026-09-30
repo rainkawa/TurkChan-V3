@@ -33,7 +33,7 @@ import type { UserRow } from '../types'
 import { hashPassword } from '../lib/passwords'
 import { validatePassword, ValidationError } from '../lib/validation'
 import { requestUpload, receiveUpload } from '../services/uploads'
-import { type AppEnv, formData, loginRedirect, setFlash, takeFlash, unread } from './helpers'
+import { type AppEnv, dmUnread, formData, loginRedirect, setFlash, takeFlash, unread } from './helpers'
 import { readFile } from 'node:fs/promises'
 
 /**
@@ -455,7 +455,7 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
     }
 
     return c.html(
-      <Layout title={t.admin.dashboard} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)}>
+      <Layout title={t.admin.dashboard} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)} flash={takeFlash(c)}>
         <h1 style="font-family:var(--font-display)">{t.admin.dashboard}</h1>
         {tabs}
         {content}
