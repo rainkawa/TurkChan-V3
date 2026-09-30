@@ -98,6 +98,31 @@ export function listDirectory(ctx: Ctx, viewer: Viewer): DirectoryEntry[] {
   })
 }
 
+export type CommunityMembershipState = 'none' | 'pending' | 'approved'
+
+/**
+ * Batch membership lookup for the feed. One query instead of N, so rendering a
+ * page of cards stays cheap. Read-only: no authorisation decisions here.
+ */
+export function membershipStates(
+  ctx: Ctx,
+  viewer: Viewer,
+  communityIds: readonly string[],
+): Map<string, CommunityMembershipState> {
+  const states = new Map<string, CommunityMembershipState>()
+  const unique = [...new Set(communityIds)]
+  if (viewer) {
+    for (const id of unique) {
+      const row = ctx.db
+        .prepare('SELECT status FROM memberships WHERE user_id = ? AND community_id = ?')
+        .get(viewer.id, id) as { status: 'pending' | 'approved' | 'rejected' } | undefined
+      states.set(id, row?.status === 'approved' ? 'approved' : row?.status === 'pending' ? 'pending' : 'none')
+    }
+  }
+  for (const id of unique) if (!states.has(id)) states.set(id, 'none')
+  return states
+}
+
 export function memberCount(ctx: Ctx, communityId: string): number {
   return (
     ctx.db

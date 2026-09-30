@@ -2,18 +2,19 @@ import { Hono } from 'hono'
 import type { Ctx } from '../context'
 import { t } from '../i18n/tr'
 import { Layout } from '../views/layout'
-import { PostCard, SortTabs } from '../views/components'
+import { PostCard, SortTabs, SocialCard } from '../views/components'
+import { ProfileView_, type ProfileTab } from '../views/profile'
 import { homeFeed, type FeedSort, type TopWindow } from '../services/feeds'
-import { listDirectory, createCommunity } from '../services/communities'
+import { listDirectory, createCommunity, membershipStates } from '../services/communities'
 import { search } from '../services/search'
-import { getProfile, updateProfile } from '../services/users'
+import { getProfile, updateProfile, moderatesAnyCommunity } from '../services/users'
 import { getMyVotes } from '../services/votes'
 import { listNotifications, markAllRead, markRead } from '../services/notifications'
 import { getSettings } from '../services/settings'
 import { decodeCursor } from '../lib/cursor'
 import { AppError } from '../services/errors'
 import { ValidationError } from '../lib/validation'
-import { relativeTime, formatDate } from '../views/helpers'
+import { relativeTime, formatDate, communityColor, communityInitials } from '../views/helpers'
 import { visibilityLabel } from '../i18n/tr'
 import { type AppEnv, formData, setFlash, takeFlash, unread } from './helpers'
 
@@ -35,29 +36,47 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
     const page = homeFeed(ctx, viewer, sort, window, cursor)
     const myVotes = getMyVotes(ctx, viewer, 'post', page.items.map((i) => i.id))
     const now = ctx.now()
+    const all = [...page.pinned, ...page.items]
+    const membership = membershipStates(ctx, viewer, all.map((i) => i.community_id))
     return c.html(
-      <Layout viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)} og={{ title: t.siteTitle, description: t.ogDescription }}>
-        <div class="layout with-sidebar">
-          <section>
+      <Layout viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)} active="home" og={{ title: t.siteTitle, description: t.ogDescription }}>
+        <div class="home-layout">
+          <div class="home-main">
             <SortTabs basePath="/" sort={sort} window={window} />
-            <div class="feed">
-              {page.items.length === 0 && (
+            <div class="social-feed">
+              {all.length === 0 && (
                 <div class="card empty-state">
                   <div class="big">{t.feed.emptyHome}</div>
                   <a class="btn" href="/communities">{t.feed.browseCommunities}</a>
                 </div>
               )}
+              {page.pinned.map((item) => (
+                <SocialCard
+                  item={item}
+                  now={now}
+                  viewer={viewer}
+                  myVote={myVotes.get(item.id) ?? 0}
+                  membership={membership.get(item.community_id)}
+                  pinned
+                />
+              ))}
               {page.items.map((item) => (
-                <PostCard item={item} now={now} viewer={viewer} myVote={myVotes.get(item.id) ?? 0} />
+                <SocialCard
+                  item={item}
+                  now={now}
+                  viewer={viewer}
+                  myVote={myVotes.get(item.id) ?? 0}
+                  membership={membership.get(item.community_id)}
+                />
               ))}
             </div>
             {page.nextCursor && (
-              <p style="text-align:center;margin-top:1rem">
+              <p class="load-more">
                 <a class="btn secondary" href={`/?sort=${sort}&t=${window}&after=${page.nextCursor}`}>{t.feed.loadMore}</a>
               </p>
             )}
-          </section>
-          <aside class="sidebar">
+          </div>
+          <aside class="sidebar home-side">
             <div class="card">
               <h3>{t.siteName}</h3>
               <p>{t.tagline}</p>
@@ -76,7 +95,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
     const settings = getSettings(ctx)
     const canCreate = viewer && (settings.communityCreation === 'member' || viewer.is_admin === 1)
     return c.html(
-      <Layout title={t.nav.communities} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)}>
+      <Layout title={t.nav.communities} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)} active="communities">
         <div class="card">
           <h2>{t.nav.communities}</h2>
           {canCreate && (
@@ -94,6 +113,48 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
             </div>
           ))}
           {entries.length === 0 && <p class="placeholder">{t.post.noCommunities}</p>}
+        </div>
+      </Layout>,
+    )
+  })
+
+  /**
+   * Alt navigasyondaki "Oluştur" için topluluk seçici. Yeni bir endpoint değil:
+   * yalnızca var olan gönderi formuna yönlendirir, yazma yetkisi yine
+   * community.tsx içindeki requireParticipant tarafından denetlenir.
+   */
+  app.get('/submit', (c) => {
+    const viewer = c.get('viewer')
+    if (!viewer) return c.redirect('/login?next=%2Fsubmit')
+    const entries = listDirectory(ctx, viewer).filter((e) => !e.archived)
+    return c.html(
+      <Layout
+        title={t.nav.createPost}
+        viewer={viewer}
+        unread={unread(ctx, viewer)}
+        flash={takeFlash(c)}
+        active="create"
+      >
+        <div class="card form-narrow">
+          <h2>{t.nav.createPost}</h2>
+          <p class="hint">{t.post.createWhere}</p>
+          <div class="community-picker">
+            {entries.map((e) => (
+              <a class="community-picker-item" href={`/c/${e.name}/submit`}>
+                <span class="picker-avatar" style={`--c-bg:${communityColor(e.name)}`} aria-hidden="true">
+                  {communityInitials(e.name)}
+                </span>
+                <span class="picker-meta">
+                  <span class="picker-name">c/{e.name}</span>
+                  <span class="picker-title">{e.title}</span>
+                </span>
+                <span class="picker-count">
+                  {e.member_count} {t.community.members}
+                </span>
+              </a>
+            ))}
+            {entries.length === 0 && <p class="placeholder">{t.post.noCommunities}</p>}
+          </div>
         </div>
       </Layout>,
     )
@@ -239,49 +300,28 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
       )
     }
     const isSelf = viewer?.id === profile.user.id
+    const rawTab = c.req.query('tab')
+    const tab: ProfileTab =
+      rawTab === 'comments' || rawTab === 'saved' || rawTab === 'about' ? rawTab : 'posts'
+    const isModerator = moderatesAnyCommunity(ctx, profile.user.id)
+    void isSelf
     return c.html(
-      <Layout title={`u/${profile.user.username}`} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)}>
-        <div class="layout with-sidebar">
-          <section>
-            <div class="card">
-              <h2>u/{profile.user.username}</h2>
-              {profile.user.display_name && <p><strong>{profile.user.display_name}</strong></p>}
-              {profile.user.bio && <p>{profile.user.bio}</p>}
-              <p class="meta">
-                {t.profile.joined} {formatDate(profile.user.created_at)} · {t.profile.postKarma}: {profile.karma.postKarma} · {t.profile.commentKarma}: {profile.karma.commentKarma}
-              </p>
-              {isSelf && <a class="btn secondary small" href="/settings">{t.profile.editProfile}</a>}
-            </div>
-            <div class="card" style="margin-top:1rem">
-              <h3>{t.profile.posts}</h3>
-              {profile.posts.length === 0 && <p class="placeholder">{t.post.noPosts}</p>}
-              {profile.posts.map((p) => (
-                <div class="dir-item">
-                  <div>
-                    <a class="name" href={`/c/${p.community_name}/comments/${p.id}`}>{p.title}</a>
-                    <p class="desc">
-                      c/{p.community_name} · {p.score} {t.common.points} · {relativeTime(p.created_at, now)}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div class="card" style="margin-top:1rem">
-              <h3>{t.profile.comments}</h3>
-              {profile.comments.length === 0 && <p class="placeholder">{t.post.noComments}</p>}
-              {profile.comments.map((cm) => (
-                <div class="dir-item">
-                  <div>
-                    <a class="name" href={`/c/${cm.community_name}/comments/${cm.post_id}/comment/${cm.id}`}>{cm.post_title}</a>
-                    <p class="desc">
-                      {cm.body.slice(0, 160)} · {cm.score} {t.common.points} · {relativeTime(cm.created_at, now)}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        </div>
+      <Layout
+        title={`u/${profile.user.username}`}
+        viewer={viewer}
+        unread={unread(ctx, viewer)}
+        flash={takeFlash(c)}
+        active="me"
+        og={{ title: `u/${profile.user.username}`, description: profile.user.bio ?? t.ogDescription }}
+      >
+        <ProfileView_
+          ctx={ctx}
+          profile={profile}
+          viewer={viewer}
+          isModerator={isModerator}
+          tab={tab}
+          now={now}
+        />
       </Layout>,
     )
   })
@@ -290,7 +330,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
     const viewer = c.get('viewer')
     if (!viewer) return c.redirect('/login?next=%2Fsettings')
     return c.html(
-      <Layout title={t.nav.settings} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)}>
+      <Layout title={t.nav.settings} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)} active="me">
         <div class="card form-narrow">
           <h2>{t.profile.editProfile}</h2>
           <form method="post" action="/settings">
@@ -333,7 +373,7 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
     const items = listNotifications(ctx, viewer.id)
     const now = ctx.now()
     return c.html(
-      <Layout title={t.notifications.title} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)}>
+      <Layout title={t.notifications.title} viewer={viewer} unread={unread(ctx, viewer)} flash={takeFlash(c)} active="inbox">
         <div class="card">
           <h2>{t.notifications.title}</h2>
           {items.length > 0 && (

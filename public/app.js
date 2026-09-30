@@ -113,4 +113,123 @@
       if (!window.confirm(form.dataset.confirm)) event.preventDefault()
     })
   })
+
+  // --- Side drawer (hamburger) ---
+  var drawer = document.querySelector('[data-drawer]')
+  var drawerToggle = document.querySelector('[data-drawer-toggle]')
+  if (drawer && drawerToggle) {
+    var openDrawer = function (open) {
+      drawer.hidden = !open
+      drawerToggle.setAttribute('aria-expanded', open ? 'true' : 'false')
+      document.body.style.overflow = open ? 'hidden' : ''
+    }
+    drawerToggle.addEventListener('click', function () { openDrawer(drawer.hidden) })
+    drawer.querySelectorAll('[data-drawer-close]').forEach(function (el) {
+      el.addEventListener('click', function () { openDrawer(false) })
+    })
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape' && !drawer.hidden) openDrawer(false)
+    })
+  }
+
+  // --- Share: native sheet, clipboard fallback, then a toast ---
+  function absoluteUrl(href) {
+    return new URL(href, window.location.origin).toString()
+  }
+  document.querySelectorAll('[data-share]').forEach(function (el) {
+    el.addEventListener('click', function (event) {
+      event.preventDefault()
+      event.stopPropagation()
+      var url = absoluteUrl(el.dataset.share)
+      var done = function () { showToast('Bağlantı kopyalandı.') }
+      if (navigator.share) {
+        navigator.share({ title: document.title, url: url }).then(done, function () {
+          if (navigator.clipboard) navigator.clipboard.writeText(url).then(done, function () {})
+          else done()
+        })
+        return
+      }
+      if (navigator.clipboard) navigator.clipboard.writeText(url).then(done, function () {})
+      else done()
+      // Paylaş panelinin açık kalmasını engelle.
+      var menu = el.closest('details')
+      if (menu) menu.removeAttribute('open')
+    })
+  })
+
+  // --- Saved posts (this device only; no server table exists) ---
+  var SAVED_KEY = 'turkchan:saved'
+  function readSaved() {
+    try {
+      var raw = JSON.parse(localStorage.getItem(SAVED_KEY) || '[]')
+      return Array.isArray(raw) ? raw : []
+    } catch (e) { return [] }
+  }
+  function writeSaved(list) {
+    try { localStorage.setItem(SAVED_KEY, JSON.stringify(list)) } catch (e) { /* kota dolu */ }
+  }
+  function syncSaveButtons() {
+    var ids = readSaved().map(function (item) { return item.id })
+    document.querySelectorAll('[data-save-post]').forEach(function (btn) {
+      var on = ids.indexOf(btn.dataset.savePost) !== -1
+      btn.classList.toggle('is-saved', on)
+      var label = btn.querySelector('[data-save-label]')
+      if (label) label.textContent = on ? 'Kaydedildi' : 'Kaydet'
+    })
+  }
+  document.addEventListener('click', function (event) {
+    var btn = event.target.closest('[data-save-post]')
+    if (!btn) return
+    event.preventDefault()
+    var id = btn.dataset.savePost
+    var list = readSaved()
+    var index = -1
+    for (var i = 0; i < list.length; i += 1) if (list[i].id === id) { index = i; break }
+    if (index === -1) {
+      list.unshift({
+        id: id,
+        title: btn.dataset.saveTitle || '',
+        href: btn.dataset.saveHref || '',
+        community: btn.dataset.saveCommunity || '',
+        at: Date.now(),
+      })
+      showToast('Kaydedildi.')
+    } else {
+      list.splice(index, 1)
+      showToast('Kayıt kaldırıldı.')
+    }
+    writeSaved(list.slice(0, 50))
+    syncSaveButtons()
+    var menu = btn.closest('details')
+    if (menu) menu.removeAttribute('open')
+  })
+  syncSaveButtons()
+
+  // --- Saved tab: render the locally stored list ---
+  var savedList = document.querySelector('[data-saved-list]')
+  if (savedList) {
+    var items = readSaved()
+    if (items.length > 0) {
+      savedList.innerHTML = ''
+      items.forEach(function (item) {
+        var a = document.createElement('a')
+        a.className = 'profile-saved-item'
+        a.href = item.href || '#'
+        a.textContent = item.title || '(başlıksız)'
+        if (item.community) {
+          var small = document.createElement('small')
+          small.textContent = 'c/' + item.community
+          a.appendChild(small)
+        }
+        savedList.appendChild(a)
+      })
+    }
+  }
+
+  // --- Close open overflow menus on outside tap ---
+  document.addEventListener('click', function (event) {
+    document.querySelectorAll('details.overflow-menu[open]').forEach(function (menu) {
+      if (!menu.contains(event.target)) menu.removeAttribute('open')
+    })
+  })
 })()

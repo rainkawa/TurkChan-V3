@@ -28,10 +28,20 @@ export function getKarma(ctx: Ctx, userId: string): Karma {
 }
 
 export interface ProfileView {
-  user: Pick<UserRow, 'id' | 'username' | 'display_name' | 'bio' | 'created_at'>
+  user: Pick<UserRow, 'id' | 'username' | 'display_name' | 'bio' | 'created_at' | 'is_admin'>
   karma: Karma
   posts: Array<PostRow & { community_name: string }>
   comments: Array<CommentRow & { community_name: string; post_title: string; post_id: string }>
+}
+
+/** Moderator of at least one visible community — drives the profile role badge. */
+export function moderatesAnyCommunity(ctx: Ctx, userId: string): boolean {
+  const row = ctx.db
+    .prepare(
+      "SELECT 1 AS n FROM memberships WHERE user_id = ? AND role = 'moderator' AND status = 'approved' LIMIT 1",
+    )
+    .get(userId) as { n: number } | undefined
+  return row !== undefined
 }
 
 /**
@@ -71,6 +81,7 @@ export function getProfile(ctx: Ctx, viewer: Viewer, username: string): ProfileV
       display_name: user.display_name,
       bio: user.bio,
       created_at: user.created_at,
+      is_admin: user.is_admin,
     },
     karma: getKarma(ctx, user.id),
     posts,

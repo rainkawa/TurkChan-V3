@@ -1,6 +1,8 @@
 import type { FC } from 'hono/jsx'
 import { t, relativeTime } from '../i18n/tr'
+import { previewText, communityColor, communityInitials } from './helpers'
 import type { FeedItem } from '../services/feeds'
+import type { CommunityMembershipState } from '../services/communities'
 import type { CommentNode } from '../services/comments'
 import { renderMarkdown } from '../lib/markdown'
 import type { UserRow } from '../types'
@@ -13,9 +15,20 @@ export const VoteRail: FC<{
   disabled?: boolean
   guest?: boolean
   scoreHidden?: boolean
-}> = ({ targetType, targetId, score, myVote, disabled = false, guest = false, scoreHidden = false }) => (
+  /** 'vertical' (yorum ağacı) veya 'horizontal' (kart aksiyon çubuğu). */
+  layout?: 'vertical' | 'horizontal'
+}> = ({
+  targetType,
+  targetId,
+  score,
+  myVote,
+  disabled = false,
+  guest = false,
+  scoreHidden = false,
+  layout = 'vertical',
+}) => (
   <div
-    class="vote-rail"
+    class={`vote-rail ${layout}`}
     data-target-type={targetType}
     data-target-id={targetId}
     data-my-vote={String(myVote)}
@@ -80,6 +93,163 @@ export const PostCard: FC<{
             💬 {item.comment_count} {t.feed.comments}
           </a>
         </div>
+      </div>
+    </article>
+  )
+}
+
+export const CommunityAvatar: FC<{ name: string; size?: number }> = ({ name, size = 40 }) => (
+  <span
+    class="c-avatar"
+    style={`--c-size:${String(size)}px;--c-bg:${communityColor(name)}`}
+    aria-hidden="true"
+  >
+    {communityInitials(name)}
+  </span>
+)
+
+/** Topluluk adına göre Katıl / İstek gönderildi düğmesi (yalnızca üye değilse). */
+const JoinButton: FC<{ community: string; state: CommunityMembershipState; compact?: boolean }> = ({
+  community,
+  state,
+  compact = false,
+}) => {
+  if (state === 'approved') return null
+  if (state === 'pending') {
+    return <span class={`join-pill pending${compact ? ' small' : ''}`}>{t.card.requested}</span>
+  }
+  return (
+    <form method="post" action={`/c/${community}/join`} class="join-form">
+      <button class={`join-pill${compact ? ' small' : ''}`} type="submit">{t.card.join}</button>
+    </form>
+  )
+}
+
+/**
+ * Mobil öncelikli sosyal gönderi kartı. Gerçek veriyi gösterir; kaydetme ve
+ * paylaşma tarayıcı tarafında çalışır (public/app.js).
+ */
+export const SocialCard: FC<{
+  item: FeedItem
+  now: number
+  myVote: number
+  viewer: UserRow | null
+  membership?: CommunityMembershipState
+  showCommunity?: boolean
+  pinned?: boolean
+}> = ({ item, now, myVote, viewer, membership = 'none', showCommunity = true, pinned = false }) => {
+  const isOwn = viewer?.id === item.author_id
+  const href = `/c/${item.community_name}/comments/${item.id}`
+  const preview = previewText(item.body)
+  const media =
+    item.type === 'image' && item.image_key
+      ? `/media/${item.image_key}`
+      : item.type === 'link'
+        ? item.link_preview_image
+        : null
+
+  return (
+    <article class={`social-card${pinned ? ' pinned' : ''}`} data-post-id={item.id}>
+      <header class="social-card-head">
+        <a class="social-card-community" href={`/c/${item.community_name}`}>
+          <CommunityAvatar name={item.community_name} />
+          <span class="social-card-community-meta">
+            <span class="social-card-community-name">c/{item.community_name}</span>
+            <span class="social-card-time">
+              {relativeTime(item.created_at, now)}
+              {item.edited_at !== null && ` · ${t.post.edited}`}
+            </span>
+          </span>
+        </a>
+        <div class="social-card-head-actions">
+          {showCommunity && viewer && !isOwn && <JoinButton community={item.community_name} state={membership} compact />}
+          <details class="overflow-menu">
+            <summary aria-label={t.card.more} title={t.card.more}>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="5" cy="12" r="2" fill="currentColor" />
+                <circle cx="12" cy="12" r="2" fill="currentColor" />
+                <circle cx="19" cy="12" r="2" fill="currentColor" />
+              </svg>
+            </summary>
+            <div class="overflow-panel">
+              <a href={href}>{t.card.goToPost}</a>
+              <a href={`/c/${item.community_name}`}>{t.card.openCommunity}</a>
+              <button type="button" data-share={href}>{t.card.share}</button>
+              <button type="button" data-save-post={item.id} data-save-title={item.title}>
+                {t.card.save}
+              </button>
+              {viewer && !isOwn && <a href={`/report/post/${item.id}`}>{t.card.report}</a>}
+            </div>
+          </details>
+        </div>
+      </header>
+
+      {pinned && <span class="pin-tag">📌 {t.feed.pinned}</span>}
+
+      <h3 class="social-card-title">
+        <a href={href}>{item.title}</a>
+      </h3>
+
+      {preview && <p class="social-card-preview">{preview}</p>}
+
+      {item.type === 'link' && item.url && (
+        <a class="social-card-link" href={item.url} rel="nofollow noopener" target="_blank">
+          {item.link_preview_title ?? item.url}
+          <span class="social-card-link-host">{new URL(item.url).hostname}</span>
+        </a>
+      )}
+
+      {media && (
+        <a class="social-card-media" href={href}>
+          <img src={media} alt={item.title} loading="lazy" />
+        </a>
+      )}
+
+      <div class="social-card-author">
+        {item.author_username ? (
+          <a href={`/u/${item.author_username}`}>u/{item.author_username}</a>
+        ) : (
+          <span class="placeholder">{t.post.deletedBody}</span>
+        )}
+      </div>
+
+      <div class="social-card-actions">
+        <VoteRail
+          targetType="post"
+          targetId={item.id}
+          score={item.score}
+          myVote={myVote}
+          guest={!viewer}
+          disabled={isOwn}
+          scoreHidden={false}
+          layout="horizontal"
+        />
+        <a class="action-btn" href={href}>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20 12a7.5 7.5 0 0 1-11 6.6L4 20l1.4-4.6A7.5 7.5 0 1 1 20 12Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+          </svg>
+          <span>{item.comment_count} {t.feed.comments}</span>
+        </a>
+        <button class="action-btn" type="button" data-share={href}>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 15V4m0 0L8 8m4-4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            <path d="M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+          <span>{t.card.share}</span>
+        </button>
+        <button
+          class="action-btn"
+          type="button"
+          data-save-post={item.id}
+          data-save-title={item.title}
+          data-save-href={href}
+          data-save-community={item.community_name}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M7 4h10v16l-5-4-5 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+          </svg>
+          <span data-save-label>{t.card.save}</span>
+        </button>
       </div>
     </article>
   )

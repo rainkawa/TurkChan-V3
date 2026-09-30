@@ -32,7 +32,9 @@ describe('US-005/US-007 profiles and karma', () => {
     expect(text).toContain('Gönderi karma: 1')
     expect(text).toContain('Yorum karma: 0')
     expect(text).toContain('My contribution')
-    expect(text).toContain('And my comment')
+    // Yorumlar kendi sekmesinde gösterilir.
+    const commentsTab = await guest.get(`/u/${username}?tab=comments`)
+    expect(await commentsTab.text()).toContain('And my comment')
   })
 
   test('private-community content is hidden from profile history but karma still counts (US-007)', async () => {
