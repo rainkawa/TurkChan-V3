@@ -261,6 +261,7 @@ export function dmRoutes(ctx: Ctx): Hono<AppEnv> {
         dmUnread={dmUnread(ctx, viewer)}
         flash={takeFlash(c)}
         active="messages"
+        immersive
       >
         <ChatPage
           conversationId={conversationId}

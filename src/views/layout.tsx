@@ -22,6 +22,8 @@ export interface LayoutProps {
   flash?: { kind: 'ok' | 'error' | 'warn'; message: string } | null
   /** Bottom-nav active section. */
   active?: 'home' | 'communities' | 'create' | 'inbox' | 'messages' | 'me'
+  /** Tam ekran görünüm: alt bar gizlenir, sayfa kendi içinde kaydırılır (sohbet). */
+  immersive?: boolean
   /** Suppress the bottom bar (not used on the profile page itself). */
   children?: Child
 }
@@ -85,7 +87,17 @@ const NavIcon: FC<{ name: 'home' | 'communities' | 'create' | 'inbox' | 'me' }> 
   )
 }
 
-export const Layout: FC<LayoutProps> = ({ title, viewer, unread = 0, dmUnread = 0, og, flash, active, children }) => {
+export const Layout: FC<LayoutProps> = ({
+  title,
+  viewer,
+  unread = 0,
+  dmUnread = 0,
+  og,
+  flash,
+  active,
+  immersive,
+  children,
+}) => {
   const meHref = viewer ? profilePath(viewer.username) : '/login'
   // Rozetler kırmızı; bildirim ve DM sayıları birlikte gösterilir.
   const totalBadge = unread + dmUnread
@@ -116,7 +128,7 @@ export const Layout: FC<LayoutProps> = ({ title, viewer, unread = 0, dmUnread = 
           </>
         )}
       </head>
-      <body class={viewer ? 'is-member' : 'is-guest'}>
+      <body class={`${viewer ? 'is-member' : 'is-guest'}${immersive ? ' is-chat' : ''}`}>
         <a class="skip-link" href="#main">{t.nav.mainNavigation}</a>
         {viewer && (
           <>
@@ -209,7 +221,7 @@ export const Layout: FC<LayoutProps> = ({ title, viewer, unread = 0, dmUnread = 
           {children}
         </main>
 
-        {viewer && (
+        {viewer && !immersive && (
           <>
         <footer class="footer">
           <a href="/privacy">{t.footer.privacy}</a>

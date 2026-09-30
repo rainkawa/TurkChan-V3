@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from 'vitest'
 import { createTestWorld, registerUser, type Agent, type TestWorld } from '../testUtils'
 import { resetPresence } from '../../src/services/presence'
+import { t } from '../../src/i18n/tr'
 
 /**
  * Özel mesajlaşma (DM):
@@ -112,6 +113,18 @@ describe('DM — giriş ve arama', () => {
     expect(home).not.toContain('header-messages')
     expect(home).toContain('bottom-nav')
     expect(home).toContain('href="/messages"')
+  })
+
+  test('rozet sayısı alt bardaki rozetle aynıdır', async () => {
+    const conversation = await openChat(alice, 'bobby')
+    await send(alice, conversation, 'Bir')
+    world.tick(1000)
+    await send(alice, conversation, 'İki')
+
+    const home = await (await bob.get('/')).text()
+    const inbox = home.slice(home.indexOf('bottom-inbox'))
+    expect(inbox).toContain('notif-badge')
+    expect(inbox).toMatch(/notif-badge[^>]*>2</)
   })
 
   test('kendine mesaj gönderilemez', async () => {
@@ -356,8 +369,53 @@ describe('DM — mesaj eylemleri', () => {
   })
 })
 
-describe('DM — çevrimiçi, yazıyor ve yoklama', () => {
-  test('karşı taraf çevrimiçi görünür ve "yazıyor" göstergesi çalışır', async () => {
+describe('DM — bildirim rozeti ve sohbet ekranı', () => {
+  test('rozet 2 derken bildirimler sayfası boş görünmez', async () => {
+    const conversation = await openChat(alice, 'bobby')
+    await send(alice, conversation, 'Birinci mesaj')
+    world.tick(1000)
+    await send(alice, conversation, 'İkinci mesaj')
+
+    // Rozet bildirim + DM toplamını gösterir; sayfa da aynı içeriği listeler.
+    const page = await (await bob.get('/notifications')).text()
+    expect(page).toContain('/messages/')
+    expect(page).toContain('@alice')
+    expect(page).toContain('İkinci mesaj')
+    expect(page).toContain('dm-row-badge')
+    expect(page).toContain('2')
+    // Bildirim yoksa bile "bildirim yok" yazmaz, çünkü sayfada mesaj var.
+    expect(page).not.toContain(t.notifications.empty)
+  })
+
+  test('bildirimler sayfasından tüm mesajlar okundu işaretlenir', async () => {
+    const conversation = await openChat(alice, 'bobby')
+    await send(alice, conversation, 'Okunacak mesaj')
+
+    expect(await (await bob.get('/notifications')).text()).toContain('Okunacak mesaj')
+
+    const res = await bob.post('/messages/read-all')
+    expect(res.status).toBe(302)
+
+    const after = await (await bob.get('/notifications')).text()
+    expect(after).not.toContain('Okunacak mesaj')
+    expect(after).toContain(t.notifications.empty)
+  })
+
+  test('sohbet ekranı tam ekrandır: alt bar yok, liste kendi içinde kaydırılır', async () => {
+    const conversation = await openChat(alice, 'bobby')
+    await send(alice, conversation, 'Merhaba')
+
+    const page = await (await alice.get(`/messages/${conversation}`)).text()
+    expect(page).toContain('body class="is-member is-chat"')
+    expect(page).not.toContain('bottom-nav')
+    // Sabit başlık, kaydırılan liste ve sabit yazma alanı.
+    expect(page).toContain('dm-chat-head')
+    expect(page).toContain('data-dm-thread')
+    expect(page).toContain('dm-composer')
+  })
+})
+
+describe('DM — çevrimiçi, yazıyor ve yoklama', () => {  test('karşı taraf çevrimiçi görünür ve "yazıyor" göstergesi çalışır', async () => {
     const conversation = await openChat(alice, 'bobby')
     await send(alice, conversation, 'Sohbet açık')
 
@@ -405,8 +463,7 @@ describe('DM — çevrimiçi, yazıyor ve yoklama', () => {
     expect(alicePoll.reads[second.messages[0]?.id as string]).toBe(true)
   })
 
-  test('üye olmayan kullanıcı yoklama ucuna erişemez', async () => {
-    const conversation = await openChat(alice, 'bobby')
+  test('üye olmayan kullanıcı yoklama ucuna erişemez', async () => {    const conversation = await openChat(alice, 'bobby')
     const res = await carol.get(`/api/dm/thread?conversation=${conversation}`)
     expect(res.status).toBe(403)
   })

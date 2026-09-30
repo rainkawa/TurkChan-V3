@@ -158,10 +158,10 @@ button { font-family: inherit; }
 
 .notif-badge {
   position: absolute; top: 3px; right: 3px;
-  min-width: 17px; height: 17px; padding: 0 4px;
+  min-width: 18px; height: 18px; padding: 0 5px;
   display: inline-flex; align-items: center; justify-content: center;
   background: var(--up); color: #fff; border-radius: var(--radius-pill);
-  font-size: 0.65rem; font-weight: 800; line-height: 1;
+  font-size: 0.65rem; font-weight: 800; line-height: 1; white-space: nowrap;
   box-shadow: 0 0 0 2px var(--surface-raised);
 }
 
@@ -189,6 +189,10 @@ button { font-family: inherit; }
 .bottom-nav a span {
   max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* Rozetin dışarı taşması kırpılmasın (yol etiketi kısıtlaması rozet için geçerli değil). */
+.bottom-nav .bottom-inbox,
+.bottom-nav .bottom-inbox > span,
+.bottom-nav .notif-badge { max-width: none; overflow: visible; }
 .bottom-nav a.active { color: var(--brand); }
 .bottom-nav a.active span { font-weight: 800; }
 .bottom-nav a:hover { color: var(--ink); }
@@ -212,7 +216,7 @@ button { font-family: inherit; }
 .bottom-create.active { color: var(--brand); }
 
 .bottom-inbox { position: relative; display: inline-flex; }
-.bottom-inbox .notif-badge { top: -4px; right: -8px; }
+.bottom-inbox .notif-badge { top: -7px; right: -12px; }
 
 .brand-mark { border-radius: 7px; flex: 0 0 auto; }
 
@@ -1134,6 +1138,11 @@ body.is-guest .page > .card { margin: auto 0; width: 100%; }
 
 .dm-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 
+/* Çift dokunuşla beğeni: tarayıcı çift dokunuşla yakınlaştırmayı denemesin. */
+.dm-row, .dm-bubble-row, .dm-bubble, .dm-bubble-text { touch-action: manipulation; }
+.dm-bubble-row { -webkit-tap-highlight-color: transparent; }
+.dm-bubble-text { -webkit-user-select: text; user-select: text; }
+
 /* Sohbet satırı: profil resmi · isim / kullanıcı adı + mesaj önizlemesi.
    Satırın geri kalanına tıklamak sohbeti açar; isim ve kullanıcı adı ise
    profile gider (uzatılmış bağlantı deseni — iç içe <a> oluşmaz). */
@@ -1220,18 +1229,24 @@ html:not([data-js]) .dm-row-fallback[hidden],
 html:not([data-js]) .dm-msg-fallback[hidden] { display: flex; }
 
 /* --- Sohbet ekranı ------------------------------------------------------- */
+/* Yalnızca mesaj listesi kaydırılır; başlık ve yazma alanı sabit kalır. */
+body.is-chat { overflow: hidden; }
+body.is-chat .page {
+  height: calc(100dvh - var(--header-h) - var(--safe-t));
+  padding: 0 var(--space-4);
+  padding-bottom: 0;
+  overflow: hidden;
+}
+body.is-chat .bottom-nav { display: none; }
 .dm-chat {
   display: flex; flex-direction: column; gap: var(--space-3);
-  min-height: calc(100dvh - var(--header-h) - var(--bottom-nav-h) - var(--space-6));
-  padding-bottom: var(--space-4);
+  height: 100%; min-height: 0; overflow: hidden;
 }
 .dm-chat-head {
-  position: sticky; top: 0; z-index: 8;
+  flex: 0 0 auto;
   display: flex; align-items: center; gap: var(--space-3);
   padding: var(--space-3) 0;
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: var(--surface);
   border-bottom: 1px solid var(--line);
 }
 .dm-chat-person { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--space-3); text-decoration: none; color: inherit; }
@@ -1245,13 +1260,15 @@ html:not([data-js]) .dm-msg-fallback[hidden] { display: flex; }
 }
 .dm-presence.is-online { background: color-mix(in srgb, #16a34a 14%, transparent); color: #15803d; }
 
-.dm-typing { margin: 0; color: var(--brand); font-size: 0.8rem; font-weight: 600; min-height: 1.1em; }
+.dm-typing { flex: 0 0 auto; margin: 0; color: var(--brand); font-size: 0.8rem; font-weight: 600; min-height: 1.1em; }
 .dm-typing:not(.is-typing) { color: transparent; }
 
 .dm-thread {
   list-style: none; margin: 0; padding: 0;
   display: flex; flex-direction: column; gap: var(--space-2);
-  flex: 1;
+  flex: 1 1 auto; min-height: 0;
+  overflow-y: auto; overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 .dm-bubble-row { position: relative; display: flex; }
 .dm-bubble-row.is-mine { justify-content: flex-end; }
@@ -1317,8 +1334,9 @@ html:not([data-js]) .dm-msg-fallback[hidden] { display: flex; }
 .dm-msg-menu { top: auto; bottom: calc(100% - 8px); transform: none; }
 .dm-bubble-row.is-mine .dm-msg-menu { right: 0; }
 
-/* Yanıt kutusu ve yazma alanı */
+/* Yanıt kutusu ve yazma alanı — her ikisi de sabit (kaydırılmaz) alanlar. */
 .dm-reply-bar {
+  flex: 0 0 auto;
   display: flex; align-items: center; gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
   background: var(--surface-raised);
@@ -1329,9 +1347,10 @@ html:not([data-js]) .dm-msg-fallback[hidden] { display: flex; }
 .dm-reply-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dm-reply-label { font-weight: 800; color: var(--brand); }
 .dm-composer {
-  position: sticky; bottom: calc(var(--bottom-nav-h) + var(--safe-b));
+  flex: 0 0 auto;
   display: flex; align-items: flex-end; gap: var(--space-2);
   padding: var(--space-2);
+  margin-bottom: var(--safe-b);
   background: var(--surface-raised);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
@@ -1343,7 +1362,10 @@ html:not([data-js]) .dm-msg-fallback[hidden] { display: flex; }
 }
 .dm-composer textarea:focus { outline: none; }
 .dm-send { flex: 0 0 auto; }
-.dm-hint { margin: 0; color: var(--ink-faint); font-size: 0.7rem; text-align: center; }
+.dm-hint { flex: 0 0 auto; margin: 0 0 var(--space-2); color: var(--ink-faint); font-size: 0.7rem; text-align: center; }
+
+/* Bildirimler sayfasındaki mesaj listesi */
+.notif-readall { margin: 0 0 var(--space-3); }
 
 /* --- Şikayet ------------------------------------------------------------- */
 .dm-report-quote {

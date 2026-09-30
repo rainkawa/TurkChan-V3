@@ -269,6 +269,19 @@ export function markConversationRead(ctx: Ctx, userId: string, conversationId: s
     .run(ctx.now(), conversationId, userId)
 }
 
+/** Bildirimler sayfasındaki "Tümünü okundu işaretle" düğmesi için. */
+export function markAllConversationsRead(ctx: Ctx, userId: string): void {
+  ctx.db
+    .prepare('UPDATE conversation_members SET last_read_at = ? WHERE user_id = ?')
+    .run(ctx.now(), userId)
+}
+
+/** Yalnızca okunmamış mesajı olan sohbetler (bildirimler sayfasında listelenir). */
+export function unreadConversations(ctx: Ctx, userId: string): ConversationSummary[] {
+  const list = listConversations(ctx, userId)
+  return list.main.concat(list.requests).filter((c) => c.unread > 0)
+}
+
 /* -------------------------------------------------------------------------- */
 /* Sohbet eylemleri (basılı tutma menüsü)                                     */
 /* -------------------------------------------------------------------------- */

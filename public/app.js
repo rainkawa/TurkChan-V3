@@ -293,6 +293,9 @@
   var LONG_PRESS_MS = 450
   var pressTimer = null
   var pressMoved = false
+  // Menü açıldıktan sonra parmak kalkınca tarayıcı bir "click" üretir; bu
+  // menüyü hemen kapatırdı. O tıklamayı yutuyoruz.
+  var swallowClick = false
 
   function startPress(row) {
     pressMoved = false
@@ -300,6 +303,9 @@
     pressTimer = setTimeout(function () {
       if (pressMoved) return
       if (openDmMenu(row)) {
+        swallowClick = true
+        // Tarayıcı bir tıklama üretmezse bayrak takılı kalmasın.
+        setTimeout(function () { swallowClick = false }, 700)
         if (navigator.vibrate) navigator.vibrate(12)
       }
     }, LONG_PRESS_MS)
@@ -336,6 +342,11 @@
 
   // Menü eylemleri
   document.addEventListener('click', function (event) {
+    if (swallowClick) {
+      // Uzun basmanın ardından gelen sentetik tıklama menüyü kapatmasın.
+      swallowClick = false
+      return
+    }
     var item = event.target.closest('[data-dm-action]')
     if (!item) {
       if (!event.target.closest('[data-dm-menu]')) closeDmMenus(null)
@@ -408,9 +419,15 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messageId: messageId }),
     })
-      .then(function (res) { return res.ok ? res.json() : null })
+      .then(function (res) {
+        if (!res.ok) {
+          return res.json().catch(function () { return {} }).then(function (data) {
+            throw new Error(data.error || 'Beğeni kaydedilemedi')
+          })
+        }
+        return res.json()
+      })
       .then(function (data) {
-        if (!data) return
         var bubble = row.querySelector('.dm-bubble')
         if (bubble) {
           bubble.classList.remove('just-liked')
@@ -432,7 +449,7 @@
           if (like) like.remove()
         }
       })
-      .catch(function () { /* çevrimdışı: sunucu zaten durumu koruyor */ })
+      .catch(function () { showToast('Beğeni kaydedilemedi.') })
   }
 
   // --- Soldan sağa kaydırarak yanıtlama ---
@@ -555,13 +572,18 @@
       }).catch(function () {})
     }
 
+    // Çift dokunma: iki dokunuş aynı balonda ve kısa sürede yapılırsa beğenilir.
+    // `touch-action: manipulation` CSS sayesinde tarayıcı çift dokunuşla
+    // yakınlaştırmayı dener ve ikinci dokunuşu yutması engellenir.
     var lastTapAt = 0
     var lastTapId = ''
+    var DOUBLE_TAP_MS = 400
     dmChat.addEventListener('touchend', function (event) {
       var row = event.target.closest('.dm-bubble-row')
       if (!row) return
       var now = Date.now()
-      if (lastTapId === row.dataset.dmMessage && now - lastTapAt < 320) {
+      if (lastTapId === row.dataset.dmMessage && now - lastTapAt < DOUBLE_TAP_MS) {
+        cancelPress()
         likeMessage(row, row.dataset.dmMessage)
         lastTapAt = 0
         lastTapId = ''
@@ -571,6 +593,7 @@
       lastTapId = row.dataset.dmMessage
     }, { passive: true })
 
+    // Masaüstünde çift tıklama.
     dmChat.addEventListener('dblclick', function (event) {
       var row = event.target.closest('.dm-bubble-row')
       if (row) likeMessage(row, row.dataset.dmMessage)

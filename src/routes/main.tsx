@@ -23,13 +23,15 @@ import { isAdminPower, userRankInfo } from '../services/ranks'
 import { requestUpload, receiveUpload } from '../services/uploads'
 import { getMyVotes } from '../services/votes'
 import { listNotifications, markAllRead, markRead } from '../services/notifications'
+import { markAllConversationsRead, unreadConversations } from '../services/dm'
+import { Avatar } from '../views/dm'
 import { rankInfoFor } from '../services/ranks'
 import { UserByline } from '../views/rank'
 import { getSettings } from '../services/settings'
 import { decodeCursor } from '../lib/cursor'
 import { AppError } from '../services/errors'
 import { ValidationError } from '../lib/validation'
-import { relativeTime, formatDate, communityColor, communityInitials } from '../views/helpers'
+import { relativeTime, formatDate, communityColor, communityInitials, profilePath } from '../views/helpers'
 import { visibilityLabel } from '../i18n/tr'
 import { type AppEnv, dmUnread, formData, setFlash, takeFlash, unread } from './helpers'
 
@@ -542,8 +544,12 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
     const actors = usersByIds(ctx, items.map((n) => n.actor_id).filter((id): id is string => Boolean(id)))
     const notificationActors = new Map(actors.map((u) => [u.id, u.username]))
     const notificationRanks = rankInfoFor(ctx, actors)
+    // Rozet bildirim + DM toplamını gösterdiği için okunmamış sohbetler de
+    // burada listelenir; aksi halde "2" rozetine rağmen sayfa boş görünürdü.
+    const unreadChats = unreadConversations(ctx, viewer.id)
+    const chatRanks = authorRanksFor(ctx, unreadChats.map((chat) => chat.peer.id))
     return c.html(
-      <Layout title={t.notifications.title} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)} flash={takeFlash(c)} active="inbox">
+      <Layout title={t.notifications.title} viewer={viewer} unread={unread(ctx, viewer)} dmUnread={dmUnread(ctx, viewer)} flash={takeFlash(c)} active="messages">
         <div class="card">
           <h2>{t.notifications.title}</h2>
           {items.length > 0 && (
@@ -551,7 +557,8 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
               <button class="btn secondary small" type="submit">{t.notifications.markAll}</button>
             </form>
           )}
-          {items.length === 0 && <p class="placeholder">{t.notifications.empty}</p>}
+          {/* Placeholder only when there is truly nothing: no notifications and no unread messages. */}
+          {items.length === 0 && unreadChats.length === 0 && <p class="placeholder">{t.notifications.empty}</p>}
           {items.map((n) => (
             <div class={`dir-item${n.read ? ' is-read' : ''}`}>
               <div>
@@ -571,8 +578,54 @@ export function mainRoutes(ctx: Ctx): Hono<AppEnv> {
             </div>
           ))}
         </div>
+
+        {unreadChats.length > 0 && (
+          <div class="card">
+            <h2>{t.dm.title}</h2>
+            <form method="post" action="/messages/read-all" class="notif-readall">
+              <button class="btn secondary small" type="submit">{t.dm.markReadAll}</button>
+            </form>
+            <ul class="dm-list">
+              {unreadChats.map((chat) => (
+                <li class="dm-row is-unread" data-unread="1">
+                  <Avatar user={chat.peer} size={40} />
+                  <span class="dm-row-main">
+                    <span class="dm-row-head">
+                      <UserByline
+                        username={chat.peer.username}
+                        info={chatRanks.get(chat.peer.id) ?? null}
+                        class="dm-row-name"
+                      />
+                      <time class="dm-row-time">{relativeTime(chat.lastMessageAt, now)}</time>
+                    </span>
+                    <span class="dm-row-sub">
+                      <a class="dm-row-username" href={profilePath(chat.peer.username)}>
+                        @{chat.peer.username}
+                      </a>
+                      <span class="dm-row-preview">
+                        {chat.lastMessageFromMe ? `${t.dm.you}: ` : ''}
+                        {chat.lastMessageDeleted ? t.dm.deletedPlaceholder : chat.lastMessage}
+                      </span>
+                    </span>
+                  </span>
+                  <a class="dm-row-open" href={`/messages/${chat.id}`} aria-label={t.dm.openChat}>
+                    <span class="visually-hidden">{t.dm.openChat}</span>
+                  </a>
+                  <span class="dm-row-badge">{chat.unread > 99 ? '99+' : chat.unread}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </Layout>,
     )
+  })
+
+  app.post('/messages/read-all', (c) => {
+    const viewer = c.get('viewer')
+    if (!viewer) return c.redirect('/login')
+    markAllConversationsRead(ctx, viewer.id)
+    return c.redirect('/notifications')
   })
 
   app.get('/notifications/open/:id', (c) => {
