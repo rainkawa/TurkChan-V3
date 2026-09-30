@@ -35,7 +35,6 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 
 CREATE TABLE IF NOT EXISTS password_resets (
   token_hash TEXT PRIMARY KEY,
@@ -51,7 +50,6 @@ CREATE TABLE IF NOT EXISTS login_attempts (
   success INTEGER NOT NULL,
   created_at INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_login_attempts_user ON login_attempts(username_lower, created_at);
 
 CREATE TABLE IF NOT EXISTS invites (
   code TEXT PRIMARY KEY,
@@ -83,7 +81,6 @@ CREATE TABLE IF NOT EXISTS community_rules (
   title TEXT NOT NULL,
   detail TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_rules_community ON community_rules(community_id, position);
 
 CREATE TABLE IF NOT EXISTS memberships (
   user_id TEXT NOT NULL REFERENCES users(id),
@@ -94,7 +91,6 @@ CREATE TABLE IF NOT EXISTS memberships (
   created_at INTEGER NOT NULL,
   PRIMARY KEY (user_id, community_id)
 );
-CREATE INDEX IF NOT EXISTS idx_memberships_community ON memberships(community_id, status);
 
 CREATE TABLE IF NOT EXISTS bans (
   community_id TEXT NOT NULL REFERENCES communities(id),
@@ -144,10 +140,6 @@ CREATE TABLE IF NOT EXISTS posts (
   -- İstatistik
   view_count INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_posts_community ON posts(community_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_posts_author ON posts(author_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_posts_url ON posts(community_id, url);
-CREATE INDEX IF NOT EXISTS idx_posts_thread ON posts(community_id, is_thread, bumped_at DESC);
 
 -- Gönderiye eklenen çoklu medya (görsel / GIF / video). Sıra pozisyonla korunur.
 CREATE TABLE IF NOT EXISTS post_media (
@@ -159,7 +151,6 @@ CREATE TABLE IF NOT EXISTS post_media (
   kind TEXT NOT NULL,                -- image | gif | video
   created_at INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_post_media_post ON post_media(post_id, position);
 
 -- Görüntülenme sayacı: aynı ziyaretçi bir gönderiyi iki kez saymaz.
 CREATE TABLE IF NOT EXISTS post_views (
@@ -178,7 +169,6 @@ CREATE TABLE IF NOT EXISTS board_flairs (
   position INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_flairs_community ON board_flairs(community_id, position);
 
 -- Kullanıcının bir boarda olan ilgisi (kişiselleştirilmiş ana sayfa feed'i).
 -- Keşif yapan üye burada sayacı artırır; geri bildirim butonu azaltır.
@@ -189,7 +179,6 @@ CREATE TABLE IF NOT EXISTS community_affinity (
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (user_id, community_id)
 );
-CREATE INDEX IF NOT EXISTS idx_affinity_user ON community_affinity(user_id, affinity DESC);
 
 CREATE TABLE IF NOT EXISTS comments (
   id TEXT PRIMARY KEY,
@@ -211,9 +200,6 @@ CREATE TABLE IF NOT EXISTS comments (
   thread_no INTEGER,                 -- 1..n, thread gönderilerinde
   reply_to_comment_id TEXT REFERENCES comments(id)
 );
-CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id, path);
-CREATE INDEX IF NOT EXISTS idx_comments_author ON comments(author_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_comments_thread ON comments(post_id, thread_no);
 
 CREATE TABLE IF NOT EXISTS votes (
   user_id TEXT NOT NULL REFERENCES users(id),
@@ -223,7 +209,6 @@ CREATE TABLE IF NOT EXISTS votes (
   created_at INTEGER NOT NULL,
   PRIMARY KEY (user_id, target_type, target_id)
 );
-CREATE INDEX IF NOT EXISTS idx_votes_target ON votes(target_type, target_id);
 
 CREATE TABLE IF NOT EXISTS reports (
   id TEXT PRIMARY KEY,
@@ -240,7 +225,6 @@ CREATE TABLE IF NOT EXISTS reports (
   created_at INTEGER NOT NULL,
   UNIQUE (reporter_id, target_type, target_id)
 );
-CREATE INDEX IF NOT EXISTS idx_reports_queue ON reports(community_id, status, created_at);
 
 CREATE TABLE IF NOT EXISTS mod_actions (
   id TEXT PRIMARY KEY,
@@ -253,7 +237,6 @@ CREATE TABLE IF NOT EXISTS mod_actions (
   detail TEXT,
   created_at INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_mod_actions_community ON mod_actions(community_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS notifications (
   id TEXT PRIMARY KEY,
@@ -268,7 +251,6 @@ CREATE TABLE IF NOT EXISTS notifications (
   withdrawn INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, read, created_at DESC);
 
 -- Özel mesajlar (DM) ------------------------------------------------------
 -- Bir sohbet iki üyeden oluşur; mesajlar conversation_id üzerinden toplanır.
@@ -286,7 +268,6 @@ CREATE TABLE IF NOT EXISTS conversation_members (
   accepted INTEGER NOT NULL DEFAULT 1,       -- 0 = karşı taraf henüz kabul etmedi (istek)
   PRIMARY KEY (conversation_id, user_id)
 );
-CREATE INDEX IF NOT EXISTS idx_conversation_members_user ON conversation_members(user_id);
 
 CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY,
@@ -297,7 +278,6 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at INTEGER NOT NULL,
   deleted_for_everyone INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, created_at);
 
 -- "Sadece benden sil": mesajı silen kişi dışında herkes görmeye devam eder.
 CREATE TABLE IF NOT EXISTS message_deletions (
@@ -324,7 +304,6 @@ CREATE TABLE IF NOT EXISTS message_reports (
   detail TEXT,
   created_at INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_message_reports_message ON message_reports(message_id);
 
 CREATE TABLE IF NOT EXISTS uploads (  key TEXT PRIMARY KEY,             -- unguessable UUID
   uploader_id TEXT NOT NULL REFERENCES users(id),
@@ -354,4 +333,37 @@ CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts USING fts5(
 CREATE VIRTUAL TABLE IF NOT EXISTS communities_fts USING fts5(
   name, title, description, community_id UNINDEXED
 );
+`
+
+/* -------------------------------------------------------------------------- */
+/* Indexler                                                                   */
+/* -------------------------------------------------------------------------- */
+/*
+ * Indexler ayrı tutulur: mevcut bir veritabanında CREATE TABLE IF NOT EXISTS
+ * yeni kolonları eklemez. Indexler `posts.is_thread` gibi yeni kolonlara
+ * bağlandığı için, migrate() kolonları ekledikten SONRA oluşturulmalıdır;
+ * aksi halde uygulama açılışta "no such column" hatasıyla çöker.
+ */
+export const INDEX_SQL = `
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_login_attempts_user ON login_attempts(username_lower, created_at);
+CREATE INDEX IF NOT EXISTS idx_rules_community ON community_rules(community_id, position);
+CREATE INDEX IF NOT EXISTS idx_memberships_community ON memberships(community_id, status);
+CREATE INDEX IF NOT EXISTS idx_posts_community ON posts(community_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_posts_author ON posts(author_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_posts_url ON posts(community_id, url);
+CREATE INDEX IF NOT EXISTS idx_posts_thread ON posts(community_id, is_thread, bumped_at DESC);
+CREATE INDEX IF NOT EXISTS idx_post_media_post ON post_media(post_id, position);
+CREATE INDEX IF NOT EXISTS idx_flairs_community ON board_flairs(community_id, position);
+CREATE INDEX IF NOT EXISTS idx_affinity_user ON community_affinity(user_id, affinity DESC);
+CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id, path);
+CREATE INDEX IF NOT EXISTS idx_comments_author ON comments(author_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_comments_thread ON comments(post_id, thread_no);
+CREATE INDEX IF NOT EXISTS idx_votes_target ON votes(target_type, target_id);
+CREATE INDEX IF NOT EXISTS idx_reports_queue ON reports(community_id, status, created_at);
+CREATE INDEX IF NOT EXISTS idx_mod_actions_community ON mod_actions(community_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, read, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_conversation_members_user ON conversation_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_message_reports_message ON message_reports(message_id);
 `

@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { SCHEMA_SQL } from './schema'
+import { SCHEMA_SQL, INDEX_SQL } from './schema'
 import { hotRank, wilsonLowerBound } from '../lib/ranking'
 
 export type DB = DatabaseSync
@@ -9,8 +9,15 @@ export type DB = DatabaseSync
 export function openDatabase(path: string): DB {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
   const db = new DatabaseSync(path)
+  // Sıra önemlidir:
+  //  1) tablolar oluşturulur — mevcut bir veritabanında CREATE TABLE IF NOT EXISTS
+  //     yeni kolonları EKLEMEZ, yalnızca eksik tabloyu kurar,
+  //  2) migrate() sonradan gelen kolonları ekler,
+  //  3) indexler en sona bırakılır; çünkü bazıları yeni kolonlara bağlıdır ve
+  //     kolonlar eklenmeden önce çalıştırılırsa "no such column" ile çöker.
   db.exec(SCHEMA_SQL)
   migrate(db)
+  db.exec(INDEX_SQL)
   registerFunctions(db)
   return db
 }
