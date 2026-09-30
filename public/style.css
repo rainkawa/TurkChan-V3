@@ -847,63 +847,53 @@ table.data th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0
 .type-tabs a.active { background: var(--ink); color: #fff; }
 
 /* ==========================================================================
-   11. Rütbe ve yönetim yetkisi rozetleri
+   11. Rütbe ve yönetim yetkisi rozetleri (görsel)
    ========================================================================== */
 /*
- * Renkler CSS değişkenleriyle yönetilir. Her rozet kendi zemin + kenarlık +
- * yazı rengini taşır; böylece hem açık hem koyu zeminde okunur kalır.
+ * Rozetler artık metin değil görsel asset: kullanıcı adının hemen yanında tek
+ * bir rozet gösterilir (kısıtlama > yönetim yetkisi > karma rütbesi). Statik
+ * olanlar PNG, animasyonlu olanlar GIF'tir; hepsi 64x64 üretilir ve
+ * `object-fit: contain` ile en-boy oranı bozulmadan ölçeklenir.
  */
 .rank-badges {
   display: inline-flex; align-items: center; gap: 4px;
   flex-wrap: wrap; vertical-align: middle;
   margin-left: 5px;
 }
-.rank-badge {
-  display: inline-flex; align-items: center;
+.rank-badge-img {
+  display: inline-flex; align-items: center; justify-content: center;
+  line-height: 0; /* taban çizgisi boşluğunu kaldırır, satır yüksekliğini bozmaz */
+}
+.rank-img {
+  display: block;
+  width: 22px; height: 22px;   /* akış/yorum satırları için 18–26px aralığı */
+  object-fit: contain;
+  flex: none;
+}
+/* Görsel yüklenemezse devreye giren metin yedeği (kırık resim ikonu yerine). */
+.rank-badge-text {
+  display: none;
+  align-items: center;
   padding: 1px 7px;
-  border: 1px solid var(--rank-border, var(--line));
+  border: 1px solid var(--line);
   border-radius: var(--radius-pill);
-  background: var(--rank-bg, var(--surface-sunken));
-  color: var(--rank-fg, var(--ink-soft));
+  background: var(--surface-sunken);
+  color: var(--ink-soft);
   font-size: 0.63rem; font-weight: 800; line-height: 1.5;
   letter-spacing: 0.02em; text-transform: uppercase;
   white-space: nowrap;
 }
+.rank-badge-img.rank-img-missing .rank-img { display: none; }
+.rank-badge-img.rank-img-missing .rank-badge-text { display: inline-flex; }
+/* Kısıtlama rozeti koyu gri temaya uyum sağlar. */
+.rank-banned .rank-badge-text { background: #43484f; border-color: #7c828b; color: #f4f5f6; }
 
-/* Karma rütbeleri */
-.rank-new_user    { --rank-bg: #f4f1e8; --rank-fg: #4f4a3b; --rank-border: #ddd5c2; }
-.rank-active_user { --rank-bg: #efeade; --rank-fg: #494536; --rank-border: #d6cdb6; }
-.rank-super_user  { --rank-bg: #ebe3cf; --rank-fg: #443f2c; --rank-border: #cfc4a5; }
-.rank-angel       { --rank-bg: #ffffff; --rank-fg: #33302a; --rank-border: #d5d5d5; }
-.rank-legend      { --rank-bg: #dceafd; --rank-fg: #12448f; --rank-border: #a9c9f3; }
-.rank-god         { --rank-bg: #ecdefc; --rank-fg: #5b21b6; --rank-border: #c9aef6; }
-/* Kısıtlama: koyu gri rozet, kalıcı kısıtlamada belirgin çerçeve. */
-.rank-banned      { --rank-bg: #43484f; --rank-fg: #f4f5f6; --rank-border: #7c828b; }
-
-/* Yönetim yetkileri — renkler birbirinden ayırt edilir. */
-.role-moderator       { --rank-bg: #cfe4d8; --rank-fg: #14532d; --rank-border: #94c3aa; }
-.role-super_moderator { --rank-bg: #d7f7e4; --rank-fg: #166534; --rank-border: #7fd8a4; }
-.role-co_admin        { --rank-bg: #f6dde1; --rank-fg: #7b1d2c; --rank-border: #dda9b4; }
-.role-admin           { --rank-bg: #fbdedc; --rank-fg: #991b1b; --rank-border: #f0aaa5; }
-
-.user-byline { display: inline-flex; align-items: center; flex-wrap: wrap; }
+.user-byline { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px; }
 .user-byline > a { font-weight: 700; }
-/* Profildeki koyu alanda rozetler biraz daha büyük ve net. */
-.profile-handle .rank-badge { font-size: 0.68rem; padding: 2px 9px; }
-/* Profil koyu zeminde olduğu için rozetler koyu zemine uyum sağlar. */
-.profile-handle .rank-new_user,
-.profile-handle .rank-active_user,
-.profile-handle .rank-super_user,
-.profile-handle .rank-angel,
-.profile-handle .rank-legend,
-.profile-handle .rank-god,
-.profile-handle .rank-banned,
-.profile-handle .role-moderator,
-.profile-handle .role-super_moderator,
-.profile-handle .role-co_admin,
-.profile-handle .role-admin {
-  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.12);
-}
+/* Profil sayfasında rozet daha büyük gösterilir. */
+.profile-handle .rank-img { width: 34px; height: 34px; }
+.profile-handle .rank-badges { margin-left: 8px; }
+.profile-handle .rank-badge-text { font-size: 0.68rem; padding: 2px 9px; }
 
 /* ==========================================================================
    12. Gönderi detayı — dikey öncelikli mobil düzen

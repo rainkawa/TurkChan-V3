@@ -1,27 +1,30 @@
 import type { FC } from 'hono/jsx'
 import { t } from '../i18n/tr'
-import { STAFF_ROLE_LABELS, rankBadgeLabel, type UserRank } from '../services/ranks'
+import { rankBadgeFor, type UserRank } from '../services/ranks'
 import { profilePath } from './helpers'
 
 /**
- * Karma rütbesi + yönetim yetkisi rozetleri. İki katman bağımsızdır: bir
- * kullanıcı hem "Legend" rütbesine hem de "Yönetici" yetkisine sahip olabilir.
+ * Kullanıcı adının hemen yanında gösterilen **tek** rozet görseli.
+ *
+ * `rankBadgeFor` tek rozeti çözer: kısıtlama > yönetim yetkisi > karma rütbesi.
+ * Yönetim yetkisi olan bir kullanıcıda karma rütbesi gösterilmez, böylece iki
+ * rozet asla yan yana görünmez. Görsel yüklenemezse `rank-badge-text` yedeği
+ * devreye girer (bkz. `public/app.js`); kırık resim ikonu gösterilmez.
  */
 export const RankBadges: FC<{ info?: UserRank | null; class?: string }> = ({ info, class: cls = '' }) => {
   if (!info) return null
+  const badge = rankBadgeFor(info)
+  const prefix = badge.kind === 'staff' ? t.rank.roleLabel : t.rank.label
   return (
     <span class={`rank-badges ${cls}`.trim()}>
       <span
-        class={`rank-badge ${info.banned ? 'rank-banned' : `rank-${info.rank}`}`}
-        title={info.banned ? t.rank.banned : `${t.rank.label}: ${rankBadgeLabel(info)}`}
+        class={`rank-badge-img rank-${badge.variant}${badge.kind === 'staff' ? ` role-${badge.variant}` : ''}`.trim()}
+        data-rank={badge.variant}
+        title={`${prefix}: ${badge.label}`}
       >
-        {rankBadgeLabel(info)}
+        <img class="rank-img" src={badge.src} alt={badge.label} width={64} height={64} loading="lazy" decoding="async" />
+        <span class="rank-badge-text">{badge.label}</span>
       </span>
-      {info.staffRole && (
-        <span class={`rank-badge role-${info.staffRole}`} title={`${t.rank.roleLabel}: ${STAFF_ROLE_LABELS[info.staffRole]}`}>
-          {STAFF_ROLE_LABELS[info.staffRole]}
-        </span>
-      )}
     </span>
   )
 }

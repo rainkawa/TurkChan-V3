@@ -226,6 +226,28 @@
     }
   }
 
+  // --- Rank badge images: graceful fallback when an asset is missing ---
+  // Kırık resim ikonu yerine metin rozeti gösterilir; görsel yüklendiyse
+  // hiçbir şey yapılmaz.
+  document.addEventListener(
+    'error',
+    function (event) {
+      var img = event.target
+      if (!img || img.tagName !== 'IMG' || !img.classList.contains('rank-img')) return
+      var wrap = img.closest('.rank-badge-img')
+      if (wrap) wrap.classList.add('rank-img-missing')
+    },
+    true,
+  )
+  // Uyarı: `error` olayı yakalanmadan önce tetiklenmiş olabilir (önbellekten
+  // gelen kırık görsel), bu yüzden tamamlanmış görselleri bir kez kontrol et.
+  document.querySelectorAll('img.rank-img').forEach(function (img) {
+    if (img.complete && img.naturalWidth === 0) {
+      var wrap = img.closest('.rank-badge-img')
+      if (wrap) wrap.classList.add('rank-img-missing')
+    }
+  })
+
   // --- Close open overflow menus on outside tap ---
   document.addEventListener('click', function (event) {
     document.querySelectorAll('details.overflow-menu[open]').forEach(function (menu) {

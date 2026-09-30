@@ -260,10 +260,14 @@ export const ProfileView_: FC<{
                     <dd>{STAFF_ROLE_LABELS[rank.staffRole]}</dd>
                   </div>
                 )}
-                <div>
-                  <dt>{t.profile.rankRow}</dt>
-                  <dd>{rankBadgeLabel(rank)}</dd>
-                </div>
+                {/* Yönetim yetkisi varsa yalnızca yetki satırı görünür; karma
+                    rütbesi arayüzde hiçbir yerde gösterilmez. */}
+                {!rank.staffRole && (
+                  <div>
+                    <dt>{t.profile.rankRow}</dt>
+                    <dd>{rankBadgeLabel(rank)}</dd>
+                  </div>
+                )}
                 <div>
                   <dt>{t.admin.restriction}</dt>
                   <dd>

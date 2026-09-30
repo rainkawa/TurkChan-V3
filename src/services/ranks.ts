@@ -11,7 +11,13 @@
  * Kısıtlama (askıya alma) yalnızca **görsel** bir rozet durumudur: asıl rütbe
  * her zaman hesaplanmaya devam eder, böylece kısıtlama kalktığında kullanıcı
  * kendi karma rütbesine kendiliğinden döner.
+ *
+ * Arayüzde kullanıcı adının yanında **tek bir görsel rozet** gösterilir
+ * (`rankBadgeFor`): kısıtlama > yönetim yetkisi > karma rütbesi. Yönetim
+ * yetkisi varken karma rütbesi gösterilmez; yönetim paneli ise seçim
+ * yaparken metin etiketlerini kullanmaya devam eder.
  */
+import { t } from '../i18n/tr'
 import type { Ctx } from '../context'
 import type { UserRow } from '../types'
 
@@ -202,5 +208,77 @@ export function rankInfoFor(ctx: Ctx, users: UserRow[]): Map<string, UserRank> {
 
 /** Görüntüde kullanılan etiket: kısıtlıysa "Yasaklı", değilse rütbe adı. */
 export function rankBadgeLabel(info: UserRank): string {
-  return info.banned ? 'Yasaklı' : rankLabel(info.rank)
+  return info.banned ? t.rank.banned : rankLabel(info.rank)
+}
+
+/* -------------------------------------------------------------------------- */
+/* Rütbe görselleri                                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Kullanıcı adının yanında gösterilen tek rozet görselinin kaynağı.
+ *
+ * Görseller `public/assets/ranks/` altında durur ve `scripts/generate-rank-assets.mjs`
+ * ile üretilir. Statik olanlar PNG, animasyonlu olanlar GIF'tir.
+ */
+export const RANK_ASSET_DIR = '/static/assets/ranks'
+
+const RANK_ASSET_FILES: Record<RankId, string> = {
+  new_user: 'new-user.png',
+  active_user: 'active-user.png',
+  super_user: 'super-user.png',
+  angel: 'angel.gif',
+  legend: 'legend.gif',
+  god: 'god.gif',
+}
+
+const STAFF_ROLE_ASSET_FILES: Record<StaffRole, string> = {
+  moderator: 'moderator.gif',
+  super_moderator: 'super-moderator.gif',
+  co_admin: 'co-admin.gif',
+  admin: 'admin.gif',
+}
+
+/** Kısıtlama rozeti: koyu gri, statik PNG. */
+export const BANNED_ASSET = `${RANK_ASSET_DIR}/banned.png`
+
+export function rankAsset(id: RankId): string {
+  return `${RANK_ASSET_DIR}/${RANK_ASSET_FILES[id]}`
+}
+
+export function staffRoleAsset(role: StaffRole): string {
+  return `${RANK_ASSET_DIR}/${STAFF_ROLE_ASSET_FILES[role]}`
+}
+
+export type RankBadgeKind = 'banned' | 'staff' | 'karma'
+
+export interface RankBadge {
+  kind: RankBadgeKind
+  /** CSS sınıfı için ayırt edici değer: rütbe kimliği veya yetki rolü. */
+  variant: string
+  /** Kullanıcı adının yanında gösterilen görselin yolu. */
+  src: string
+  /** `alt`/`title` metni ve görsel yoksa gösterilecek yedek metin. */
+  label: string
+}
+
+/**
+ * Kullanıcının tek rozet görselini çözer.
+ *
+ * Öncelik sırası: kısıtlama > yönetim yetkisi > karma rütbesi. Yönetim yetkisi
+ * varsa karma rütbesi **görüntülenmez** (arka planda hesaplanmaya devam eder), bu
+ * yüzden asla iki rozet yan yana gösterilmez. Karma rütbesi `info.rank` alanından
+ * okunduğu için kısıtlama kalktığında rozet kendiliğinden geri döner.
+ */
+export function rankBadgeFor(info: UserRank): RankBadge {
+  if (info.banned) return { kind: 'banned', variant: 'banned', src: BANNED_ASSET, label: t.rank.banned }
+  if (info.staffRole) {
+    return {
+      kind: 'staff',
+      variant: info.staffRole,
+      src: staffRoleAsset(info.staffRole),
+      label: STAFF_ROLE_LABELS[info.staffRole],
+    }
+  }
+  return { kind: 'karma', variant: info.rank, src: rankAsset(info.rank), label: rankLabel(info.rank) }
 }

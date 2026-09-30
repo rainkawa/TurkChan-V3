@@ -35,7 +35,7 @@ async function setupAuthor() {
 }
 
 describe('rank rozetleri arayüzde', () => {
-  test('profil, gönderi ve yorumda aynı rütbe görünür', async () => {
+  test('profil, gönderi ve yorumda aynı rütbe görseli görünür', async () => {
     const { admin, author, username, postId } = await setupAuthor()
     await createCommentVia(author, 'plaza', postId, 'Yorum')
 
@@ -44,10 +44,12 @@ describe('rank rozetleri arayüzde', () => {
 
     const profile = await (await new Agent(world.app).get(`/tc/${username}`)).text()
     expect(profile).toContain('rank-legend')
+    expect(profile).toContain('/static/assets/ranks/legend.gif')
     expect(profile).toContain('Legend')
 
     const post = await (await new Agent(world.app).get(`/c/plaza/comments/${postId}`)).text()
     expect(post).toContain('rank-legend')
+    expect(post).toContain('/static/assets/ranks/legend.gif')
     expect(post).toContain('Legend')
 
     const home = await (await new Agent(world.app).get('/')).text()
@@ -55,14 +57,15 @@ describe('rank rozetleri arayüzde', () => {
     void admin
   })
 
-  test('yeni kullanıcı New User rütbesini görür', async () => {
+  test('yeni kullanıcı New User görselini görür', async () => {
     const { postId } = await setupAuthor()
     const post = await (await new Agent(world.app).get(`/c/plaza/comments/${postId}`)).text()
     expect(post).toContain('rank-new_user')
+    expect(post).toContain('/static/assets/ranks/new-user.png')
     expect(post).toContain('New User')
   })
 
-  test('arama sonuçları ve bildirimler de rütbe gösterir', async () => {
+  test('arama sonuçları ve bildirimler de aynı rütbe görselini kullanır', async () => {
     const { author, username, postId } = await setupAuthor()
     const userId = (world.ctx.db.prepare('SELECT id FROM users WHERE username_lower = ?').get(username) as {
       id: string
@@ -71,6 +74,7 @@ describe('rank rozetleri arayüzde', () => {
 
     const search = await (await new Agent(world.app).get('/search?q=Rank')).text()
     expect(search).toContain('/tc/' + username)
+    expect(search).toContain('/static/assets/ranks/super-user.png')
     expect(search).toContain('Super User')
 
     // Başka bir kullanıcı gönderiye yorum yazınca bildirim satırında rozet görünür.
@@ -85,6 +89,7 @@ describe('rank rozetleri arayüzde', () => {
     const notifications = await (await author.get('/notifications')).text()
     expect(notifications).toContain('/tc/' + replierName)
     expect(notifications).toContain('rank-legend')
+    expect(notifications).toContain('/static/assets/ranks/legend.gif')
   })
 })
 
@@ -106,6 +111,7 @@ describe('kısıtlama (ban) rütbesi', () => {
 
     const during = await (await guest.get(`/tc/${username}`)).text()
     expect(during).toContain('rank-banned')
+    expect(during).toContain('/static/assets/ranks/banned.png')
     expect(during).toContain('Yasaklı')
     expect(during).not.toContain('rank-legend')
 
@@ -125,6 +131,7 @@ describe('kısıtlama (ban) rütbesi', () => {
     world.tick(365 * 24 * 60 * 60 * 1000)
     const page = await (await new Agent(world.app).get(`/tc/${username}`)).text()
     expect(page).toContain('rank-banned')
+    expect(page).toContain('/static/assets/ranks/banned.png')
   })
 })
 
@@ -143,20 +150,44 @@ describe('yönetim yetkileri', () => {
 
     const profile = await (await new Agent(world.app).get(`/tc/${username}`)).text()
     expect(profile).toContain('role-moderator')
+    expect(profile).toContain('/static/assets/ranks/moderator.gif')
     expect(profile).toContain('Moderatör')
+    // Yetki varken karma rütbesi rozeti gösterilmez (tek rozet kuralı).
+    expect(profile).not.toContain('/static/assets/ranks/new-user.png')
+    expect(profile).not.toContain('rank-new_user')
 
     const allowed = await author.get('/c/plaza/mod/queue')
     expect(allowed.status).toBe(200)
   })
 
-  test('süper moderatör, yardımcı yönetici ve yönetici rozetleri ayrı sınıflarla görünür', async () => {
+  test('yönetim yetkisi olan kullanıcıda karma rütbe hiçbir yerde görünmez', async () => {
+    const { admin, username } = await setupAuthor()
+    const userId = (world.ctx.db.prepare('SELECT id FROM users WHERE username_lower = ?').get(username) as {
+      id: string
+    }).id
+    // 600 karma → God olurdu; yönetici olunca yalnızca yetki rozeti görünmeli.
+    setKarma(userId, 600)
+    await admin.post(`/admin/users/${userId}`, { username, displayName: '', bio: '', rankMode: 'auto', staffRole: 'admin' })
+
+    const profile = await (await new Agent(world.app).get(`/tc/${username}`)).text()
+    expect(profile).toContain('/static/assets/ranks/admin.gif')
+    expect(profile).toContain('rank-admin')
+    expect(profile).not.toContain('/static/assets/ranks/god.gif')
+    expect(profile).not.toContain('rank-god')
+    // Profildeki her rozet aynı yetki görseli (başka bir rütbe görseli yok).
+    const images = [...profile.matchAll(/<img class="rank-img" src="([^"]+)"/g)].map((m) => m[1])
+    expect(images.length).toBeGreaterThan(0)
+    expect([...new Set(images)]).toEqual(['/static/assets/ranks/admin.gif'])
+  })
+
+  test('süper moderatör, yardımcı yönetici ve yönetici rozetleri ayrı görsellerle görünür', async () => {
     const { admin } = await setupAuthor()
-    const roles: Array<[string, string]> = [
-      ['super_moderator', 'role-super_moderator'],
-      ['co_admin', 'role-co_admin'],
-      ['admin', 'role-admin'],
+    const roles: Array<[string, string, string]> = [
+      ['super_moderator', 'role-super_moderator', '/static/assets/ranks/super-moderator.gif'],
+      ['co_admin', 'role-co_admin', '/static/assets/ranks/co-admin.gif'],
+      ['admin', 'role-admin', '/static/assets/ranks/admin.gif'],
     ]
-    for (const [role, className] of roles) {
+    for (const [role, className, asset] of roles) {
       const { agent, username } = await registerUser(world, `u_${role}`)
       const userId = (world.ctx.db.prepare('SELECT id FROM users WHERE username_lower = ?').get(username) as {
         id: string
@@ -164,6 +195,7 @@ describe('yönetim yetkileri', () => {
       await admin.post(`/admin/users/${userId}`, { username, displayName: '', bio: '', rankMode: 'auto', staffRole: role })
       const page = await (await new Agent(world.app).get(`/tc/${username}`)).text()
       expect(page, role).toContain(className)
+      expect(page, role).toContain(asset)
       void agent
     }
   })
@@ -189,6 +221,7 @@ describe('yönetim panelinden rütbe ve profil yönetimi', () => {
     await admin.post(`/admin/users/${userId}`, { username, displayName: 'Mert', bio: 'Selam', rankMode: 'manual', rank: 'god' })
     const manual = await (await guest.get(`/tc/${username}`)).text()
     expect(manual).toContain('rank-god')
+    expect(manual).toContain('/static/assets/ranks/god.gif')
     expect(manual).toContain('God')
 
     const detail = await (await admin.get(`/admin?tab=users&edit=${userId}`)).text()
@@ -204,7 +237,7 @@ describe('yönetim panelinden rütbe ve profil yönetimi', () => {
   test('kullanıcı listesi rütbe ve yetki sütunlarını gösterir', async () => {
     const { admin, username } = await setupAuthor()
     const page = await (await admin.get('/admin?tab=users')).text()
-    expect(page).toContain('rank-badge')
+    expect(page).toContain('rank-badge-img')
     expect(page).toContain(`/tc/${username}`)
     expect(page).toContain('Rütbe')
     expect(page).toContain('Yönetim yetkisi')
