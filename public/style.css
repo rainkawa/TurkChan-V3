@@ -853,7 +853,7 @@ table.data th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0
  * Rozetler metin değil, gerçek GIF rank bannerıdır: kullanıcı adının hemen
  * yanında tek bir rozet gösterilir (kısıtlama > yönetim yetkisi > karma rütbesi).
  * Bannerlar 30px mantıksal yükseklikte, 2x çözünürlükte üretilir; burada yalnızca
- * yükseklik verilip genişlik SVG/GIF'in kendi en-boy oranından bırakılır.
+ * yükseklik verilip genişlik GIF'in kendi en-boy oranından bırakılır.
  */
 .rank-badges {
   display: inline-flex; align-items: center; gap: 4px;
@@ -866,7 +866,7 @@ table.data th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0
 }
 .rank-img {
   display: block;
-  height: 26px;   /* akış/yorum satırları: yazı okunaklı kalsın */
+  height: 22px;   /* akış/yorum satırları: kullanıcı satırını bozmayan ölçek */
   width: auto;    /* banner kendi en-boy oranını bildirir */
   max-width: 100%;
   object-fit: contain;
@@ -893,7 +893,7 @@ table.data th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0
 .user-byline { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px; }
 .user-byline > a { font-weight: 700; }
 /* Profil sayfasında banner biraz daha büyük gösterilir. */
-.profile-handle .rank-img { height: 34px; }
+.profile-handle .rank-img { height: 30px; }
 .profile-handle .rank-badges { margin-left: 8px; }
 .profile-handle .rank-badge-text { font-size: 0.68rem; padding: 2px 9px; }
 
