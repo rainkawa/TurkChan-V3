@@ -33,6 +33,21 @@ export interface AppConfig {
   aiEnabled: boolean
   /** Davranış motorunun kaç dakikada bir çalışacağı. */
   aiTickMinutes: number
+  /**
+   * Metin üretimi: OpenAI uyumlu sohbet tamamlama ucu.
+   * Anahtar boşsa motor hazır kalıplara (offline mod) düşer.
+   * Başka bir sağlayıcıya geçmek için yalnızca base URL + model değişir.
+   */
+  aiLlmApiKey: string
+  aiLlmBaseUrl: string
+  aiLlmModel: string
+  aiLlmTimeoutMs: number
+  /** İnternet araştırması (grounding) — anahtar boşsa araştırma yapılmaz. */
+  aiSearchApiKey: string
+  aiSearchUrl: string
+  aiSearchResults: number
+  /** Bir turda en fazla kaç metin üretimi yapılsın (maliyet + süre sınırı). */
+  aiMaxGenerationsPerTick: number
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -56,5 +71,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     globalRequestsPerMinute: Number(env.GLOBAL_RATE_PER_MIN ?? 600),
     aiEnabled: env.AI_ENABLED !== '0' && env.AI_ENABLED !== 'false',
     aiTickMinutes: Math.max(1, Number(env.AI_TICK_MINUTES ?? 5)),
+    aiLlmApiKey: env.AI_LLM_API_KEY ?? '',
+    aiLlmBaseUrl: (env.AI_LLM_BASE_URL ?? 'https://api.openai.com/v1').replace(/\/+$/u, ''),
+    aiLlmModel: env.AI_LLM_MODEL ?? 'gpt-4o-mini',
+    aiLlmTimeoutMs: Math.max(2000, Number(env.AI_LLM_TIMEOUT_MS ?? 15000)),
+    aiSearchApiKey: env.AI_SEARCH_API_KEY ?? '',
+    aiSearchUrl: env.AI_SEARCH_URL ?? 'https://api.exa.ai/search',
+    aiSearchResults: Math.min(5, Math.max(1, Number(env.AI_SEARCH_RESULTS ?? 3))),
+    aiMaxGenerationsPerTick: Math.max(0, Number(env.AI_MAX_GENERATIONS ?? 6)),
   }
 }

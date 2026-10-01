@@ -24,8 +24,10 @@ import { activeBan, getCommunityById, getMembership } from '../access'
 import { isAdminPower } from '../ranks'
 import { getSettings } from '../settings'
 import { AppError } from '../errors'
-import { generateComment, generatePost, makeRng, detectTopic } from './voice'
-import { analyzeContent } from './analyze'
+import { generateComment, generatePost, makeRng, detectTopic, type Stance } from './voice'
+import { analyzeContent, type ContentAnalysis } from './analyze'
+import { inferStance, writePost, writeReply } from './writer'
+import { llmAvailable } from './llm'
 import {
   adjustRelationship,
   adjustReputation,
@@ -45,6 +47,28 @@ import {
 const MAX_ACTIONS_PER_TICK = 12
 /** Bir karakterin tek seferde en fazla açabileceği gönderi sayısı. */
 const MAX_POSTS_PER_TICK = 2
+/** Aynı anda yapılacak metin üretimi sayısı (model çağrısı maliyetli). */
+const MAX_CONCURRENT_GENERATIONS = 3
+
+/** Basit eşzamanlılık kapısı. */
+function createConcurrencyGate(limit: number): <T>(task: () => Promise<T>) => Promise<T> {
+  let active = 0
+  const queue: Array<() => void> = []
+  const release = (): void => {
+    active -= 1
+    const next = queue.shift()
+    if (next) next()
+  }
+  return async function gated<T>(task: () => Promise<T>): Promise<T> {
+    if (active >= limit) await new Promise<void>((resolve) => queue.push(resolve))
+    active += 1
+    try {
+      return await task()
+    } finally {
+      release()
+    }
+  }
+}
 
 export interface TickResult {
   actions: number
@@ -130,12 +154,16 @@ export function aiBoardCoverage(ctx: Ctx): {
 }
 
 /**
- * Bir "tur" çalıştırır: etkin karakterlerden rastgele birkaçı seçilir ve
- * kişiliklerine göre birer işlem yapar.
+ * Bir "tur" çalıştırır: etkin karakterlerden birkaçı seçilir ve kişiliklerine
+ * göre işlem yapar.
+ *
+ * Metin üretimi model çağrısı olduğu için asenkrondur. Eşzamanlılık sınırlıdır
+ * ve tur başına metin üretimi bütçesi vardır (maliyet + süre). Bütçe biterse
+ * karakter o tur sessiz kalır — saçma içerik üretmektense yazmamak yeğdir.
  *
  * @param now Zaman (testlerde sahte saat verilebilir).
  */
-export function runAiTick(ctx: Ctx, now: number = ctx.now()): TickResult {
+export async function runAiTick(ctx: Ctx, now: number = ctx.now()): Promise<TickResult> {
   const agents = listEnabledAgents(ctx)
   const result: TickResult = { actions: 0, posts: 0, comments: 0, votes: 0, boards: 0 }
   if (agents.length === 0) return result
@@ -151,16 +179,23 @@ export function runAiTick(ctx: Ctx, now: number = ctx.now()): TickResult {
   // daha çok çağrılır, nadir paylaşanlar az.
   const chosen = pickWeightedAgents(rng, agents, MAX_ACTIONS_PER_TICK)
 
-  for (const agentRow of chosen) {
-    try {
-      const did = runOneAgent(ctx, agentRow, rng, now)
-      if (did) result.actions += 1
-    } catch (err) {
-      // Rate limit / yetki hatası bu karakteri durdurur ama diğerlerini
-      // etkilemez. Korumalar kasıtlı olarak bypass EDİLMEZ.
-      if (!(err instanceof AppError)) throw err
-    }
-  }
+  const budget = { remaining: ctx.config.aiMaxGenerationsPerTick }
+  const gate = createConcurrencyGate(MAX_CONCURRENT_GENERATIONS)
+  const results = await Promise.all(
+    chosen.map((agentRow) =>
+      gate(async () => {
+        try {
+          return await runOneAgent(ctx, agentRow, rng, now, budget)
+        } catch (err) {
+          // Rate limit / yetki hatası bu karakteri durdurur ama diğerlerini
+          // etkilemez. Korumalar kasıtlı olarak bypass EDİLMEZ.
+          if (!(err instanceof AppError)) throw err
+          return false
+        }
+      }),
+    ),
+  )
+  result.actions = results.filter(Boolean).length
 
   // Kümülatif sayaçlar değil, BU TURDA yapılan işlemler döner: testler ve
   // loglar tek turda ne olduğunu görebilsin.
@@ -208,7 +243,13 @@ function pickWeightedAgents(
 }
 
 /** Tek bir karakterin bir turda ne yapacağına karar verir ve yapar. */
-function runOneAgent(ctx: Ctx, row: AiAgentWithUser, rng: () => number, now: number): boolean {
+async function runOneAgent(
+  ctx: Ctx,
+  row: AiAgentWithUser,
+  rng: () => number,
+  now: number,
+  budget: { remaining: number },
+): Promise<boolean> {
   // Bir turda aynı karakterin arka arkaya çok işlem yapmasın.
   if (row.last_active_at !== null && now - row.last_active_at < 60_000) return false
 
@@ -242,10 +283,10 @@ function runOneAgent(ctx: Ctx, row: AiAgentWithUser, rng: () => number, now: num
   }
 
   if (action === 'post') {
-    return maybeOpenPost(ctx, profile, user, rng, interests, now)
+    return await maybeOpenPost(ctx, profile, user, rng, interests, now, budget)
   }
   if (action === 'comment') {
-    return maybeComment(ctx, profile, user, rng, interests, dislikes, now)
+    return await maybeComment(ctx, profile, user, rng, interests, dislikes, now, budget)
   }
   return maybeVote(ctx, profile, user, rng, interests, dislikes)
 }
@@ -306,28 +347,51 @@ function pickCommunity(
 }
 
 /** Karakter yeni bir gönderi açar. */
-function maybeOpenPost(
+async function maybeOpenPost(
   ctx: Ctx,
   agent: AiAgentWithUser,
   user: UserRow,
   rng: () => number,
   interests: string[],
   now: number,
-): boolean {
+  budget: { remaining: number },
+): Promise<boolean> {
   if (agent.posts_created >= MAX_POSTS_PER_TICK) return false
   const community = pickCommunity(ctx, agent, rng)
   if (!community) return false
 
-  const text = generatePost(agent, Math.floor(rng() * 2 ** 31))
-  // İlgi alanıyla eşleşmeyen konuları bu karakterin ilgi alanlarından birine
-  // bağla: yazı, karakterin gerçekten ilgilendiği bir alandan gelsin.
-  const topic = interests.length > 0 ? interests[Math.floor(rng() * interests.length)]! : text.topic
+  // Konu: karakterin ilgi alanlarından + board içeriğinden türetilir.
+  const topic = interests.length > 0 ? interests[Math.floor(rng() * interests.length)]! : 'gündelik'
+
+  let title: string
+  let body: string
+  if (llmAvailable(ctx) && budget.remaining > 0) {
+    budget.remaining -= 1
+    const generated = await writePost(ctx, agent, { topic, boardName: community.name })
+    if (!generated) {
+      // Model boş döndüyse veya kalite kapısı reddettiyse karakter yazmaz:
+      // şablonla saçma gönderi üretmektense sessiz kalmak yeğdir.
+      logAiAction(ctx, {
+        agentId: agent.user_id,
+        action: 'post_skipped',
+        targetType: 'community',
+        targetId: community.id,
+        communityId: community.id,
+        detail: 'metin üretimi kullanılamadı veya kalite kontrolünden geçmedi',
+      })
+      return false
+    }
+    title = generated.title
+    body = generated.body
+  } else {
+    if (llmAvailable(ctx) && budget.remaining <= 0) return false
+    const text = generatePost(agent, Math.floor(rng() * 2 ** 31))
+    title = text.title.replace(/\{t\}/g, topic)
+    body = text.body
+  }
 
   try {
-    const post = createTextPost(ctx, user, community, {
-      title: text.title.replace(/\{t\}/g, topic),
-      body: text.body,
-    })
+    const post = createTextPost(ctx, user, community, { title, body })
     bumpAgentCounters(ctx, agent.user_id, 'post')
     bumpPresence(ctx, agent.user_id, community.id, 'post')
     adjustReputation(ctx, agent.user_id, 1)
@@ -349,7 +413,7 @@ function maybeOpenPost(
 }
 
 /** Karakter mevcut bir konuya yorum yazar veya yoruma cevap verir. */
-function maybeComment(
+async function maybeComment(
   ctx: Ctx,
   agent: AiAgentWithUser,
   user: UserRow,
@@ -357,7 +421,8 @@ function maybeComment(
   interests: string[],
   dislikes: string[],
   now: number,
-): boolean {
+  budget: { remaining: number },
+): Promise<boolean> {
   const posts = candidatePosts(ctx, agent, interests, dislikes)
   if (posts.length === 0) return false
   const post = posts[Math.floor(rng() * posts.length) % posts.length]!
@@ -394,7 +459,26 @@ function maybeComment(
     }
   }
 
-  const text = generateComment(agent, context, Math.floor(rng() * 2 ** 31), undefined, peerRelation, media)
+  const text = await composeText(ctx, agent, budget, {
+    context,
+    analysis,
+    media,
+    peerRelation,
+    seed: Math.floor(rng() * 2 ** 31),
+  })
+  // Bütçe bitti veya model kalite kontrolünden geçemedi: yorum yazılmaz.
+  if (!text) {
+    logAiAction(ctx, {
+      agentId: agent.user_id,
+      action: 'comment_skipped',
+      targetType: 'post',
+      targetId: post.id,
+      communityId: post.community_id,
+      detail: 'metin üretimi kullanılamadı veya kalite kontrolünden geçmedi',
+    })
+    ctx.db.prepare('UPDATE ai_agents SET last_active_at = ?, updated_at = ? WHERE user_id = ?').run(now, now, agent.user_id)
+    return false
+  }
 
   try {
     const comment = createComment(ctx, user, post.id, {
@@ -494,6 +578,46 @@ function maybePickParent(
     .all(post.id, agent.user_id) as unknown as Array<{ id: string; body: string; author_id: string }>
   if (comments.length === 0) return null
   return comments[Math.floor(rng() * comments.length) % comments.length]!
+}
+
+/**
+ * Yorum metnini üretir.
+ *
+ * Öncelik sırası:
+ *   1. Metin modeli (yoksa anahtara bağlı): okunan içeriğe ve karaktere göre
+ *      yazar, gerekirse internette araştırır.
+ *   2. Şablon üreticisi: model yoksa çevrimdışı çalışma modu.
+ *   3. Bütçe bitti / model reddettiyse: karakter yazmaz (null).
+ */
+async function composeText(
+  ctx: Ctx,
+  agent: AiAgentWithUser,
+  budget: { remaining: number },
+  input: {
+    context: string
+    analysis: ContentAnalysis
+    media: { postType: string; mediaKind: string }
+    peerRelation: number
+    seed: number
+  },
+): Promise<{ body: string; stance: Stance } | null> {
+  if (!llmAvailable(ctx)) {
+    const generated = generateComment(
+      agent,
+      input.context,
+      input.seed,
+      undefined,
+      input.peerRelation,
+      input.media,
+    )
+    return { body: generated.body, stance: generated.stance }
+  }
+
+  if (budget.remaining <= 0) return null
+  budget.remaining -= 1
+  const written = await writeReply(ctx, agent, input.context, input.peerRelation, input.analysis)
+  if (!written) return null
+  return { body: written.body, stance: inferStance(written.body) }
 }
 
 /** Karakter mevcut içeriklere oy verir. */

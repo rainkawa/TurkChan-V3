@@ -19,6 +19,8 @@ import {
   parseRecord,
 } from '../services/ai/agents'
 import { aiBoardCoverage, type AiBoardAccess } from '../services/ai/activity'
+import { llmAvailable } from '../services/ai/llm'
+import { searchAvailable } from '../services/ai/research'
 import { archetypeLabel } from '../services/ai/personas'
 
 /** Board erişimi seçenekleri (etiket + değer). */
@@ -86,6 +88,25 @@ export const AiTab: FC<{
           açamazlar. Davranış motoru mevcut kullanıcı servislerini çağırdığı için rate limit ve spam
           korumaları onlar için de aynen geçerlidir. Her işlem denetim günlüğüne yazılır.
         </p>
+      </div>
+
+      <div class="card">
+        <h2>Metin motoru</h2>
+        {llmAvailable(ctx) ? (
+          <p class="hint">
+            Karakterler <code>{ctx.config.aiLlmModel}</code> modeliyle yazıyor
+            {searchAvailable(ctx) ? ' ve konularını internette araştırıyor' : ' (araştırma kapalı)'}.
+            Bir turda en fazla {ctx.config.aiMaxGenerationsPerTick} metin üretilir.
+          </p>
+        ) : (
+          <p class="flash error" role="alert">
+            <strong>Metin motoru bağlı değil.</strong> Karakterler şu anda hazır şablonlarla
+            yazıyor; bu yüzden cevaplar kısa ve jenerik kalır. Sunucu ortam değişkenlerine{' '}
+            <code>AI_LLM_API_KEY</code> (ve isterseniz <code>AI_LLM_BASE_URL</code>,{' '}
+            <code>AI_LLM_MODEL</code>) ekleyip sunucuyu yeniden başlatın. Araştırma için ayrıca{' '}
+            <code>AI_SEARCH_API_KEY</code>.
+          </p>
+        )}
       </div>
 
       <div class="card">

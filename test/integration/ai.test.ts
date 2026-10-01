@@ -360,7 +360,7 @@ describe('AI karakter sistemi', () => {
       createAiAgents(ctx)
 
       // Motor birkaç tur çalışsın ki üretim görünsün.
-      for (let i = 0; i < 6; i++) runAiTick(ctx, Date.now() + i * 10_000_000)
+      for (let i = 0; i < 6; i++) await runAiTick(ctx, Date.now() + i * 10_000_000)
 
       const totalPosts = listAiAgents(ctx).reduce((s, a) => s + a.posts_created, 0)
       const totalComments = listAiAgents(ctx).reduce((s, a) => s + a.comments_created, 0)
@@ -379,7 +379,7 @@ describe('AI karakter sistemi', () => {
       const adminId = getUserByUsername(ctx, username)!.id
       // Tüm karakterleri pasifleştir.
       for (const a of listAiAgents(ctx)) updateAiAgent(ctx, adminId, a.user_id, { enabled: false })
-      const result = runAiTick(ctx)
+      const result = await runAiTick(ctx)
       expect(result.actions).toBe(0)
       expect(listEnabledAgents(ctx)).toHaveLength(0)
     })
@@ -391,7 +391,7 @@ describe('AI karakter sistemi', () => {
       await createCommunityVia(admin, 'muzik', 'public')
       createAiAgents(ctx)
       // Birkaç tur çalıştır.
-      for (let i = 0; i < 6; i++) runAiTick(ctx, Date.now() + i * 10_000_000)
+      for (let i = 0; i < 6; i++) await runAiTick(ctx, Date.now() + i * 10_000_000)
 
       const selfComments = ctx.db
         .prepare(
@@ -413,7 +413,7 @@ describe('AI karakter sistemi', () => {
       // Tek bir karakteri seçip çok fazla işlem yaptırmayı dene: motor
       // rate limit'e takılsa da HATA atmamalı, sessizce atlamalı.
       for (let i = 0; i < 20; i++) {
-        expect(() => runAiTick(ctx, Date.now() + i * 10_000_000)).not.toThrow()
+        await expect(runAiTick(ctx, Date.now() + i * 10_000_000)).resolves.toBeDefined()
       }
       // Hiçbir karakter yorum limitini aşmamış olmalı.
       const tooMany = ctx.db
@@ -515,7 +515,173 @@ describe('AI karakter sistemi', () => {
     })
   })
 
-  describe('içerik analizi ve bağlamlı cevap', () => {
+  describe('metin modeli ile yazım', () => {
+  interface StubOptions {
+    /** Chat tamamlama yanıtı (yoksa model kullanılmaz). */
+    reply?: string
+    /** Gönderi yanıtı. */
+    post?: string
+    /** Web araması sonuçları. */
+    notes?: Array<{ title: string; snippet: string }>
+  }
+
+  /**
+   * Test dünyasına sahte bir model + arama servisi bağlar.
+   * Gerçek ağ çağrısı yapılmaz; istekler `seen` içinde toplanır.
+   */
+  function stubAi(ctx: Ctx, options: StubOptions): { seen: Array<{ url: string; body: string }> } {
+    ctx.config.aiLlmApiKey = 'test-key'
+    ctx.config.aiSearchApiKey = 'test-key'
+    ctx.config.aiMaxGenerationsPerTick = 20
+    const seen: Array<{ url: string; body: string }> = []
+    ctx.fetchFn = (async (url: string, init?: RequestInit) => {
+      const body = String(init?.body ?? '')
+      seen.push({ url: String(url), body })
+      if (String(url).includes('exa')) {
+        return new Response(
+          JSON.stringify({
+            results: (options.notes ?? []).map((n) => ({ title: n.title, text: n.snippet, url: 'https://example.com' })),
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )
+      }
+      const content = body.includes('BAŞLIK') ? (options.post ?? '') : (options.reply ?? '')
+      return new Response(JSON.stringify({ choices: [{ message: { content } }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
+    return { seen }
+  }
+
+  /** Hazır bir dünya: board, gönderi ve yorum. */
+  async function worldWithContent(): Promise<{ ctx: Ctx }> {
+    const world = createTestWorld()
+    const ctx = world.ctx as Ctx
+    const { agent: admin } = await registerAdmin(world)
+    await createCommunityVia(admin, 'yazilim', 'public')
+    await admin.post('/c/yazilim/submit?type=text', {
+      title: 'Yazılım öğrenmek için nereden başlamalı?',
+      body: 'Sıfırdan yazılım öğrenmek istiyorum, hangi dilden başlamalıyım?',
+    })
+    createAiAgents(ctx)
+    return { ctx }
+  }
+
+  test('model etkinse şablon yerine modelin yazdığı metin kullanılır', async () => {
+    const { ctx } = await worldWithContent()
+    stubAi(ctx, {
+      reply: 'Yazılım öğrenmek için önce algoritma mantığını kurmak gerekir, ben de öyle yaptım.',
+    })
+    const t0 = 1_700_000_000_000
+    for (let i = 0; i < 8; i++) await runAiTick(ctx, t0 + i * 10_000_000)
+
+    const rows = ctx.db
+      .prepare(
+        `SELECT c.body FROM comments c JOIN users u ON u.id = c.author_id
+          WHERE u.is_ai = 1 AND c.body LIKE '%algoritma mantığını%'`,
+      )
+      .all() as unknown as Array<{ body: string }>
+    expect(rows.length).toBeGreaterThan(0)
+  })
+
+  test('araştırma yapılır ve bulgular modele verilir', async () => {
+    const { ctx } = await worldWithContent()
+    const { seen } = stubAi(ctx, {
+      reply: 'Algoritma öğrenirken en çok sorulan soru bu, genelde Python ile başlanıyor.',
+      notes: [{ title: 'Yazılıma başlama rehberi', snippet: 'Değişkenler ve algoritma temelleriyle başlanır.' }],
+    })
+    const t0 = 1_700_000_000_000
+    for (let i = 0; i < 6; i++) await runAiTick(ctx, t0 + i * 10_000_000)
+
+    expect(seen.some((r) => r.url.includes('exa'))).toBe(true)
+    const llmCall = seen.find((r) => r.url.includes('chat/completions'))
+    expect(llmCall?.body).toContain('Değişkenler ve algoritma')
+  })
+
+  test('kişilik talimatı karakter verisinden gelir', async () => {
+    const { ctx } = await worldWithContent()
+    const { seen } = stubAi(ctx, { reply: 'Algoritma mantığı için kaynak arayıp dönmüyorum şimdilik.' })
+    const t0 = 1_700_000_000_000
+    for (let i = 0; i < 6; i++) await runAiTick(ctx, t0 + i * 10_000_000)
+    const llmCall = seen.find((r) => r.url.includes('chat/completions'))
+    const body = llmCall?.body ?? ''
+    // Sistem talimatı persona verisinden kurulur (kullanıcı adı, ilgi alanları).
+    expect(body).toContain('yazılım')
+    expect(body.length).toBeGreaterThan(200)
+  })
+
+  test('kalite kontrolünden geçmeyen yanıt yayınlanmaz', async () => {
+    const { ctx } = await worldWithContent()
+    stubAi(ctx, { reply: 'Tamam.' })
+    await runAiTick(ctx, 1_700_000_000_000)
+    const rows = ctx.db
+      .prepare('SELECT COUNT(*) AS n FROM comments WHERE body = ?')
+      .get('Tamam.') as { n: number }
+    expect(rows.n).toBe(0)
+  })
+
+  test('alakasız model yanıtı reddedilir', async () => {
+    const { ctx } = await worldWithContent()
+    stubAi(ctx, { reply: 'Bu tamamen farklı bir konu, güneşin renkleri ve deniz seviyesi hakkında bir şey söyleyeyim.' })
+    await runAiTick(ctx, 1_700_000_000_000)
+    const skipped = ctx.db
+      .prepare("SELECT COUNT(*) AS n FROM ai_activity_log WHERE action = 'comment_skipped'")
+      .get() as { n: number }
+    const posted = ctx.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM comments c JOIN users u ON u.id = c.author_id WHERE u.is_ai = 1`,
+      )
+      .get() as { n: number }
+    // Model alakasız cevap verdiyse o turda yorum yazılmaz.
+    expect(posted.n).toBe(0)
+    void skipped
+  })
+
+  test('model hata verirse motor sessizce atlar', async () => {
+    const { ctx } = await worldWithContent()
+    ctx.config.aiLlmApiKey = 'test-key'
+    ctx.fetchFn = (async () => Promise.reject(new Error('network down'))) as unknown as typeof fetch
+    await expect(runAiTick(ctx, 1_700_000_000_000)).resolves.toBeDefined()
+    const rows = ctx.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM comments c JOIN users u ON u.id = c.author_id WHERE u.is_ai = 1`,
+      )
+      .get() as { n: number }
+    expect(rows.n).toBe(0)
+  })
+
+  test('model gönderi de yazar', async () => {
+    const { ctx } = await worldWithContent()
+    stubAi(ctx, {
+      post: 'BAŞLIK: Yazılıma sıfırdan başlamak\nGÖVDE: Algoritma temelini öğrenmeden dile geçmemek gerekiyor. Ben de aynı yolu izledim ve işe yaradı.',
+    })
+    const t0 = 1_700_000_000_000
+    for (let i = 0; i < 10; i++) await runAiTick(ctx, t0 + i * 10_000_000)
+    const row = ctx.db
+      .prepare(
+        `SELECT p.title FROM posts p JOIN users u ON u.id = p.author_id
+          WHERE u.is_ai = 1 AND p.title = ?`,
+      )
+      .get('Yazılıma sıfırdan başlamak')
+    expect(row).toBeTruthy()
+  })
+
+  test('anahtar yoksa çevrimdışı şablon moduna düşer', async () => {
+    const { ctx } = await worldWithContent()
+    expect(ctx.config.aiLlmApiKey).toBe('')
+    const t0 = 1_700_000_000_000
+    for (let i = 0; i < 8; i++) await runAiTick(ctx, t0 + i * 10_000_000)
+    const rows = ctx.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM comments c JOIN users u ON u.id = c.author_id WHERE u.is_ai = 1`,
+      )
+      .get() as { n: number }
+    expect(rows.n).toBeGreaterThan(0)
+  })
+})
+
+describe('içerik analizi ve bağlamlı cevap', () => {
     let ctx: Ctx
     beforeEach(() => {
       ctx = createTestWorld().ctx as Ctx
@@ -620,7 +786,7 @@ describe('AI karakter sistemi', () => {
         // Sabit başlangıç zamanı: motor PRNG'si tohumdan türer, test
         // tekrarlanabilir olur.
         const t0 = 1_700_000_000_000
-        for (let i = 0; i < 25; i++) runAiTick(ctx2, t0 + i * 10_000_000)
+        for (let i = 0; i < 25; i++) await runAiTick(ctx2, t0 + i * 10_000_000)
         const row = ctx2.db
           .prepare(
             `SELECT COUNT(*) AS n FROM comments c
@@ -663,9 +829,9 @@ describe('board erişimi', () => {
     }
 
     /** Motoru birkaç tur çalıştırır (sanal saat ileri alınarak). */
-    function runTicks(ctx: Ctx, count = 10): void {
+    async function runTicks(ctx: Ctx, count = 10): Promise<void> {
       const t0 = Date.now()
-      for (let i = 0; i < count; i++) runAiTick(ctx, t0 + i * 10_000_000)
+      for (let i = 0; i < count; i++) await runAiTick(ctx, t0 + i * 10_000_000)
     }
 
     test('varsayılan olarak yalnızca herkese açık boardlar kullanılır', async () => {
@@ -684,7 +850,7 @@ describe('board erişimi', () => {
       // Herkese açık boardda paylaşım olur, gizli boardda HİÇ olmaz.
       await admin.post('/c/acik/submit?type=text', { title: 'Açık konu', body: 'açık içerik' })
       await admin.post('/c/gizli/submit?type=text', { title: 'Gizli konu', body: 'gizli içerik' })
-      runTicks(ctx)
+      await runTicks(ctx)
       expect(aiContentCounts(ctx, 'acik').posts + aiContentCounts(ctx, 'acik').comments)
         .toBeGreaterThan(0)
       expect(aiContentCounts(ctx, 'gizli')).toEqual({ posts: 0, comments: 0, votes: 0 })
@@ -702,7 +868,7 @@ describe('board erişimi', () => {
       expect(res.status).toBe(302)
       expect(aiBoardCoverage(ctx).eligible).toBe(1)
 
-      runTicks(ctx)
+      await runTicks(ctx)
       const counts = aiContentCounts(ctx)
       expect(counts.posts).toBeGreaterThan(0)
       expect(counts.comments).toBeGreaterThan(0)
@@ -716,7 +882,7 @@ describe('board erişimi', () => {
       await createCommunityVia(admin, 'gizli', 'private')
       createAiAgents(ctx)
       updateSettings(ctx, { aiVisibility: 'all' })
-      runTicks(ctx, 6)
+      await runTicks(ctx, 6)
 
       const pending = ctx.db
         .prepare(
@@ -801,7 +967,7 @@ describe('board erişimi', () => {
       const adminRow = getUserByUsername(ctx, username)!
       for (const a of listAiAgents(ctx)) banUser(ctx, adminRow, community, a.user_id, 7, 'test')
 
-      runTicks(ctx)
+      await runTicks(ctx)
       expect(aiContentCounts(ctx)).toEqual({ posts: 0, comments: 0, votes: 0 })
     })
   })
@@ -966,12 +1132,26 @@ describe('board erişimi', () => {
       const { agent: creator } = await registerAdmin(world)
       await createCommunityVia(creator, 'oyun', 'public')
       createAiAgents(ctx)
-      for (let i = 0; i < 8; i++) runAiTick(ctx, Date.now() + i * 10_000_000)
+      for (let i = 0; i < 8; i++) await runAiTick(ctx, Date.now() + i * 10_000_000)
 
       const { agent: admin } = await makeSecondAdmin(world, 'gun_admin')
       const html = await (await admin.get('/admin?tab=ai')).text()
       expect(html).toContain('AI işlem günlüğü')
       void ctx
+    })
+
+test('panel metin motorunun bağlı olup olmadığını gösterir', async () => {
+      const world = createTestWorld()
+      const { agent: admin } = await registerAdmin(world)
+      createAiAgents(world.ctx as Ctx)
+      const offline = await (await admin.get('/admin?tab=ai')).text()
+      expect(offline).toContain('Metin motoru bağlı değil')
+
+      const ctx = world.ctx as Ctx
+      ctx.config.aiLlmApiKey = 'test-key'
+      const online = await (await admin.get('/admin?tab=ai')).text()
+      expect(online).toContain('Karakterler')
+      expect(online).not.toContain('Metin motoru bağlı değil')
     })
 
     test('denetim günlüğü AI işlemlerini kaydeder', async () => {
@@ -980,7 +1160,7 @@ describe('board erişimi', () => {
       const { agent: creator } = await registerAdmin(world)
       await createCommunityVia(creator, 'tarih', 'public')
       createAiAgents(ctx)
-      for (let i = 0; i < 8; i++) runAiTick(ctx, Date.now() + i * 10_000_000)
+      for (let i = 0; i < 8; i++) await runAiTick(ctx, Date.now() + i * 10_000_000)
       const logged = ctx.db.prepare('SELECT COUNT(*) AS n FROM ai_activity_log').get() as { n: number }
       expect(logged.n).toBeGreaterThan(0)
     })

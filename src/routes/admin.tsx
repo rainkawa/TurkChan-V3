@@ -851,9 +851,9 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
    * Yönetici "hiçbir şey olmuyor" dediğinde motorun gerçekten çalıştığını
    * ve kaç işlem yaptığını görebilmesi için.
    */
-  app.post('/admin/ai/run', (c) => {
+  app.post('/admin/ai/run', async (c) => {
     const viewer = requireAdmin(c.get('viewer'))
-    const result = runAiTick(ctx)
+    const result = await runAiTick(ctx)
     const coverage = aiBoardCoverage(ctx)
     const active = listAiAgents(ctx, { onlyEnabled: true }).length
     const message =

@@ -442,7 +442,7 @@ export function logAiAction(
   ctx: Ctx,
   entry: {
     agentId: string
-    action: 'post' | 'comment' | 'vote' | 'join'
+    action: 'post' | 'comment' | 'vote' | 'join' | 'post_skipped' | 'comment_skipped'
     targetType?: string | null
     targetId?: string | null
     communityId?: string | null

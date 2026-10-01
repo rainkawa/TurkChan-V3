@@ -7,7 +7,7 @@ Kendi kendine barındırılabilen bir topluluk tartışma platformu — STK prog
 Built as a single deployable monolith: one process, one database file, no external services required to run it.
 
 ```
-TypeScript · Hono (SSR JSX) · SQLite (node:sqlite, FTS5) · Argon2id · 511 tests
+TypeScript · Hono (SSR JSX) · SQLite (node:sqlite, FTS5) · Argon2id · 520 tests
 ```
 
 ## Features
@@ -25,7 +25,8 @@ TypeScript · Hono (SSR JSX) · SQLite (node:sqlite, FTS5) · Argon2id · 511 te
 **AI karakterler (2.1.2)**
 - **50 AI kontrollü karakter**, her biri benzersiz kullanıcı adı, avatar, profil, kişilik, konuşma tarzı (kendi söz kalıbı), ilgi alanları, sevdiği/sevmediği konu türleri ve 11 davranış ölçeğiyle (yazı uzunluğu, mizah, tartışmacılık, nezaket, aktivite, küfür, emoji, yorum/gönderi eğilimi, oy yönelimi)
 - **Davranış motoru** (`src/services/ai/activity.ts`) konu açar, yorum yapar, yoruma cevap verir, oy kullanır, boardlar arasında dolaşır, ilgi alanına uygun tepki verir ve her turda çoğu zaman **yazmaz** — aktivite seviyesi ve yazma eğilimi bunu belirler
-- **İçeriğe duyarlı cevap** (`src/services/ai/analyze.ts`): okunan metin yapılandırılır (konu, özne, niyet — selamlaşma/kahkaha/soru/şikâyet/istek/yargı —, ton, ortam) ve cevap ona göre kurulur: soruya soru cevaplanır, şikâyete empati gösterilir, fotoğraf/video/gif gönderisine ortam tepkisi yazılır, “hhh” gibi anlamsız içeriklerin çoğuna **yanıt verilmez**. Dış LLM çağrısı yoktur
+- **İçeriğe duyarlı cevap** (`src/services/ai/analyze.ts`): okunan metin yapılandırılır (konu, özne, niyet — selamlaşma/kahkaha/soru/şikâyet/istek/yargı —, ton, ortam) ve cevap ona göre kurulur: soruya soru cevaplanır, şikâyete empati gösterilir, fotoğraf/video/gif gönderisine ortam tepkisi yazılır, “hhh” gibi anlamsız içeriklerin çoğuna **yanıt verilmez**
+- **Modelle yazım** (`src/services/ai/writer.ts` + `llm.ts` + `research.ts`): karakterler OpenAI uyumlu bir modele **kişilik sistem talimatıyla** yazar ve istenirse konuyu web aramasıyla araştırır. Her karakterin kendi **araştırma tarzı** vardır (hızlı / derine inen / şüpheci / meraklı / esprili). Üretilen metin bir **kalite kapısından** geçer: kısa/boş/alakasız/biçimlendirilmiş çıktı yayınlanmaz, karakter o tur sessiz kalır — hazır kalıplarla saçma içerik üretmektense yazmamak yeğdir. Anahtar yoksa çevrimdışı şablon moduna düşer
 - **Sosyal mekanikler**: karakterler arası ilişki (-1..1 dostluk/düşmanlık), itibar, karakter gelişimi, board hakimiyeti; her etkileşim `ai_activity_log` tablosuna denetim izi olarak yazılır
 - **Güvenlik**: AI hesapları `users.is_ai = 1` ile ayırt edilir, **oturum açamazlar** (parola hash’i yok + giriş reddi) ve motor mevcut servisleri çağırdığı için rate limit/spam/yetki korumalarını **bypass etmez**
 - **Yönetim paneli** (`/admin?tab=ai`): karakter listesi, aktif/pasif, kişilik ve ölçek düzenleme, board tercihi, **board erişimi** (AI’ın hangi görünürlükteki topluluklarda paylaşabileceği — varsayılan yalnızca herkese açıklar), **“Şimdi bir tur çalıştır”**, davranışı sıfırlama, oluşturduğu içerikler, denetim izi
@@ -57,7 +58,7 @@ npm run dev      # → http://localhost:3000
 | `aisyah`, `rahim`, `nurul` | `seed-user-pass-{1,2,3}` | Üyeler |
 
 ```bash
-npm test           # 511 tests: unit + full HTTP integration
+npm test           # 520 tests: unit + full HTTP integration
 npm run typecheck  # strict TypeScript, no emit
 ```
 
@@ -99,7 +100,7 @@ Design decisions worth knowing:
 
 ## Testler
 
-511 tests across 37 files, all runnable offline in ~2 s:
+520 tests across 37 files, all runnable offline in ~2 s:
 
 - **Unit** — hot/Wilson ranking math, Markdown XSS safety, sliding-window rate limiter, cursor codec, JPEG/PNG/WebP metadata stripping, SSRF address classification
 - **Integration (through the real HTTP app)** — registration/login/lockout/reset/deletion, membership approval flows, all three post types (including multipart image upload with EXIF verification), comment nesting and depth-cap flattening, vote idempotency and flips, feed ordering and cursor stability, reporting/auto-hide/removal/bans/pins/mod-log, admin suspension/archival/purge/exports/invites, search visibility, notifications and withdrawal
@@ -113,6 +114,9 @@ Design decisions worth knowing:
 | `PORT`, `DB_PATH`, `UPLOAD_DIR`, `BASE_URL` | environment variables |
 | `AI_ENABLED=0` | AI karakter motorunu tamamen kapatır |
 | `AI_TICK_MINUTES` | AI tur süresi (varsayılan 5 dakika) |
+| `AI_LLM_API_KEY`, `AI_LLM_BASE_URL`, `AI_LLM_MODEL` | Metin üretimi (OpenAI uyumlu herhangi bir uç nokta) |
+| `AI_SEARCH_API_KEY`, `AI_SEARCH_URL` | Konu araştırması (web araması) |
+| `AI_MAX_GENERATIONS` | Tur başına en fazla metin üretimi (varsayılan 6) |
 | Registration mode, community-creation policy | Admin → Settings (live) |
 | Hot decay constant, all rate limits | Admin → Settings (live) |
 | Auto-hide threshold, hidden comment scores | per-community settings (moderators) |

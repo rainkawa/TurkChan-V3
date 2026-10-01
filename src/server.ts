@@ -97,12 +97,12 @@ setInterval(runMaintenance, 24 * 60 * 60 * 1000).unref()
  * ve mevcut içerik korunur. Hata durumunda sunucu ETKİLENMEZ: yalnızca
  * bir tur atlanır ve hata loglanır.
  */
-function runAiActivity(): void {
+async function runAiActivity(): Promise<void> {
   if (!config.aiEnabled) return
   // Hiç karakter yoksa zamanlayıcı hiçbir şey yapmaz.
   if (listAiAgents(ctx, { onlyEnabled: true }).length === 0) return
   try {
-    const result = runAiTick(ctx)
+    const result = await runAiTick(ctx)
     // Her tur loglanır: "hiçbir şey olmuyor" durumunda sebebin ne olduğu
     // (0 uygun board gibi) terminalden de görülsün.
     logInfo('ai_tick', {
@@ -126,8 +126,11 @@ if (config.aiEnabled) {
   // Açılıştan 60 sn sonra ilk tur: kullanıcılar siteyi görsün, sonra
   // karakterler yavaş yavaş hareket ediyormuş gibi görünsün.
   setTimeout(() => {
-    runAiActivity()
-    setInterval(runAiActivity, config.aiTickMinutes * 60 * 1000).unref()
+    // Türler arası: tur asenkrondur (metin modeli çağrısı), aralık zinciri
+    // kurulmazsa ilk tur bitmeden ikinci tur başlayabilirdi.
+    void runAiActivity().finally(() => {
+      setInterval(() => void runAiActivity(), config.aiTickMinutes * 60 * 1000).unref()
+    })
   }, 60_000).unref()
 }
 
