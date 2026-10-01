@@ -1,53 +1,50 @@
 /**
- * AI karakterlerinin veri katmanı.
+ * NPC veri katmanı.
  *
- * TASARIM: AI hesapları `users` tablosunda normal birer satırdır
+ * TASARIM: NPC hesapları `users` tablosunda normal birer satırdır
  * (`is_ai = 1`). Bu, kasıtlı bir seçimdir:
  *
- *   - Gönderi/yorum/oy yazan tüm mevcut servisler (createTextPost,
- *     createComment, castVote) AI hesapları için de ÇALIŞIR. Böylece
- *     rate limit, spam koruması, yetki kontrolleri ve arama/feed
- *     indekslemesi AI için de istisnasız uygulanır — hiçbir koruma
- *     bypass EDİLMEZ.
- *   - Yeni içerik türü eklenirse AI karakterleri de otomatik kapsam
- *     dahil olur; davranış ayrı bir kod yoluna sapmaz.
+ *   - Gönderi/yorum/oy yazan TÜM mevcut servisler (createTextPost,
+ *     createComment, castVote) NPC'ler için de ÇALIŞIR. Böylece rate
+ *     limit, spam koruması, yetki kontrolleri ve feed indekslemesi
+ *     istisnasız uygulanır — hiçbir koruma bypass EDİLMEZ.
+ *   - Yeni içerik türü eklendiğinde NPC'ler otomatik kapsam dahil olur.
  *
- * Bu dosya yalnızca karaktere ÖZEL ek nitelikleri yönetir: profil,
- * davranış ölçekleri, ilişkiler, itibar ve denetim izi.
- *
- * Güvenlik: AI hesapları parola ile GİRİŞ YAPAMAZ (bkz. services/auth.ts).
- * Şifre hash'i üretilmez; `password_hash` boş bırakılır ve login bu
- * durumu reddeder.
+ * Güvenlik: NPC hesapları parola ile GİRİŞ YAPAMAZ. `password_hash` boş
+ * bırakılır ve `login()` bunu reddeder (bkz. services/auth.ts).
  */
 import type { Ctx } from '../../context'
-import type { AiActivityRow, AiAgentRow, AiAgentWithUser, AiRelationshipRow, UserRow } from '../../types'
+import type {
+  AiActivityRow,
+  AiAgentRow,
+  AiAgentWithUser,
+  CommunityRow,
+  UserRow,
+} from '../../types'
 import { newId } from '../../lib/ids'
 import { transaction } from '../../db'
 import { logAction } from '../modlog'
-import { PERSONAS, type Persona } from './personas'
+import { NPC_PERSONAS, type NpcPersona } from './personas'
 
 // ---------------------------------------------------------------------------
-// Karakter oluşturma
+// Oluşturma
 // ---------------------------------------------------------------------------
 
 /**
- * 50 AI karakter hesabını oluşturur.
+ * 50 NPC hesabını oluşturur.
  *
- * idempotent: kullanıcı adı zaten varsa o karakter atlanır; böylece
- * betik tekrar tekrar çalıştırılabilir. Mevcut gerçek kullanıcı
- * tablolarına dokunulmaz.
+ * Idempotent: kullanıcı adı varsa atlanır. Gerçek kullanıcı tablosuna
+ * dokunulmaz.
  *
- * @returns Oluşturulan karakter sayısı.
+ * @returns Oluşturulan NPC sayısı.
  */
-export function createAiAgents(ctx: Ctx): number {
+export function createNpcAgents(ctx: Ctx): number {
   let created = 0
   transaction(ctx.db, () => {
-    for (const persona of PERSONAS) {
-      if (aiAgentByUsername(ctx, persona.username)) continue
+    for (const persona of NPC_PERSONAS) {
+      if (npcByUsername(ctx, persona.username)) continue
       const userId = newId()
       const now = ctx.now()
-      // AI hesabı oturum açamaz: parola hash'i BOŞ bırakılır. login()
-      // boş hash'i reddeder, ayrıca is_ai kontrolü ikinci savunmadır.
       ctx.db
         .prepare(
           `INSERT INTO users (id, username, username_lower, password_hash, display_name, bio,
@@ -55,21 +52,24 @@ export function createAiAgents(ctx: Ctx): number {
            VALUES (?, ?, ?, '', ?, ?, 0, 1, ?)`,
         )
         .run(userId, persona.username, persona.username.toLowerCase(), persona.displayName, persona.bio, now)
-      insertAgentRow(ctx, userId, persona, now)
+      insertNpcRow(ctx, userId, persona, now)
       created += 1
     }
   })
   return created
 }
 
-function insertAgentRow(ctx: Ctx, userId: string, persona: Persona, now: number): void {
+function insertNpcRow(ctx: Ctx, userId: string, persona: NpcPersona, now: number): void {
   ctx.db
     .prepare(
       `INSERT INTO ai_agents (
-         user_id, archetype, bio, verbosity, humor, assertiveness, politeness, activity,
-         profanity, emoji_rate, upvote_bias, downvote_bias, comment_rate, post_rate,
+         user_id, archetype, bio,
+         verbosity, humor, assertiveness, politeness, activity, profanity, emoji_rate,
+         comment_rate, post_rate, upvote_bias, downvote_bias,
+         curiosity, seriousness, talkativeness, patience, empathy, skepticism,
+         confidence, slang_rate, vote_rate,
          interests, likes, dislikes, board_prefs, peers, enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
     )
     .run(
       userId,
@@ -82,10 +82,19 @@ function insertAgentRow(ctx: Ctx, userId: string, persona: Persona, now: number)
       persona.activity,
       persona.profanity,
       persona.emoji_rate,
-      persona.upvote_bias,
-      persona.downvote_bias,
       persona.comment_rate,
       persona.post_rate,
+      persona.upvote_bias,
+      persona.downvote_bias,
+      persona.curiosity,
+      persona.seriousness,
+      persona.talkativeness,
+      persona.patience,
+      persona.empathy,
+      persona.skepticism,
+      persona.confidence,
+      persona.slang_rate,
+      persona.vote_rate,
       JSON.stringify(persona.interests),
       JSON.stringify(persona.likes),
       JSON.stringify(persona.dislikes),
@@ -96,29 +105,35 @@ function insertAgentRow(ctx: Ctx, userId: string, persona: Persona, now: number)
     )
 }
 
+/** Persona kataloğundan canlı profil üretir (üretim motoru bunu kullanır). */
+export function personaFor(username: string): NpcPersona | undefined {
+  return NPC_PERSONAS.find((p) => p.username === username)
+}
+
 // ---------------------------------------------------------------------------
 // Sorgular
 // ---------------------------------------------------------------------------
 
-function aiAgentByUsername(ctx: Ctx, username: string): AiAgentRow | null {
+function npcByUsername(ctx: Ctx, username: string): AiAgentRow | null {
   return (
     (ctx.db
       .prepare(
         `SELECT a.* FROM ai_agents a JOIN users u ON u.id = a.user_id
-         WHERE u.username_lower = ?`,
+          WHERE u.username_lower = ?`,
       )
       .get(username.toLowerCase()) as AiAgentRow | undefined) ?? null
   )
 }
 
-export function getAiAgent(ctx: Ctx, userId: string): AiAgentRow | null {
+export function getNpcAgent(ctx: Ctx, userId: string): AiAgentRow | null {
   return (
-    (ctx.db.prepare('SELECT * FROM ai_agents WHERE user_id = ?').get(userId) as AiAgentRow | undefined) ?? null
+    (ctx.db.prepare('SELECT * FROM ai_agents WHERE user_id = ?').get(userId) as AiAgentRow | undefined) ??
+    null
   )
 }
 
-/** Yönetim listesi: karakter + kullanıcı satırı birlikte. */
-export function listAiAgents(ctx: Ctx, opts: { onlyEnabled?: boolean } = {}): AiAgentWithUser[] {
+/** Yönetim listesi: NPC + kullanıcı satırı birlikte. */
+export function listNpcAgents(ctx: Ctx, opts: { onlyEnabled?: boolean } = {}): AiAgentWithUser[] {
   const where = opts.onlyEnabled ? 'WHERE a.enabled = 1' : ''
   return ctx.db
     .prepare(
@@ -130,12 +145,12 @@ export function listAiAgents(ctx: Ctx, opts: { onlyEnabled?: boolean } = {}): Ai
     .all() as unknown as AiAgentWithUser[]
 }
 
-export function listEnabledAgents(ctx: Ctx): AiAgentWithUser[] {
-  return listAiAgents(ctx, { onlyEnabled: true })
+export function listEnabledNpcs(ctx: Ctx): AiAgentWithUser[] {
+  return listNpcAgents(ctx, { onlyEnabled: true })
 }
 
-/** Bir kullanıcının AI olup olmadığı (backend seviyesinde ayırt). */
-export function isAiUser(ctx: Ctx, userId: string): boolean {
+/** Bir hesabın NPC olup olmadığı (backend seviyesinde ayırt). */
+export function isNpcUser(ctx: Ctx, userId: string): boolean {
   const row = ctx.db.prepare('SELECT is_ai FROM users WHERE id = ?').get(userId) as
     | { is_ai: number }
     | undefined
@@ -147,7 +162,7 @@ export function isAiUser(ctx: Ctx, userId: string): boolean {
 // ---------------------------------------------------------------------------
 
 /** Yönetim panelinden değiştirilebilen davranış alanları. */
-export interface AiAgentUpdate {
+export interface NpcUpdate {
   bio?: string
   verbosity?: number
   humor?: number
@@ -160,6 +175,15 @@ export interface AiAgentUpdate {
   downvote_bias?: number
   comment_rate?: number
   post_rate?: number
+  curiosity?: number
+  seriousness?: number
+  talkativeness?: number
+  patience?: number
+  empathy?: number
+  skepticism?: number
+  confidence?: number
+  slang_rate?: number
+  vote_rate?: number
   interests?: string[]
   likes?: string[]
   dislikes?: string[]
@@ -167,7 +191,8 @@ export interface AiAgentUpdate {
   enabled?: boolean
 }
 
-const NUMERIC_FIELDS = [
+/** Tüm sayısal davranış sütunları (yönetim formu tek listeden üretir). */
+export const NPC_SLIDER_FIELDS = [
   'verbosity',
   'humor',
   'assertiveness',
@@ -179,27 +204,35 @@ const NUMERIC_FIELDS = [
   'downvote_bias',
   'comment_rate',
   'post_rate',
+  'curiosity',
+  'seriousness',
+  'talkativeness',
+  'patience',
+  'empathy',
+  'skepticism',
+  'confidence',
+  'slang_rate',
+  'vote_rate',
 ] as const
 
-/** Ölçek değerini 0–1 aralığına kıstlar (yönetim formundan gelen girdi). */
+export type NpcSliderField = (typeof NPC_SLIDER_FIELDS)[number]
+
+/** Ölçek değerini 0–1 aralığına kıstlar. */
 function clamp01(value: unknown, fallback: number): number {
   const n = Number(value)
   if (!Number.isFinite(n)) return fallback
   return Math.min(1, Math.max(0, n))
 }
 
-/**
- * Karakter profilini günceller ve değişikliği denetim günlüğüne yazar.
- * Tüm ölçekler 0–1 aralığına kıstlanır; JSON sütunları güvenli parse edilir.
- */
-export function updateAiAgent(
+/** Profili günceller ve değişikliği denetim günlüğüne yazar. */
+export function updateNpcAgent(
   ctx: Ctx,
   adminId: string,
   userId: string,
-  update: AiAgentUpdate,
+  update: NpcUpdate,
 ): AiAgentRow {
-  const current = getAiAgent(ctx, userId)
-  if (!current) throw new Error('AI karakter bulunamadı')
+  const current = getNpcAgent(ctx, userId)
+  if (!current) throw new Error('NPC bulunamadı')
 
   const sets: string[] = []
   const values: unknown[] = []
@@ -208,7 +241,7 @@ export function updateAiAgent(
     values.push(value)
   }
 
-  for (const field of NUMERIC_FIELDS) {
+  for (const field of NPC_SLIDER_FIELDS) {
     const raw = update[field]
     if (raw === undefined) continue
     push(field, clamp01(raw, current[field]))
@@ -237,25 +270,23 @@ export function updateAiAgent(
     communityId: null,
     actorId: adminId,
     action: 'ai_agent_update',
-    targetType: 'ai_agent',
+    targetType: 'npc',
     targetId: userId,
     detail: sets.map((s) => s.split(' = ')[0]).join(','),
   })
-  return getAiAgent(ctx, userId) as AiAgentRow
+  return getNpcAgent(ctx, userId) as AiAgentRow
 }
 
-/** Karakteri aktif/pasif yapar. */
-export function setAiAgentEnabled(ctx: Ctx, adminId: string, userId: string, enabled: boolean): void {
-  updateAiAgent(ctx, adminId, userId, { enabled })
+export function setNpcEnabled(ctx: Ctx, adminId: string, userId: string, enabled: boolean): void {
+  updateNpcAgent(ctx, adminId, userId, { enabled })
 }
 
 /**
- * Karakterin davranışını sıfırlar: sayaçlar, itibar, ilişkiler ve
- * board hakimiyeti temizlenir; profil ayarları KORUNUR (karakter aynı
- * kişilik olarak devam eder). Kullanıcının yazdığı gönderi/yorumlar
- * silinmez — bunlar gerçek içeriktir ve moderasyonun konusudur.
+ * NPC'yi sıfırlar: sayaçlar, itibar, ilişkiler, hafıza ve öğrenme
+ * temizlenir. Profil ayarları KORUNUR. Yazdığı gönderi/yorumlar SİLİNMEZ
+ * (bunlar gerçer içeriktir).
  */
-export function resetAiAgent(ctx: Ctx, adminId: string, userId: string): void {
+export function resetNpcAgent(ctx: Ctx, adminId: string, userId: string): void {
   transaction(ctx.db, () => {
     ctx.db
       .prepare(
@@ -265,26 +296,28 @@ export function resetAiAgent(ctx: Ctx, adminId: string, userId: string): void {
           WHERE user_id = ?`,
       )
       .run(ctx.now(), userId)
-    // İlişkiler ve board hakimiyeti bu karaktere aittir; temizlenir.
     ctx.db.prepare('DELETE FROM ai_relationships WHERE agent_id = ?').run(userId)
-    ctx.db.prepare('DELETE FROM ai_relationships WHERE peer_id = ?').run(userId)
+    ctx.db.prepare('DELETE FROM npc_relationships WHERE agent_id = ? OR peer_id = ?').run(userId, userId)
     ctx.db.prepare('DELETE FROM ai_board_presence WHERE agent_id = ?').run(userId)
   })
   logAction(ctx, {
     communityId: null,
     actorId: adminId,
     action: 'ai_agent_reset',
-    targetType: 'ai_agent',
+    targetType: 'npc',
     targetId: userId,
   })
 }
 
-/** Karakterin oluşturduğu içerikler (yönetim paneli). */
-export function aiAgentContent(
+/** NPC'nin oluşturduğu içerikler (yönetim paneli). */
+export function npcContent(
   ctx: Ctx,
   userId: string,
   limit = 50,
-): { posts: Array<{ id: string; title: string; community: string; created_at: number }>; comments: Array<{ id: string; body: string; post_title: string; created_at: number }> } {
+): {
+  posts: Array<{ id: string; title: string; community: string; created_at: number }>
+  comments: Array<{ id: string; body: string; post_title: string; created_at: number }>
+} {
   const posts = ctx.db
     .prepare(
       `SELECT p.id, p.title, c.name AS community, p.created_at
@@ -305,70 +338,9 @@ export function aiAgentContent(
 }
 
 // ---------------------------------------------------------------------------
-// İlişkiler (arkadaşlık / düşmanlık)
-// ---------------------------------------------------------------------------
-
-/**
- * İki karakter arasındaki ilişkiyi günceller.
- *
- * `affinity` -1 (düşman) ile +1 (dost) arasındadır. Etkileşim sonrası
- * kademeli olarak yaklaşır; her adım küçüktür, böylece ilişkiler ani
- * sıçramalar yerine yavaş yavaş değişir.
- */
-export function adjustRelationship(
-  ctx: Ctx,
-  agentId: string,
-  peerId: string,
-  delta: number,
-  now: number,
-): void {
-  if (agentId === peerId) return
-  const existing = ctx.db
-    .prepare('SELECT affinity, interactions FROM ai_relationships WHERE agent_id = ? AND peer_id = ?')
-    .get(agentId, peerId) as { affinity: number; interactions: number } | undefined
-  const previous = existing?.affinity ?? 0
-  const next = Math.min(1, Math.max(-1, previous + delta))
-  if (existing) {
-    ctx.db
-      .prepare(
-        `UPDATE ai_relationships
-            SET affinity = ?, interactions = interactions + 1, last_interaction_at = ?
-          WHERE agent_id = ? AND peer_id = ?`,
-      )
-      .run(next, now, agentId, peerId)
-  } else {
-    ctx.db
-      .prepare(
-        `INSERT INTO ai_relationships (agent_id, peer_id, affinity, interactions, last_interaction_at)
-         VALUES (?, ?, ?, 1, ?)`,
-      )
-      .run(agentId, peerId, next, now)
-  }
-}
-
-/** Karakterin bir başka karaktere karşı ilişki kuvveti (-1..1). */
-export function relationshipAffinity(ctx: Ctx, agentId: string, peerId: string): number {
-  const row = ctx.db
-    .prepare('SELECT affinity FROM ai_relationships WHERE agent_id = ? AND peer_id = ?')
-    .get(agentId, peerId) as { affinity: number } | undefined
-  return row?.affinity ?? 0
-}
-
-/** Şablon tanımından gelen başlangıç uyumu (henüz etkileşim yoksa). */
-export function declaredPeerAffinity(agent: AiAgentRow, peerUsername: string): number {
-  const peers = parseRecord<number>(agent.peers)
-  return peers[peerUsername] ?? 0
-}
-
-// ---------------------------------------------------------------------------
 // İtibar ve board hakimiyeti
 // ---------------------------------------------------------------------------
 
-/**
- * İtibarı günceller. Yorum/beğeni kazanmak artırır, olumsuz oy ve
- * kaldırılan içerik azaltır. Değer -100..+100 aralığında tutulur ve
- * sosyal statü rozetlerini besler.
- */
 export function adjustReputation(ctx: Ctx, userId: string, delta: number): void {
   ctx.db
     .prepare(
@@ -379,7 +351,6 @@ export function adjustReputation(ctx: Ctx, userId: string, delta: number): void 
     .run(delta, ctx.now(), userId)
 }
 
-/** Board hakimiyeti sayacını artırır. */
 export function bumpPresence(
   ctx: Ctx,
   userId: string,
@@ -397,7 +368,7 @@ export function bumpPresence(
     .run(userId, communityId, ctx.now())
 }
 
-/** Bir karakterin boardlara göre hakimiyeti (yönetim ve davranış için). */
+/** NPC'nin boardlara göre hakimiyeti. */
 export function boardPresence(
   ctx: Ctx,
   userId: string,
@@ -422,27 +393,33 @@ export function boardPresence(
 // Sayaçlar ve denetim izi
 // ---------------------------------------------------------------------------
 
-export function bumpAgentCounters(
+export function bumpNpcCounters(
   ctx: Ctx,
   userId: string,
   kind: 'post' | 'comment' | 'vote',
 ): void {
   const column = kind === 'post' ? 'posts_created' : kind === 'comment' ? 'comments_created' : 'votes_cast'
   ctx.db
-    .prepare(`UPDATE ai_agents SET ${column} = ${column} + 1, last_active_at = ?, updated_at = ? WHERE user_id = ?`)
+    .prepare(
+      `UPDATE ai_agents SET ${column} = ${column} + 1, last_active_at = ?, updated_at = ? WHERE user_id = ?`,
+    )
     .run(ctx.now(), ctx.now(), userId)
 }
 
-/**
- * AI karakterinin yaptığı HER işlemi append-only olarak kaydeder.
- * Yönetim panelindeki denetim görünümü ve "oluşturduğu içerikler" listesi
- * buradan beslenir.
- */
-export function logAiAction(
+/** NPC işlemlerinin append-only denetim izi. */
+export function logNpcAction(
   ctx: Ctx,
   entry: {
     agentId: string
-    action: 'post' | 'comment' | 'vote' | 'join' | 'post_skipped' | 'comment_skipped'
+    action:
+      | 'post'
+      | 'comment'
+      | 'vote'
+      | 'join'
+      | 'post_skipped'
+      | 'comment_skipped'
+      | 'read'
+      | 'memory'
     targetType?: string | null
     targetId?: string | null
     communityId?: string | null
@@ -466,7 +443,7 @@ export function logAiAction(
     )
 }
 
-export function aiActivityLog(ctx: Ctx, opts: { agentId?: string; limit?: number } = {}): AiActivityRow[] {
+export function npcActivityLog(ctx: Ctx, opts: { agentId?: string; limit?: number } = {}): AiActivityRow[] {
   const limit = opts.limit ?? 200
   if (opts.agentId) {
     return ctx.db
@@ -478,8 +455,7 @@ export function aiActivityLog(ctx: Ctx, opts: { agentId?: string; limit?: number
     .all(limit) as unknown as AiActivityRow[]
 }
 
-/** Denetim izinde görüntülenecek kişi adı. */
-export function aiActivityLogWithNames(
+export function npcActivityLogWithNames(
   ctx: Ctx,
   limit = 100,
 ): Array<AiActivityRow & { username: string }> {
@@ -489,6 +465,86 @@ export function aiActivityLogWithNames(
         ORDER BY l.created_at DESC LIMIT ?`,
     )
     .all(limit) as unknown as Array<AiActivityRow & { username: string }>
+}
+
+// ---------------------------------------------------------------------------
+// Board erişimi
+// ---------------------------------------------------------------------------
+
+/** NPC'lerin paylaşabileceği board görünürlükleri. */
+export type NpcBoardAccess = 'public' | 'restricted' | 'private' | 'all'
+
+/** Görünürlük → izin verilen görünürlükler. */
+export function npcEligibleVisibilities(ctx: Ctx): string[] {
+  const access = (getSettingsValue(ctx) ?? 'public') as NpcBoardAccess
+  if (access === 'all') return ['public', 'restricted', 'private']
+  return [access]
+}
+
+function getSettingsValue(ctx: Ctx): string | undefined {
+  const row = ctx.db
+    .prepare("SELECT value FROM site_settings WHERE key = 'aiVisibility'")
+    .get() as { value: string } | undefined
+  return row?.value
+}
+
+/** NPC'lerin kullanabileceği boardlar. */
+export function eligibleCommunities(ctx: Ctx): CommunityRow[] {
+  const vis = npcEligibleVisibilities(ctx)
+  const placeholders = vis.map(() => '?').join(', ')
+  return ctx.db
+    .prepare(
+      `SELECT * FROM communities
+        WHERE archived = 0 AND deleted_at IS NULL AND visibility IN (${placeholders})
+        ORDER BY name`,
+    )
+    .all(...vis) as unknown as CommunityRow[]
+}
+
+/**
+ * NPC'nin paylaşabileceği boardlar (yasaklı olanlar çıkarılır).
+ *
+ * Moderatör bir NPC hesabını bir boarddan yasaklarsa motor oraya bir daha
+ * giremez — yasak kalkmadan da.
+ */
+export function npcCommunities(ctx: Ctx, agentId: string): CommunityRow[] {
+  const banned = new Set(
+    (
+      ctx.db
+        .prepare(
+          `SELECT community_id FROM bans
+            WHERE user_id = ? AND (expires_at IS NULL OR expires_at > ?)`,
+        )
+        .all(agentId, ctx.now()) as unknown as Array<{ community_id: string }>
+    ).map((r) => r.community_id),
+  )
+  return eligibleCommunities(ctx).filter((c) => !banned.has(c.id))
+}
+
+/** Yönetim arayüzü için board kapsamı özeti. */
+export function npcBoardCoverage(ctx: Ctx): {
+  access: NpcBoardAccess
+  total: number
+  eligible: number
+  byVisibility: Record<string, number>
+} {
+  const rows = ctx.db
+    .prepare(
+      'SELECT visibility, COUNT(*) AS n FROM communities WHERE archived = 0 AND deleted_at IS NULL GROUP BY visibility',
+    )
+    .all() as unknown as Array<{ visibility: string; n: number }>
+  const byVisibility: Record<string, number> = { public: 0, restricted: 0, private: 0 }
+  let total = 0
+  for (const row of rows) {
+    byVisibility[row.visibility] = row.n
+    total += row.n
+  }
+  return {
+    access: (getSettingsValue(ctx) ?? 'public') as NpcBoardAccess,
+    total,
+    eligible: eligibleCommunities(ctx).length,
+    byVisibility,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -515,18 +571,13 @@ export function parseRecord<T>(json: string): Record<string, T> {
   }
 }
 
-/** Topluluk adı → id eşlemesi (board tercihi çözümleme için). */
-export function communityIdByName(ctx: Ctx, name: string): string | null {
-  const row = ctx.db.prepare('SELECT id FROM communities WHERE name = ?').get(name) as
-    | { id: string }
-    | undefined
-  return row?.id ?? null
-}
-
-/** Karakterin kullanıcı satırını döndürür (davranış motoru için). */
-export function aiUserRow(ctx: Ctx, userId: string): UserRow | null {
+export function npcUserRow(ctx: Ctx, userId: string): UserRow | null {
   return (
     (ctx.db.prepare('SELECT * FROM users WHERE id = ? AND is_ai = 1').get(userId) as UserRow | undefined) ??
     null
   )
+}
+
+export function anyUserRow(ctx: Ctx, userId: string): UserRow | null {
+  return (ctx.db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as UserRow | undefined) ?? null
 }

@@ -9,8 +9,8 @@ import { RateLimiter } from './lib/ratelimit'
 import { LocalObjectStorage } from './services/storage'
 import { purgeExpiredCommunities } from './services/admin'
 import { purgeExpiredSessions } from './services/auth'
-import { runAiTick } from './services/ai/activity'
-import { listAiAgents } from './services/ai/agents'
+import { runNpcTick } from './services/npc/engine'
+import { listActiveNpcs } from './services/npc/engine'
 import { backupDatabase, backupMedia, pruneBackups, verifyBackup } from './lib/backup'
 import { logError, logInfo } from './lib/logging'
 import { join } from 'node:path'
@@ -87,25 +87,28 @@ runMaintenance()
 setInterval(runMaintenance, 24 * 60 * 60 * 1000).unref()
 
 /**
- * AI karakter davranış motoru (v2.1.2).
+ * NPC simülasyon döngüsü (v2.2) — TAMAMEN YEREL.
  *
- * Karakterler bu turda gönderi açar, yorum yazar, yoruma cevap verir ve
- * oy verir. Motor MEVCUT kullanıcı servislerini çağırdığı için rate limit,
- * spam koruması ve yetki kontrolleri AI için de aynen geçerlidir.
+ * NPC'ler bu turda gönderi açar, yorum yazar, yoruma cevap verir ve oy
+ * verir. Motor MEVCUT kullanıcı servislerini çağırdığı için rate limit,
+ * spam koruması ve yetki kontrolleri NPC'ler için de aynen geçerlidir.
  *
- * `AI_ENABLED=0` ile kapatılabilir; kapatıldığında hiçbir işlem yapılmaz
- * ve mevcut içerik korunur. Hata durumunda sunucu ETKİLENMEZ: yalnızca
- * bir tur atlanır ve hata loglanır.
+ * Harici API/LLM/internet çağrısı YOKTUR — bu yüzden tur senkrondur ve
+ * hata durumunda sunucu ETKİLENMEZ: yalnızca bir tur atlanır ve hata
+ * loglanır.
+ *
+ * `NPC_ENABLED=0` ile kapatılabilir; kapatıldığında hiçbir işlem yapılmaz
+ * ve mevcut içerik korunur.
  */
-async function runAiActivity(): Promise<void> {
-  if (!config.aiEnabled) return
-  // Hiç karakter yoksa zamanlayıcı hiçbir şey yapmaz.
-  if (listAiAgents(ctx, { onlyEnabled: true }).length === 0) return
+function runNpcActivity(): void {
+  if (!config.npcEnabled) return
+  // Hiç NPC yoksa zamanlayıcı hiçbir şey yapmaz.
+  if (listActiveNpcs(ctx).length === 0) return
   try {
-    const result = await runAiTick(ctx)
+    const result = runNpcTick(ctx)
     // Her tur loglanır: "hiçbir şey olmuyor" durumunda sebebin ne olduğu
-    // (0 uygun board gibi) terminalden de görülsün.
-    logInfo('ai_tick', {
+    // terminalden de görülsün.
+    logInfo('npc_tick', {
       actions: result.actions,
       boards: result.boards,
       posts: result.posts,
@@ -113,24 +116,21 @@ async function runAiActivity(): Promise<void> {
       votes: result.votes,
     })
     if (result.boards === 0) {
-      logInfo('ai_no_boards', {
-        reason: 'ai_visibility ayarı hiçbir boarda izin vermiyor (Admin → AI Karakterler)',
+      logInfo('npc_no_boards', {
+        reason: 'board erişimi ayarı hiçbir boarda izin vermiyor (Admin → NPC Yönetimi)',
       })
     }
   } catch (err) {
-    logError(err instanceof Error ? err : new Error(String(err)), { event: 'ai_tick_failed' })
+    logError(err instanceof Error ? err : new Error(String(err)), { event: 'npc_tick_failed' })
   }
 }
 
-if (config.aiEnabled) {
+if (config.npcEnabled) {
   // Açılıştan 60 sn sonra ilk tur: kullanıcılar siteyi görsün, sonra
   // karakterler yavaş yavaş hareket ediyormuş gibi görünsün.
   setTimeout(() => {
-    // Türler arası: tur asenkrondur (metin modeli çağrısı), aralık zinciri
-    // kurulmazsa ilk tur bitmeden ikinci tur başlayabilirdi.
-    void runAiActivity().finally(() => {
-      setInterval(() => void runAiActivity(), config.aiTickMinutes * 60 * 1000).unref()
-    })
+    runNpcActivity()
+    setInterval(runNpcActivity, config.npcTickMinutes * 60 * 1000).unref()
   }, 60_000).unref()
 }
 

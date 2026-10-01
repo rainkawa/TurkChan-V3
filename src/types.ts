@@ -244,6 +244,16 @@ export interface AiAgentRow {
   downvote_bias: number
   comment_rate: number
   post_rate: number
+  // NPC v2.2 kişilik eksenleri (hepsi 0..1)
+  curiosity: number
+  seriousness: number
+  talkativeness: number
+  patience: number
+  empathy: number
+  skepticism: number
+  confidence: number
+  slang_rate: number
+  vote_rate: number
   interests: string
   likes: string
   dislikes: string
@@ -275,6 +285,62 @@ export interface AiRelationshipRow {
   affinity: number
   interactions: number
   last_interaction_at: number | null
+}
+
+/** `npc_relationships` satırı — beş eksenli ilişki. */
+export interface NpcRelationshipRow {
+  agent_id: string
+  peer_id: string
+  friendship: number
+  respect: number
+  trust: number
+  dislike: number
+  rivalry: number
+  affinity: number
+  interactions: number
+  last_interaction_at: number | null
+}
+
+/** `npc_memory` satırı — özet hafıza. */
+export interface NpcMemoryRow {
+  id: string
+  agent_id: string
+  kind: 'concept' | 'person' | 'board' | 'phrase' | 'fact'
+  key: string
+  weight: number
+  hits: number
+  positive: number
+  negative: number
+  last_seen_at: number
+  created_at: number
+}
+
+/** `npc_behavior` satırı — öğrenilmiş davranış politikası. */
+export interface NpcBehaviorRow {
+  agent_id: string
+  topic: string
+  humor_w: number
+  length_w: number
+  engage_w: number
+  post_w: number
+  trials: number
+  reward: number
+  updated_at: number
+}
+
+/** `npc_episodes` satırı — önemli konuşma özeti. */
+export interface NpcEpisodeRow {
+  id: string
+  agent_id: string
+  concept_id: string
+  post_id: string | null
+  comment_id: string | null
+  peer_id: string | null
+  summary: string
+  sentiment: string
+  score: number
+  reward: number
+  created_at: number
 }
 
 /** `ai_activity_log` satırı (append-only denetim izi). */

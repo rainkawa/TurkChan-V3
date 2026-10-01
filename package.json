@@ -1,26 +1,26 @@
 {
   "name": "turkchan",
-  "version": "2.1.2",
+  "version": "2.2.0",
   "private": true,
   "type": "module",
-  "description": "TurkChan — Türkiye’nin topluluk platformu. Kendi kendine barındırılan tartışma platformu.",
+  "description": "TurkChan — Türkiye’nin topluluk platformu. Kendi kendine barındırılabilen tartışma platformu ve yerel NPC simülasyonu.",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "seed": "tsx src/db/seed.ts",
-    "seed:ai": "tsx src/scripts/seed-ai.ts",
+    "seed:npc": "tsx src/scripts/seed-npc.ts",
+    "npc:sim": "tsx scripts/npc-simulation.ts",
     "backup": "tsx src/scripts/backup.ts",
     "rank:assets": "node scripts/generate-rank-assets.mjs",
-    "ai:check": "node scripts/check-groq.mjs",
-    "ai:models": "node scripts/list-llm-models.mjs",
     "logo:raster": "node scripts/build-logo-raster.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
+    "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.0",
-    "@napi-rs/canvas": "^1.0.9",
+    "@napi-rs/canvas": "^1.0.1",
     "@node-rs/argon2": "^2.0.2",
     "hono": "^4.7.0",
     "markdown-it": "^14.1.0"

@@ -389,6 +389,17 @@ CREATE TABLE IF NOT EXISTS ai_agents (
   downvote_bias REAL NOT NULL DEFAULT 0.1,  -- aşağı oy verme eğilimi
   comment_rate REAL NOT NULL DEFAULT 0.5,   -- yorum yazma eğilimi
   post_rate REAL NOT NULL DEFAULT 0.2,      -- gönderi açma eğilimi
+  -- NPC v2.2: genişletilmiş kişilik eksenleri. Hepsi 0..1 ve davranış
+  -- motoru bunları DOĞRUDAN okur (açıklama metni değil, karar girdisi).
+  curiosity REAL NOT NULL DEFAULT 0.5,      -- merak (araştırma/soru eğilimi)
+  seriousness REAL NOT NULL DEFAULT 0.5,    -- ciddiyet
+  talkativeness REAL NOT NULL DEFAULT 0.5,   -- konuşkanlık
+  patience REAL NOT NULL DEFAULT 0.5,       -- sabır
+  empathy REAL NOT NULL DEFAULT 0.5,         -- empati
+  skepticism REAL NOT NULL DEFAULT 0.3,     -- şüphecilik
+  confidence REAL NOT NULL DEFAULT 0.5,      -- özgüven
+  slang_rate REAL NOT NULL DEFAULT 0.2,      -- argo kullanma eğilimi
+  vote_rate REAL NOT NULL DEFAULT 0.5,       -- oy verme eğilimi
   -- JSON sütunlar: interests (ilgi alanları), likes/dislikes (konu türleri),
   -- board_prefs (board tercihleri → ağırlık), peers (uyum/çatışma).
   interests TEXT NOT NULL DEFAULT '[]',
@@ -444,6 +455,103 @@ CREATE TABLE IF NOT EXISTS ai_board_presence (
   PRIMARY KEY (agent_id, community_id)
 );
 
+-- ===========================================================================
+-- NPC simülasyon katmanı (v2.2)
+-- ---------------------------------------------------------------------------
+-- Aşağıdaki tablolar davranış motorunun KALICI DÜNYASIDIR: hafıza, öğrenme,
+-- ilişki ve davranış ağırlıkları. Her şey yereldir; harici servis yoktur.
+--
+-- Tasarım notu: sınırsız konuşma saklanmaz. Her kayıt PÜANLIDIR ve
+-- weight/hits ile önceliklendirilir; motor her turda yalnızca üst
+-- N kaydı okur ve düşük puanlıları budar (bkz. services/npc/memory.ts).
+-- ===========================================================================
+
+-- Bir NPC'nin bir kavram/kişi/konu hakkında ne düşündüğü (özet hafıza).
+-- kind: 'concept' | 'person' | 'board' | 'phrase' | 'fact'
+CREATE TABLE IF NOT EXISTS npc_memory (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL REFERENCES users(id),
+  kind TEXT NOT NULL CHECK (kind IN ('concept','person','board','phrase','fact')),
+  key TEXT NOT NULL,
+  weight REAL NOT NULL DEFAULT 0,      -- önem puanı (0..1); arttıkça hatırlanır
+  hits INTEGER NOT NULL DEFAULT 0,     -- kaç kez karşılaşıldı
+  positive INTEGER NOT NULL DEFAULT 0, -- olumlu etkileşim sayısı
+  negative INTEGER NOT NULL DEFAULT 0, -- olumsuz etkileşim sayısı
+  last_seen_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  UNIQUE (agent_id, kind, key)
+);
+
+-- "Önemli konuşma" özeti. Gövde değil, KİŞİLİKTEŞİR kayıt: tam metin değil,
+-- konu + duygu + sonuç skoru tutulur.
+CREATE TABLE IF NOT EXISTS npc_episodes (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL REFERENCES users(id),
+  concept_id TEXT NOT NULL,
+  post_id TEXT,
+  comment_id TEXT,
+  peer_id TEXT,
+  summary TEXT NOT NULL,              -- tek cümlelik özet
+  sentiment TEXT NOT NULL DEFAULT 'neutral',
+  score REAL NOT NULL DEFAULT 0,      -- kalite skoru (quality.ts)
+  reward REAL NOT NULL DEFAULT 0,     -- gözlenen sonuç (etkileşim/oy)
+  created_at INTEGER NOT NULL
+);
+
+-- Davranış politikası: NPC'nin "hangi tarz işe yarıyor" öğrrenmesi.
+-- topic boşsa genel politika, doluysa konuya özel politika satırıdır.
+CREATE TABLE IF NOT EXISTS npc_behavior (
+  agent_id TEXT NOT NULL REFERENCES users(id),
+  topic TEXT NOT NULL DEFAULT '',
+  humor_w REAL NOT NULL DEFAULT 1,
+  length_w REAL NOT NULL DEFAULT 1,
+  engage_w REAL NOT NULL DEFAULT 1,   -- yorum yapma isteği
+  post_w REAL NOT NULL DEFAULT 1,      -- konu açma isteği
+  trials INTEGER NOT NULL DEFAULT 0,
+  reward REAL NOT NULL DEFAULT 0,      -- ortalama kazanç
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (agent_id, topic)
+);
+
+-- Kullanılan ifadeler: tekrar engelleme için son N ifade.
+CREATE TABLE IF NOT EXISTS npc_phrases (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL REFERENCES users(id),
+  phrase TEXT NOT NULL,
+  uses INTEGER NOT NULL DEFAULT 1,
+  last_used_at INTEGER NOT NULL,
+  UNIQUE (agent_id, phrase)
+);
+
+-- "Başarılı/başarısız cevap" günlüğü: hangi yaklaşım işe yaradı.
+CREATE TABLE IF NOT EXISTS npc_outcomes (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL REFERENCES users(id),
+  kind TEXT NOT NULL,                  -- 'comment' | 'post'
+  target_id TEXT,
+  topic TEXT NOT NULL DEFAULT '',
+  quality REAL NOT NULL DEFAULT 0,
+  reward REAL NOT NULL DEFAULT 0,     -- sonradan ölçülen etkileşim
+  style TEXT NOT NULL DEFAULT '',      -- kullanılan üretim biçimi
+  created_at INTEGER NOT NULL,
+  settled_at INTEGER
+);
+
+-- Karakterler arası ilişki: beş eksenli (arkadaşlık/saygı/güven/hoşnutsuzluk/rivalry).
+CREATE TABLE IF NOT EXISTS npc_relationships (
+  agent_id TEXT NOT NULL REFERENCES users(id),
+  peer_id TEXT NOT NULL REFERENCES users(id),
+  friendship REAL NOT NULL DEFAULT 0,  -- -1..1
+  respect REAL NOT NULL DEFAULT 0,
+  trust REAL NOT NULL DEFAULT 0,
+  dislike REAL NOT NULL DEFAULT 0,
+  rivalry REAL NOT NULL DEFAULT 0,
+  affinity REAL NOT NULL DEFAULT 0,    -- türetilmiş toplam (hızlı okuma için)
+  interactions INTEGER NOT NULL DEFAULT 0,
+  last_interaction_at INTEGER,
+  PRIMARY KEY (agent_id, peer_id)
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts USING fts5(
   title, body, post_id UNINDEXED
 );
@@ -497,4 +605,13 @@ CREATE INDEX IF NOT EXISTS idx_ai_log_agent ON ai_activity_log(agent_id, created
 CREATE INDEX IF NOT EXISTS idx_ai_log_created ON ai_activity_log(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ai_presence_community ON ai_board_presence(community_id);
 CREATE INDEX IF NOT EXISTS idx_users_is_ai ON users(is_ai) WHERE is_ai = 1;
+CREATE INDEX IF NOT EXISTS idx_npc_memory_agent ON npc_memory(agent_id, kind, weight DESC);
+CREATE INDEX IF NOT EXISTS idx_npc_memory_seen ON npc_memory(agent_id, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_npc_episodes_agent ON npc_episodes(agent_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_npc_episodes_topic ON npc_episodes(agent_id, concept_id);
+CREATE INDEX IF NOT EXISTS idx_npc_behavior_reward ON npc_behavior(agent_id, reward DESC);
+CREATE INDEX IF NOT EXISTS idx_npc_phrases_agent ON npc_phrases(agent_id, last_used_at DESC);
+CREATE INDEX IF NOT EXISTS idx_npc_outcomes_agent ON npc_outcomes(agent_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_npc_outcomes_unsettled ON npc_outcomes(agent_id) WHERE settled_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_npc_rel_peer ON npc_relationships(peer_id);
 `

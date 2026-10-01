@@ -1,13 +1,13 @@
 # TurkChan — Türkiye’nin topluluk platformu
 
-**Sürüm 2.1.2 — “AI System”**
+**Sürüm 2.2.0 — “NPC Simulation”**
 
 Kendi kendine barındırılabilen bir topluluk tartışma platformu — STK programları, gençlik kuruluşları, camiler ve medreseler için. Kullanıcıların oluşturduğu topluluklar, iç içe tartışmalar ve görünürlüğü belirleyen topluluk oylaması; yüzlerce ile birkaç bin kullanıcı ölçeğinde ve bu tür kuruluşların ilk günden ihtiyaç duyduğu moderasyon katmanıyla.
 
 Built as a single deployable monolith: one process, one database file, no external services required to run it.
 
 ```
-TypeScript · Hono (SSR JSX) · SQLite (node:sqlite, FTS5) · Argon2id · 532 tests
+TypeScript · Hono (SSR JSX) · SQLite (node:sqlite, FTS5) · Argon2id · 508 tests · harici servis yok
 ```
 
 ## Features
@@ -22,16 +22,21 @@ TypeScript · Hono (SSR JSX) · SQLite (node:sqlite, FTS5) · Argon2id · 532 te
 - **Karma**, full-text **search** (FTS5, visibility-aware), in-app **notifications** (replies + mod actions, withdrawn if the reply is removed before you see it)
 - **Karma ranks and staff roles** — six karma ranks (New User → God) derived from total karma, four staff roles (Moderator → Admin) assigned by the site admin, and a single badge next to every username. A staff role replaces the karma badge (never both), a restriction shows a dark "BANNED" badge, and lifting the restriction restores the previous badge automatically. Badges are animated GIF forum rank banners in `public/assets/ranks/`, regenerated with `npm run rank:assets`: a chevron-cut metal plate (100–180 × 30 px at 2× resolution) built from seven layers — base gradient, brushed-metal and diagonal texture, inlay with a separate icon plate, metallic icon emblem, embossed typography, double frame and an animated light sweep that crosses icon, then text, then exits. Higher ranks add corner studs, ribbons and a second frame, so the set reads as a progression
 
-**AI karakterler (2.1.2)**
-- **50 AI kontrollü karakter**, her biri benzersiz kullanıcı adı, avatar, profil, kişilik, konuşma tarzı (kendi söz kalıbı), ilgi alanları, sevdiği/sevmediği konu türleri ve 11 davranış ölçeğiyle (yazı uzunluğu, mizah, tartışmacılık, nezaket, aktivite, küfür, emoji, yorum/gönderi eğilimi, oy yönelimi)
-- **Davranış motoru** (`src/services/ai/activity.ts`) konu açar, yorum yapar, yoruma cevap verir, oy kullanır, boardlar arasında dolaşır, ilgi alanına uygun tepki verir ve her turda çoğu zaman **yazmaz** — aktivite seviyesi ve yazma eğilimi bunu belirler
-- **İçeriğe duyarlı cevap** (`src/services/ai/analyze.ts`): okunan metin yapılandırılır (konu, özne, niyet — selamlaşma/kahkaha/soru/şikâyet/istek/yargı —, ton, ortam) ve cevap ona göre kurulur: soruya soru cevaplanır, şikâyete empati gösterilir, fotoğraf/video/gif gönderisine ortam tepkisi yazılır, “hhh” gibi anlamsız içeriklerin çoğuna **yanıt verilmez**
-- **Modelle yazım** (`src/services/ai/writer.ts` + `llm.ts` + `research.ts`): karakterler bir metin modeline **kişilik sistem talimatıyla** yazar ve istenirse konuyu web aramasıyla araştırır. Her karakterin kendi **araştırma tarzı** vardır (hızlı / derine inen / şüpheci / meraklı / esprili). Üretilen metin bir **kalite kapısından** geçer: kısa/boş/alakasız/biçimlendirilmiş çıktı yayınlanmaz, karakter o tur sessiz kalır — hazır kalıplarla saçma içerik üretmektense yazmamak yeğdir. Anahtar yoksa çevrimdışı şablon moduna düşer
-- **Ücretsiz sağlayıcı desteği** (`LLM_PROVIDERS`): varsayılan uç nokta artık **Groq** (kredi kartı istemeyen ücretsiz günlük kota). Hazır profiller: `groq` (varsayılan), `gemini` (Google AI Studio), `openrouter` (`:free` modeller), `openai` (ücretli, karşılaştırma için), `custom`. Anahtar için `AI_LLM_API_KEY` yerine sağlayıcının kendi değişkeni de yeterlidir — `GROQ_API_KEY`, `GEMINI_API_KEY`/`GOOGLE_API_KEY`, `OPENROUTER_API_KEY`; hangisinin tanındığına göre sağlayıcı otomatik seçilir. Hiçbir sağlayıcı gerçek anlamda sınırsız değildir: kota bitince motor hata vermez, o tur yazmaz ve çevrimdışı şablona düşer
-- **Bağlantı teşhisi**: `npm run ai:check` yapılandırılmış anahtarla modele tek bir istek atar (HTTP kodu + yanıt), `npm run ai:models` sağlayıcının o an kullanılabilir modellerini listeler. Groq model adları sık değiştiği ve bazı modeller proje düzeyinde kapalı olduğu için bu iki komut "anahtarım var ama yazmıyor" durumunda ilk bakılacak yerdir
-- **Sosyal mekanikler**: karakterler arası ilişki (-1..1 dostluk/düşmanlık), itibar, karakter gelişimi, board hakimiyeti; her etkileşim `ai_activity_log` tablosuna denetim izi olarak yazılır
-- **Güvenlik**: AI hesapları `users.is_ai = 1` ile ayırt edilir, **oturum açamazlar** (parola hash’i yok + giriş reddi) ve motor mevcut servisleri çağırdığı için rate limit/spam/yetki korumalarını **bypass etmez**
-- **Yönetim paneli** (`/admin?tab=ai`): karakter listesi, aktif/pasif, kişilik ve ölçek düzenleme, board tercihi, **board erişimi** (AI’ın hangi görünürlükteki topluluklarda paylaşabileceği — varsayılan yalnızca herkese açıklar), **“Şimdi bir tur çalıştır”**, davranışı sıfırlama, oluşturduğu içerikler, denetim izi
+**NPC karakterler (2.2.0)**
+- **API'SİZ, tamamen yerel çalışır.** Önceki Groq/LLM entegrasyonu, tüm API istemcileri, anahtar değişkenleri, model listeleme komutları ve araştırma modülü **tamamen kaldırıldı**. Sistem artık hiçbir LLM, ücretli API veya internet bağımlılığı taşımaz; bütün davranış TypeScript + SQLite içinde hesaplanır.
+- **50 benzersiz NPC karakteri** (`src/services/npc/personas.ts`): her biri kalıcı profille gelir — kullanıcı adı, görünen ad, avatar, arketip, profil metni, kendine özgü söz kalıbı (tic), ilgi alanları, sevdiği/sevmediği konu türleri, tercih ettiği boardlar ve **20 davranış ekseni** (aktivite, yazı uzunluğu, mizah, tartışmacılık, nezaket, merak, ciddiyet, konuşkanlık, sabır, empati, şüphecilik, özgüven, argo, küfür, emoji, yorum/konu/vote eğilimi, yukarı-aşağı oy eğilimi). Bu sayılar açıklama metni değil, **doğrudan karar girdisidir**.
+- **Yerel bağlam analizi** (`lexicon.ts` + `analyze.ts`): Türkçe ek soyutlama (`stem`) ve 16 kavram ailesi (oyun, yazılım, teknoloji, siber, müzik, spor, yemek, eğitim, bilim, ekonomi, siyaset, sağlık, sinema, tarih, hobi, elektronik) üzerinden konu, özne, anahtar kelimeler, duygu (olumlu/olumsuz/nötr) ve niyet (kahkaha, selamlaşma, soru, şikâyet, yardım isteği, haber, deneyim, övgü, alay, konu değişimi…) çıkarılır. **Tek kelime tek başına konu kanıtı sayılmaz** — “telefon” tek başına konu belirlemez, “telefonum çok yavaşladı” belirler.
+- **Yedi soruluk karar döngüsü** (`engine.ts`): NPC her gönderiyi okur, anlar ve şu yedi soruya cevap verir — konu ilgi alanımda mı, board tercihimde mi, daha önce gördüm mü, bu kullanıcıyla etkileşimim var mı, deneyimlerimle ilişkili mi, bana uygun mu, yeni konu için bağlam var mı? Her gönderiye cevap vermez; ilgi alanıyla örtüşmeyen gönderiye **yorum yazmaz**.
+- **Kalite kapısı** (`quality.ts`): üretilen metin beş skorla değerlendirilir — `contextScore`, `personalityScore`, `repetitionScore`, `coherenceScore`, `topicScore`. Eşiğin altındaysa mesaj **yayınlanmaz** ve yeni bir aday denenir (en fazla 5 deneme); kaynak metnin tek bir köküne bile değinmeyen cümle reddedilir. “HAHAHA bu çok komik 😂” yazıldığında sistem futbol/teknoloji cevabı üretmez — **hiç yazmaz**.
+- **Kalıcı hafıza** (`memory.ts`): `npc_memory` kavram/kişi/board/ifade kayıtları (ağırlık + hit + olumlu/olumsuz sayaç), `npc_episodes` önemli olay özetleri, `npc_phrases` kullanılan ifadeler. Hafıza sınırsız büyümez: 120 kayıtta budanır.
+- **Davranış öğrenmesi** (`learning.ts`): her yorum/gönderi bir “deneme” olarak kaydedilir, sonraki turlarda ölçülür (alınan oy, gelen cevap) ve davranış ağırlıkları EMA ile **kademeli** kayar (adım ≤ 0.05, ağırlıklar 0.2–2.0). Kişilik birkaç çalıştırmada çökmez.
+- **Beş eksenli ilişki** (`relationships.ts`): friendship, respect, trust, dislike, rivalry (+ türetilmiş affinity). Karakter bir kişiye karşı katılıyorsa dostluk, karşı görüyorsa rekabet artar; bu ilişki sonraki cevaplarda tutumu değiştirir.
+- **Kontrollü vote**: oy kararı konu ilgisine, karakterin oy eğilimine, içerik duygusuna, şüpheciliğe ve yazar ilişkisine göre hesaplanır; kontrollü rastgelelikle karar verilir.
+- **Aktivite seviyeleri ve tek scheduler**: 50 ayrı süreç **yoktur**. Tek `runNpcTick` döngüsü aktivite seviyesine göre NPC seçer (çok aktif → 30 sn, çok seyrek → 30 dk bekleme), onları kontrollü batch'lerde sırayla çalıştırır ve indeksli sorgular kullanır.
+- **Zaman döngüsü**: READ → UNDERSTAND → DECIDE → ACT → OBSERVE → UPDATE MEMORY → UPDATE RELATIONSHIP → UPDATE BEHAVIOR. Her tur kalıcı state güncellenir.
+- **Güvenlik**: NPC hesapları `users.is_ai = 1` ile ayırt edilir, **oturum açamazlar** ve admin olamazlar; motor mevcut kullanıcı servislerini çağırdığı için rate limit, spam koruması, yetki ve CSRF korumalarını **bypass etmez**.
+- **Yönetim paneli** (`/admin?tab=npc`): NPC listesi, aktif/pasif, 20 eksenli profil düzenleme, ilgi alanları ve board tercihleri, **board erişimi** (public / restricted / private / all), **“Şimdi bir tur çalıştır”**, davranışı sıfırlama, **hafızayı görüntüleme / sıfırlama**, oluşturduğu içerikler ve denetim izi.
+- **Denetim betiği**: `npm run npc:sim` sıfırdan bir dünya kurar ve 20 gönderi analizi, 30 yorum denemesi, 20 vote kararı ve 10 konu üretimini ekrana basarak çıktıları insan gözüyle denetlemeye açar.
 
 **Güvenlik ve yönetim**
 - Reporting with community rules in the dialog, silent duplicate absorption, anonymous reporters, and an optional auto-hide-after-N-reports threshold
@@ -47,7 +52,8 @@ Requires **Node.js ≥ 22.5** (uses the built-in `node:sqlite`).
 ```bash
 npm install
 npm run seed     # demo communities + accounts (see below)
-npm run seed:ai  # 50 AI karakter (idempotent, tekrar çalıştırmak güvenli)
+npm run seed:npc # 50 NPC karakter (idempotent, tekrar çalıştırmak güvenli)
+npm run npc:sim   # canlı NPC simülasyon denetimi (20 post / 30 yorum / 20 vote / 10 konu)
 npm run dev      # → http://localhost:3000
 ```
 
@@ -60,13 +66,13 @@ npm run dev      # → http://localhost:3000
 | `aisyah`, `rahim`, `nurul` | `seed-user-pass-{1,2,3}` | Üyeler |
 
 ```bash
-npm test           # 532 tests: unit + full HTTP integration
+npm test           # 508 tests: unit + full HTTP integration
 npm run typecheck  # strict TypeScript, no emit
 ```
 
-> **Önemli:** AI karakterleri ilk kullanıcıdan sonra oluşturulmalı — ilk kayıt olan kullanıcı site yöneticisi olur. Bu yüzden `npm run seed:ai` komutunu **ilk kayıttan sonra** çalıştırın.
+> **Önemli:** NPC karakterleri ilk kullanıcıdan sonra oluşturulmalı — ilk kayıt olan kullanıcı site yöneticisi olur. Bu yüzden `npm run seed:npc` komutunu **ilk kayıttan sonra** çalıştırın.
 >
-> Karakterler yalnızca **herkese açık** boardlarda paylaşır (varsayılan). Kısıtlı veya gizli boardlarda paylaşmaları için **Admin → AI Karakterler → Board erişimi** ayarını genişletin; motor otomatik olarak onaylı üye olur. Motor 5 dakikada bir tur çalışır; beklemeden test etmek için aynı ekrandaki **“Şimdi bir tur çalıştır”** düğmesini kullanın.
+> Karakterler yalnızca **herkese açık** boardlarda paylaşır (varsayılan). Kısıtlı veya gizli boardlarda paylaşmaları için **Admin → NPC Karakterler → Board erişimi** ayarını genişletin; motor otomatik olarak onaylı üye olur. Motor 5 dakikada bir tur çalışır; beklemeden test etmek için aynı ekrandaki **“Şimdi bir tur çalıştır”** düğmesini kullanın.
 
 ## Mimari
 
@@ -83,9 +89,10 @@ src/
 ├── services/          # all domain logic — auth, communities, posts,
 │                      #   comments, votes, feeds, reports, moderation,
 │                      #   admin, notifications, search, uploads, access
-│   └── ai/            # AI karakterler: personas (50 profil), agents
-│                      #   (veri/ilişki/itibar), voice (metin üretimi),
-│                      #   activity (davranış motoru)
+│   └── npc/           # NPC simülasyonu: lexicon + analyze (bağlam),
+│                      #   personas (50 karakter), memory, relationships,
+│                      #   learning (davranış ağırlıkları), quality (kapı),
+│                      #   compose (metin), engine (tek scheduler)
 ├── routes/            # thin HTTP handlers per area (+ JSON API)
 ├── views/             # JSX layout + components (mobile-first)
 └── i18n/tr.ts         # tüm arayüz metinleri tek dosyada (Türkçe)
@@ -102,30 +109,28 @@ Design decisions worth knowing:
 
 ## Testler
 
-532 tests across 37 files, all runnable offline in ~2 s:
+508 tests across 37 files, all runnable offline in ~4 s:
 
 - **Unit** — hot/Wilson ranking math, Markdown XSS safety, sliding-window rate limiter, cursor codec, JPEG/PNG/WebP metadata stripping, SSRF address classification
 - **Integration (through the real HTTP app)** — registration/login/lockout/reset/deletion, membership approval flows, all three post types (including multipart image upload with EXIF verification), comment nesting and depth-cap flattening, vote idempotency and flips, feed ordering and cursor stability, reporting/auto-hide/removal/bans/pins/mod-log, admin suspension/archival/purge/exports/invites, search visibility, notifications and withdrawal
 - **Hardening** — CSRF origin rejection, open-redirect guard, malformed cursor/sort resilience, archived-community lockdown, private-community zero-leakage checks
-- **AI karakterler** — hesap oluşturma/benzersizlik, oturum açamama, davranış ölçeklerinin metne yansıması, karakterler arası metin ayrışması, ilişki/itibar sınırları, motorun rate limit’e takılmaması, yönetim paneli yetkisi ve denetim izi
+- **NPC karakterler** (64 test) — 50 benzersiz hesap, persona ayrışması, Türkçe kök/ek soyutlaması, konu ve bağlam analizi, uygun konu/yorum seçimi, **anlamsız yorum engelleme** (“HAHAHA bu çok komik” → futbol cevabı üretilmez), **konu dışı cevap engelleme** (“Telefonum çok yavaşladı” → oyun cevabı üretilmez), tekrar engelleme, hafıza + hafıza güncellemesi, ilişki güncellemesi, davranış adaptasyonu, vote davranışı, tek scheduler, aktivite seviyeleri, yetki izolasyonu ve **API'siz çalışma**
 
 ## Yapılandırma
 
 | Ayar | Nerede |
 |---|---|
 | `PORT`, `DB_PATH`, `UPLOAD_DIR`, `BASE_URL` | environment variables |
-| `AI_ENABLED=0` | AI karakter motorunu tamamen kapatır |
-| `AI_TICK_MINUTES` | AI tur süresi (varsayılan 5 dakika) |
-| `AI_LLM_PROVIDER` | Metin motoru sağlayıcısı: `groq` (varsayılan, ücretsiz kota) · `gemini` · `openrouter` · `openai` · `custom` |
-| `GROQ_API_KEY` / `GEMINI_API_KEY` veya `GOOGLE_API_KEY` / `OPENROUTER_API_KEY` | Sağlayıcıya özel anahtar; hangisi varsa o sağlayıcı otomatik seçilir |
-| `AI_LLM_API_KEY`, `AI_LLM_BASE_URL`, `AI_LLM_MODEL` | Elle uç nokta / model (OpenAI uyumlu herhangi bir servis) |
-| `AI_SEARCH_API_KEY` (`EXA_API_KEY` da olur), `AI_SEARCH_URL` | Konu araştırması (web araması) |
-| `npm run ai:check` / `npm run ai:models` | Metin motoru bağlantısını ve kullanılabilir modelleri doğrular |
-| `AI_MAX_GENERATIONS` | Tur başına en fazla metin üretimi (varsayılan 6) |
+| `NPC_ENABLED=0` (eski adı: `AI_ENABLED=0`) | NPC simülasyon motorunu tamamen kapatır |
+| `NPC_TICK_MINUTES` | Motor tur süresi (varsayılan 5 dakika) |
+| `NPC_MAX_ACTIONS` | Tur başına en fazla işlem (varsayılan 12) — tek scheduler'ın yük sınırı |
+| `NPC_POSTS_SCANNED` | NPC başına turda okunacak gönderi sayısı (varsayılan 40) |
+| `npm run seed:npc` / `npm run npc:sim` | 50 NPC oluşturur / canlı simülasyon denetimi |
+| ~~`GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `AI_LLM_*`, `AI_SEARCH_*`, `EXA_API_KEY`~~ | **Kaldırıldı.** Artık hiçbir API anahtarı veya harici model kullanılmaz |
 | Registration mode, community-creation policy | Admin → Settings (live) |
 | Hot decay constant, all rate limits | Admin → Settings (live) |
 | Auto-hide threshold, hidden comment scores | per-community settings (moderators) |
-| AI board erişimi (public / restricted / private / all) | Admin → AI Karakterler |
+| NPC board erişimi (public / restricted / private / all) | Admin → NPC Karakterler |
 
 ## Üretim notları
 

@@ -161,6 +161,56 @@ function migrate(db: DatabaseSync): void {
     db.exec('ALTER TABLE users ADD COLUMN is_ai INTEGER NOT NULL DEFAULT 0')
   }
 
+  // NPC v2.2: genişletilmiş kişilik eksenleri. Mevcut kurulumlarda ai_agents
+  // tablosunda bu sütunlar yoktur; eklenmezse motor sorguları patlar.
+  const agentColumns = new Set(
+    (db.prepare('PRAGMA table_info(ai_agents)').all() as unknown as Array<{ name: string }>).map(
+      (c) => c.name,
+    ),
+  )
+  for (const [column, ddl] of [
+    ['curiosity', 'ALTER TABLE ai_agents ADD COLUMN curiosity REAL NOT NULL DEFAULT 0.5'],
+    ['seriousness', 'ALTER TABLE ai_agents ADD COLUMN seriousness REAL NOT NULL DEFAULT 0.5'],
+    ['talkativeness', 'ALTER TABLE ai_agents ADD COLUMN talkativeness REAL NOT NULL DEFAULT 0.5'],
+    ['patience', 'ALTER TABLE ai_agents ADD COLUMN patience REAL NOT NULL DEFAULT 0.5'],
+    ['empathy', 'ALTER TABLE ai_agents ADD COLUMN empathy REAL NOT NULL DEFAULT 0.5'],
+    ['skepticism', 'ALTER TABLE ai_agents ADD COLUMN skepticism REAL NOT NULL DEFAULT 0.3'],
+    ['confidence', 'ALTER TABLE ai_agents ADD COLUMN confidence REAL NOT NULL DEFAULT 0.5'],
+    ['slang_rate', 'ALTER TABLE ai_agents ADD COLUMN slang_rate REAL NOT NULL DEFAULT 0.2'],
+    ['vote_rate', 'ALTER TABLE ai_agents ADD COLUMN vote_rate REAL NOT NULL DEFAULT 0.5'],
+  ] as const) {
+    if (!agentColumns.has(column)) db.exec(ddl)
+  }
+
+  // NPC v2.2: ilişki tablosu beş eksene geçiyor. Eski kurulumlarda yalnızca
+  // affinity/interactions vardır; yeni eksenler sıfırdan başlar.
+  const relColumns = new Set(
+    (db.prepare('PRAGMA table_info(npc_relationships)').all() as unknown as Array<{ name: string }>).map(
+      (c) => c.name,
+    ),
+  )
+  for (const [column, ddl] of [
+    ['friendship', 'ALTER TABLE npc_relationships ADD COLUMN friendship REAL NOT NULL DEFAULT 0'],
+    ['respect', 'ALTER TABLE npc_relationships ADD COLUMN respect REAL NOT NULL DEFAULT 0'],
+    ['trust', 'ALTER TABLE npc_relationships ADD COLUMN trust REAL NOT NULL DEFAULT 0'],
+    ['dislike', 'ALTER TABLE npc_relationships ADD COLUMN dislike REAL NOT NULL DEFAULT 0'],
+    ['rivalry', 'ALTER TABLE npc_relationships ADD COLUMN rivalry REAL NOT NULL DEFAULT 0'],
+  ] as const) {
+    if (relColumns.has(column)) continue
+    try {
+      db.exec(ddl)
+    } catch {
+      // Tablo yoksa (çok eski şema) SCHEMA_SQL zaten oluşturmuş olur.
+    }
+  }
+  // Eski affinity sütunundan yeni eksenlere başlangıç değeri taşı.
+  if (relColumns.has('affinity') && !relColumns.has('friendship')) {
+    db.exec(
+      `UPDATE npc_relationships
+          SET friendship = affinity, respect = affinity * 0.6, trust = affinity * 0.4`,
+    )
+  }
+
   // Gizlilik: başarısız giriş denemelerinde IP adresi saklanmaz. Kaba kuvvet
   // koruması kullanıcı adı üzerinden çalışır, IP bazlı sınır bellekte tutulur.
   const attemptColumns = new Set(

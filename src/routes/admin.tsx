@@ -20,19 +20,22 @@ import {
   updateAdminUser,
 } from '../services/admin'
 import { createCommunity } from '../services/communities'
-import { AiTab } from './admin-ai'
+import { NpcTab } from './admin-npc'
 import {
-  createAiAgents,
-  getAiAgent,
-  listAiAgents,
-  parseRecord,
-  resetAiAgent,
-  setAiAgentEnabled,
-  updateAiAgent,
-} from '../services/ai/agents'
+  createNpcAgents,
+  getNpcAgent,
+  listNpcAgents,
+  resetNpcAgent,
+  setNpcEnabled,
+  updateNpcAgent,
+  NPC_SLIDER_FIELDS,
+  type NpcUpdate,
+} from '../services/npc/agents'
 import { reportQueue } from '../services/reports'
 import { logAction, siteAdminLog } from '../services/modlog'
-import { aiBoardCoverage, runAiTick } from '../services/ai/activity'
+import { npcBoardCoverage } from '../services/npc/agents'
+import { runNpcTick } from '../services/npc/engine'
+import { clearMemory } from '../services/npc/memory'
 import { getSettings, updateSettings, type SiteSettings } from '../services/settings'
 import { getComment } from '../services/comments'
 import { AppError, notFound } from '../services/errors'
@@ -191,13 +194,13 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
 
     const tabs = (
       <nav class="sort-tabs">
-        {(['reports', 'users', 'communities', 'anonymous', 'ai', 'stats', 'settings', 'invites', 'log'] as const).map((tb) => (
+        {(['reports', 'users', 'communities', 'anonymous', 'npc', 'stats', 'settings', 'invites', 'log'] as const).map((tb) => (
           <a href={`/admin?tab=${tb}`} class={tab === tb ? 'active' : ''}>
             {tb === 'reports' ? t.admin.reports
               : tb === 'users' ? t.admin.users
               : tb === 'communities' ? t.admin.communities
               : tb === 'anonymous' ? t.admin.anonymous
-              : tb === 'ai' ? 'AI Karakterler'
+              : tb === 'npc' ? 'NPC Karakterler'
               : tb === 'stats' ? t.admin.stats
               : tb === 'settings' ? t.admin.settings
               : tb === 'invites' ? t.admin.invites
@@ -475,14 +478,15 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
           </div>
         </>
       )
-    } else if (tab === 'ai') {
-      const agents = listAiAgents(ctx)
+    } else if (tab === 'npc') {
+      const agents = listNpcAgents(ctx)
       content = (
-        <AiTab
+        <NpcTab
           ctx={ctx}
           agents={agents}
           editId={c.req.query('edit') ?? ''}
           showContent={c.req.query('content') === '1'}
+          showMemory={c.req.query('memory') === '1'}
         />
       )
     } else if (tab === 'stats') {
@@ -814,35 +818,36 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
   })
 
   // ==========================================================================
-  // AI karakter yönetimi (v2.1.2)
+  // NPC yönetimi (v2.2.0)
   // --------------------------------------------------------------------------
   // Tüm rotalar requireAdmin ile korunur. Form gövdeleri CSRF middleware'i
-  // tarafından zaten doğrulanır.
+  // tarafından zaten doğrulanır. NPC'ler kendi hesaplarıyla hiçbir zaman
+  // bu rotalara erişemez (oturum açamazlar).
   // ==========================================================================
 
   /**
-   * AI karakterlerinin paylaşabileceği board görünürlüğü.
+   * NPC'lerin paylaşabileceği board görünürlüğü.
    *
-   * Varsayılan 'public'; gizli topluluklarda AI'ın paylaşması yönetici
+   * Varsayılan 'public'; gizli topluluklarda NPC'lerin paylaşması yönetici
    * kararıdır. Değişiklik denetim günlüğüne yazılır.
    */
-  app.post('/admin/ai/board-access', async (c) => {
+  app.post('/admin/npc/board-access', async (c) => {
     const viewer = requireAdmin(c.get('viewer'))
     const body = await formData(c)
     const value = body.visibility ?? ''
     if (!['public', 'restricted', 'private', 'all'].includes(value)) {
       setFlash(c, 'error', 'Geçersiz board erişimi seçildi.')
-      return c.redirect('/admin?tab=ai')
+      return c.redirect('/admin?tab=npc')
     }
     updateSettings(ctx, { aiVisibility: value as SiteSettings['aiVisibility'] })
     logAction(ctx, {
       communityId: null,
       actorId: viewer.id,
-      action: 'ai_board_access_update',
+      action: 'npc_board_access_update',
       detail: value,
     })
-    setFlash(c, 'ok', 'AI board erişimi güncellendi.')
-    return c.redirect('/admin?tab=ai')
+    setFlash(c, 'ok', 'NPC board erişimi güncellendi.')
+    return c.redirect('/admin?tab=npc')
   })
 
   /**
@@ -851,40 +856,41 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
    * Yönetici "hiçbir şey olmuyor" dediğinde motorun gerçekten çalıştığını
    * ve kaç işlem yaptığını görebilmesi için.
    */
-  app.post('/admin/ai/run', async (c) => {
-    const viewer = requireAdmin(c.get('viewer'))
-    const result = await runAiTick(ctx)
-    const coverage = aiBoardCoverage(ctx)
-    const active = listAiAgents(ctx, { onlyEnabled: true }).length
+  app.post('/admin/npc/run', (c) => {
+    requireAdmin(c.get('viewer'))
+    const result = runNpcTick(ctx)
+    const coverage = npcBoardCoverage(ctx)
+    const active = listNpcAgents(ctx, { onlyEnabled: true }).length
     const message =
       coverage.eligible === 0
-        ? 'Uygun board yok. AI karakterleri yalnızca izin verilen görünürlükteki boardlarda paylaşır.'
+        ? 'Uygun board yok. NPC karakterleri yalnızca izin verilen görünürlükteki boardlarda paylaşır.'
         : `${result.actions} işlem yapıldı · ${result.boards} uygun board · ${active} aktif karakter.`
     setFlash(c, coverage.eligible === 0 ? 'error' : 'ok', message)
-    return c.redirect('/admin?tab=ai')
+    return c.redirect('/admin?tab=npc')
   })
 
   /** Karakteri aktif/pasif yapar. */
-  app.post('/admin/ai/toggle', async (c) => {
+  app.post('/admin/npc/toggle', async (c) => {
     const viewer = requireAdmin(c.get('viewer'))
     const body = await formData(c)
     const userId = body.id ?? ''
     try {
-      setAiAgentEnabled(ctx, viewer.id, userId, body.enabled === '1')
+      if (!getNpcAgent(ctx, userId)) throw notFound('NPC karakter bulunamadı.')
+      setNpcEnabled(ctx, viewer.id, userId, body.enabled === '1')
       setFlash(c, 'ok', body.enabled === '1' ? 'Karakter aktifleştirildi.' : 'Karakter pasifleştirildi.')
     } catch (err) {
-      if (err instanceof AppError) setFlash(c, 'error', err.message)
+      if (err instanceof Error) setFlash(c, 'error', err.message)
       else throw err
     }
-    return c.redirect('/admin?tab=ai')
+    return c.redirect('/admin?tab=npc')
   })
 
-  /** Karakter profilini günceller (ölçekler, ilgi alanları, board tercihleri). */
-  app.post('/admin/ai/:id', async (c) => {
+  /** Karakter profilini günceller (20 eksen, ilgi alanları, board tercihleri). */
+  app.post('/admin/npc/:id', async (c) => {
     const viewer = requireAdmin(c.get('viewer'))
     const userId = c.req.param('id')
     try {
-      if (!getAiAgent(ctx, userId)) throw notFound('AI karakter bulunamadı.')
+      if (!getNpcAgent(ctx, userId)) throw notFound('NPC karakter bulunamadı.')
       const parsed = await c.req.parseBody()
       const num = (key: string): number => Number(parsed[key] ?? 0) / 100
       const list = (key: string): string[] =>
@@ -901,53 +907,69 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
         boardPrefs[name.trim()] = Math.min(1, Math.max(0, Number(weight ?? 50) / 100))
       }
 
-      updateAiAgent(ctx, viewer.id, userId, {
+      const update: NpcUpdate = {
         bio: String(parsed.bio ?? ''),
         interests: list('interests'),
         likes: list('likes'),
         dislikes: list('dislikes'),
         boardPrefs,
-        activity: num('activity'),
-        verbosity: num('verbosity'),
-        humor: num('humor'),
-        assertiveness: num('assertiveness'),
-        politeness: num('politeness'),
-        comment_rate: num('comment_rate'),
-        post_rate: num('post_rate'),
-        upvote_bias: num('upvote_bias'),
-        downvote_bias: num('downvote_bias'),
-        emoji_rate: num('emoji_rate'),
-        profanity: num('profanity'),
-      })
-      setFlash(c, 'ok', `AI karakter güncellendi: ${userId}`)
+      }
+      for (const field of NPC_SLIDER_FIELDS) {
+        if (parsed[field] !== undefined) update[field] = num(field)
+      }
+
+      updateNpcAgent(ctx, viewer.id, userId, update)
+      setFlash(c, 'ok', `NPC karakter güncellendi: ${userId}`)
     } catch (err) {
-      if (err instanceof AppError) setFlash(c, 'error', err.message)
+      if (err instanceof Error) setFlash(c, 'error', err.message)
       else throw err
     }
-    return c.redirect(`/admin?tab=ai&edit=${userId}`)
+    return c.redirect(`/admin?tab=npc&edit=${userId}`)
   })
 
   /** Karakterin davranışını sıfırlar (içerikler korunur). */
-  app.post('/admin/ai/:id/reset', async (c) => {
+  app.post('/admin/npc/:id/reset', async (c) => {
     const viewer = requireAdmin(c.get('viewer'))
     const userId = c.req.param('id')
     try {
-      if (!getAiAgent(ctx, userId)) throw notFound('AI karakter bulunamadı.')
-      resetAiAgent(ctx, viewer.id, userId)
+      if (!getNpcAgent(ctx, userId)) throw notFound('NPC karakter bulunamadı.')
+      resetNpcAgent(ctx, viewer.id, userId)
       setFlash(c, 'ok', 'Karakter davranışı sıfırlandı (içerikler korundu).')
     } catch (err) {
-      if (err instanceof AppError) setFlash(c, 'error', err.message)
+      if (err instanceof Error) setFlash(c, 'error', err.message)
       else throw err
     }
-    return c.redirect(`/admin?tab=ai&edit=${userId}`)
+    return c.redirect(`/admin?tab=npc&edit=${userId}`)
+  })
+
+  /** Yalnızca hafızayı temizler (ilişkiler ve öğrenme korunur). */
+  app.post('/admin/npc/:id/memory-reset', async (c) => {
+    const viewer = requireAdmin(c.get('viewer'))
+    const userId = c.req.param('id')
+    try {
+      if (!getNpcAgent(ctx, userId)) throw notFound('NPC karakter bulunamadı.')
+      clearMemory(ctx, userId)
+      logAction(ctx, {
+        communityId: null,
+        actorId: viewer.id,
+        action: 'npc_memory_reset',
+        targetType: 'npc',
+        targetId: userId,
+      })
+      setFlash(c, 'ok', 'Karakter hafızası sıfırlandı.')
+    } catch (err) {
+      if (err instanceof Error) setFlash(c, 'error', err.message)
+      else throw err
+    }
+    return c.redirect(`/admin?tab=npc&edit=${userId}&memory=1`)
   })
 
   /** Eksik karakterleri oluşturur (idempotent). */
-  app.post('/admin/ai/create', (c) => {
-    const viewer = requireAdmin(c.get('viewer'))
-    const created = createAiAgents(ctx)
-    setFlash(c, 'ok', created > 0 ? `${created} AI karakter oluşturuldu.` : 'Tüm karakterler zaten var.')
-    return c.redirect('/admin?tab=ai')
+  app.post('/admin/npc/create', (c) => {
+    requireAdmin(c.get('viewer'))
+    const created = createNpcAgents(ctx)
+    setFlash(c, 'ok', created > 0 ? `${created} NPC karakter oluşturuldu.` : 'Tüm karakterler zaten var.')
+    return c.redirect('/admin?tab=npc')
   })
 
   app.post('/admin/settings', async (c) => {
