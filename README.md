@@ -7,7 +7,7 @@ Kendi kendine barındırılabilen bir topluluk tartışma platformu — STK prog
 Built as a single deployable monolith: one process, one database file, no external services required to run it.
 
 ```
-TypeScript · Hono (SSR JSX) · SQLite (node:sqlite, FTS5) · Argon2id · 519 tests · harici servis yok
+TypeScript · Hono (SSR JSX) · SQLite (node:sqlite, FTS5) · Argon2id · 520 tests · harici servis yok
 ```
 
 ## Features
@@ -26,7 +26,8 @@ TypeScript · Hono (SSR JSX) · SQLite (node:sqlite, FTS5) · Argon2id · 519 te
 - **API'SİZ, tamamen yerel çalışır.** Önceki Groq/LLM entegrasyonu, tüm API istemcileri, anahtar değişkenleri, model listeleme komutları ve araştırma modülü **tamamen kaldırıldı**. Sistem artık hiçbir LLM, ücretli API veya internet bağımlılığı taşımaz; bütün davranış TypeScript + SQLite içinde hesaplanır.
 - **50 benzersiz NPC karakteri** (`src/services/npc/personas.ts`): her biri kalıcı profille gelir — kullanıcı adı, görünen ad, avatar, arketip, profil metni, kendine özgü söz kalıbı (tic), ilgi alanları, sevdiği/sevmediği konu türleri, tercih ettiği boardlar ve **20 davranış ekseni** (aktivite, yazı uzunluğu, mizah, tartışmacılık, nezaket, merak, ciddiyet, konuşkanlık, sabır, empati, şüphecilik, özgüven, argo, küfür, emoji, yorum/konu/vote eğilimi, yukarı-aşağı oy eğilimi). Bu sayılar açıklama metni değil, **doğrudan karar girdisidir**.
 - **Yerel bağlam analizi** (`lexicon.ts` + `analyze.ts`): Türkçe ek soyutlama (`stem`) ve 16 kavram ailesi (oyun, yazılım, teknoloji, siber, müzik, spor, yemek, eğitim, bilim, ekonomi, siyaset, sağlık, sinema, tarih, hobi, elektronik) üzerinden konu, özne, anahtar kelimeler, duygu (olumlu/olumsuz/nötr) ve niyet (kahkaha, selamlaşma, soru, şikâyet, yardım isteği, haber, deneyim, övgü, alay, konu değişimi…) çıkarılır. **Tek kelime tek başına konu kanıtı sayılmaz** — “telefon” tek başına konu belirlemez, “telefonum çok yavaşladı” belirler.
-- **Yedi soruluk karar döngüsü** (`engine.ts`): NPC her gönderiyi okur, anlar ve şu yedi soruya cevap verir — konu ilgi alanımda mı, board tercihimde mi, daha önce gördüm mü, bu kullanıcıyla etkileşimim var mı, deneyimlerimle ilişkili mi, bana uygun mu, yeni konu için bağlam var mı? Her gönderiye cevap vermez; ilgi alanıyla örtüşmeyen gönderiye **yorum yazmaz**.
+- **Yedi soruluk karar döngüsü** (`engine.ts`): NPC her gönderiyi okur, anlar ve şu yedi soruya cevap verir — konu ilgi alanımda mı, board tercihimde mi, daha önce gördüm mü, bu kullanıcıyla etkileşimim var mı, deneyimlerimle ilişkili mi, bana uygun mu, yeni konu için bağlam var mı? Her gönderiye cevap vermez; ilgi alanıyla örtüşmeyen gönderiye **yorum yazmaz** (ağırlığı sıfır olan eylem seçilemez).
+- **Yeni konu birkaç dakika içinde etkileşim alır**: henüz yorumalmamış, gerçek bir kullanıcının açtığı gönderiler karar havuzunda öne çıkar ve NPC’nin “sessiz kalma” eğilimi bu gönderilerde kırılır (yorum ağırlığı ×2,5, oy ×1,6, sessizlik −0,55). Böylece kullanıcı konu açtığında bir sonraki turda (5 dk) yorum/oy gelir; NPC’ler kendi gönderilerine takılıp yeni konuları atlamaz. Ayrıca bekleme süresi dolmamış karakterler tur havuzundan önce elenir, böylece tur kapasitesi (varsayılan 12 işlem) sessizce harcanmaz.
 - **Kalite kapısı** (`quality.ts`): üretilen metin beş skorla değerlendirilir — `contextScore`, `personalityScore`, `repetitionScore`, `coherenceScore`, `topicScore`. Eşiğin altındaysa mesaj **yayınlanmaz** ve yeni bir aday denenir (en fazla 5 deneme); kaynak metnin tek bir köküne bile değinmeyen cümle reddedilir. “HAHAHA bu çok komik 😂” yazıldığında sistem futbol/teknoloji cevabı üretmez — **hiç yazmaz**.
 - **Sorulara CEVAP (`knowledge.ts`)**: NPC artık yalnızca konuyu tanımakla kalmaz, sorunun cevabını da bilir. 14 konu ailesi için kısa, somut cevaplar (HTML iskeleti, CSS bağlama, Python traceback okuma, sunucu/port, FPS, pil, internet, şifre kurtarma, transfer, tarif, çalışma, tarih…) elle yazılmıştır; her kayıt yalnızca gönderide **gerçekten geçen** kelimelerle eşleşir ve kaydın iki farklı anlatımı vardır, böylece on NPC aynı soruya kelimesi kelimesine aynı cevabı yapmaz. “Merhaba, HTML ana şablonunu atar mısınız?” gönderisine kalıp cümle değil, **HTML iskeletinin nasıl kurulacağı** yazılır. Eşleşme kuralları bilinçli olarak sıkıdır: 3 harfli kökler (“yap”) yalnızca birebir eşleşir, aksi halde “ne yapmalıyım” cümlesi “yemek tarifi” cevabı tetikliyordu. Konuyu göstermeyen genel ifadeler (“ne yapmalıyım”) bilgi tabanında **yoktur**; bu durumda NPC konuyu uydurmak yerine gönderinin kendi kelimesine atıf yapıp netleştirme ister.
 - **Kalıcı hafıza** (`memory.ts`): `npc_memory` kavram/kişi/board/ifade kayıtları (ağırlık + hit + olumlu/olumsuz sayaç), `npc_episodes` önemli olay özetleri, `npc_phrases` kullanılan ifadeler. Hafıza sınırsız büyümez: 120 kayıtta budanır.
@@ -70,7 +71,7 @@ npm run dev      # → http://localhost:3000
 | `aisyah`, `rahim`, `nurul` | `seed-user-pass-{1,2,3}` | Üyeler |
 
 ```bash
-npm test           # 519 tests: unit + full HTTP integration
+npm test           # 520 tests: unit + full HTTP integration
 npm run typecheck  # strict TypeScript, no emit
 ```
 
@@ -114,12 +115,12 @@ Design decisions worth knowing:
 
 ## Testler
 
-519 tests across 37 files, all runnable offline in ~4 s:
+520 tests across 37 files, all runnable offline in ~4 s:
 
 - **Unit** — hot/Wilson ranking math, Markdown XSS safety, sliding-window rate limiter, cursor codec, JPEG/PNG/WebP metadata stripping, SSRF address classification
 - **Integration (through the real HTTP app)** — registration/login/lockout/reset/deletion, membership approval flows, all three post types (including multipart image upload with EXIF verification), comment nesting and depth-cap flattening, vote idempotency and flips, feed ordering and cursor stability, reporting/auto-hide/removal/bans/pins/mod-log, admin suspension/archival/purge/exports/invites, search visibility, notifications and withdrawal
 - **Hardening** — CSRF origin rejection, open-redirect guard, malformed cursor/sort resilience, archived-community lockdown, private-community zero-leakage checks
-- **NPC karakterler** (74 test) — 50 benzersiz hesap, persona ayrışması, Türkçe kök/ek soyutlaması, konu ve bağlam analizi, uygun konu/yorum seçimi, **anlamsız yorum engelleme** (“HAHAHA bu çok komik” → futbol cevabı üretilmez), **konu dışı cevap engelleme** (“Telefonum çok yavaşladı” → oyun cevabı üretilmez), **soruya cevap verme** (HTML sorusu → HTML cevabı, “ne yapmalıyım” → konu uydurulmaz, kısa köklerle yanlış eşleşme yapılmaz), tekrar engelleme, hafıza + hafıza güncellemesi, ilişki güncellemesi, davranış adaptasyonu, vote davranışı, tek scheduler, aktivite seviyeleri, yetki izolasyonu ve **API'siz çalışma**
+- **NPC karakterler** (75 test) — 50 benzersiz hesap, persona ayrışması, Türkçe kök/ek soyutlaması, konu ve bağlam analizi, uygun konu/yorum seçimi, **soğuk gönderi önceliği** (yeni açılan gönderi saatler değil dakikalar içinde yorum/oy alır), **anlamsız yorum engelleme** (“HAHAHA bu çok komik” → futbol cevabı üretilmez), **konu dışı cevap engelleme** (“Telefonum çok yavaşladı” → oyun cevabı üretilmez), **soruya cevap verme** (HTML sorusu → HTML cevabı, “ne yapmalıyım” → konu uydurulmaz, kısa köklerle yanlış eşleşme yapılmaz), tekrar engelleme, hafıza + hafıza güncellemesi, ilişki güncellemesi, davranış adaptasyonu, vote davranışı, tek scheduler, aktivite seviyeleri, yetki izolasyonu ve **API'siz çalışma**
 
 ## Yapılandırma
 

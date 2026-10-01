@@ -372,6 +372,50 @@ describe('5. Uygun konu seçimi (karar döngüsü)', () => {
       expect(row.body.trim().length).toBeGreaterThan(10)
     }
   })
+
+  it('yeni açılan cevapsız gönderi etkileşim alır (soğuk gönderi önceliği)', async () => {
+    // REGRESYON: kullanıcı konu açıyor, NPC'ler rastgele seçtikleri gönderilere
+    // gittiği için yeni konular saatlerce hiç etkileşim almıyordu.
+    const world = await npcWorld()
+    const adminUsername = (
+      world.ctx.db.prepare('SELECT username FROM users WHERE is_admin = 1').get() as { username: string }
+    ).username
+    const adminAgent = await relogin(world, adminUsername)
+    await createCommunityVia(adminAgent, 'genel')
+
+    const p1 = await createPostVia(
+      adminAgent,
+      'genel',
+      'Yeni telefon almak istiyorum, hangisini alsam?',
+      'Bütçem sınırlı, kamera ve pil benim için önemli.',
+    )
+    const p2 = await createPostVia(
+      adminAgent,
+      'genel',
+      'Sınav hazırlığında nasıl çalışıyorsunuz',
+      'Haftalık plan yapmayı denedim ama tutmuyor.',
+    )
+
+    for (let t = 1; t <= 12; t++) {
+      world.setNow(T0 + t * 60_000)
+      runNpcTick(world.ctx, world.ctx.now())
+    }
+
+    for (const postId of [p1, p2]) {
+      const comments = (
+        world.ctx.db
+          .prepare('SELECT COUNT(*) AS n FROM comments WHERE post_id = ? AND deleted = 0')
+          .get(postId) as { n: number }
+      ).n
+      const votes = (
+        world.ctx.db
+          .prepare("SELECT COUNT(*) AS n FROM votes WHERE target_type = 'post' AND target_id = ?")
+          .get(postId) as { n: number }
+      ).n
+      expect(comments).toBeGreaterThan(0)
+      expect(votes).toBeGreaterThan(0)
+    }
+  })
 })
 
 describe('6. Uygun yorum üretimi (bağlam + kişilik + konu + önceki etkileşim)', () => {

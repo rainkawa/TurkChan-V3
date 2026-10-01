@@ -76,6 +76,8 @@ interface ReadItem {
   analysis: ContextAnalysis
   /** Bağlı olduğu boardun adı (tercih kararı için). */
   community_name: string
+  /** Gönderiyi bir NPC mi açmış (soğuk gönderi önceliği için). */
+  author_is_ai: boolean
 }
 
 /** Bir NPC'nin bir turda vereceği karar. */
@@ -99,9 +101,16 @@ export function runNpcTick(ctx: Ctx, now: number = ctx.now()): TickResult {
 
   const rng = makeRng(now)
 
+  // Bekleme süresi dolmamış NPC'ler havuzdan ÖNCE çıkarılır. Aksi halde
+  // tur kapasitesi (varsayılan 12 işlem) bekleme süresinde olan NPC'lere
+  // harcanır ve o turda gerçekte hiçbir işlem yapılmaz — yeni açılan
+  // konuların etkileşim almamasının başlıca nedeni buydu.
+  const ready = npcs.filter((n) => n.last_active_at === null || now - n.last_active_at >= cooldownMs(n.activity))
+  if (ready.length === 0) return result
+
   // Ağırlıklı seçim: aktivite seviyesi yüksek NPC daha sık döngüye girer,
   // "çok seyrek" NPC neredeyse hiç seçilmez.
-  const chosen = pickWeightedNpcs(rng, npcs, ctx.config.npcMaxActionsPerTick)
+  const chosen = pickWeightedNpcs(rng, ready, ctx.config.npcMaxActionsPerTick)
 
   for (const npc of chosen) {
     try {
@@ -303,6 +312,14 @@ function readPosts(ctx: Ctx, agent: AiAgentRow, persona: NpcPersona): ReadItem[]
     communities.map((c) => [c.id, `${c.name} ${c.title} ${c.description ?? ''}`]),
   )
 
+  // NPC yazarlarının kimlikleri: bir gönderiyi NPC mi açmış, yoksa gerçek
+  // bir kullanıcı mı? “Henüz cevapsız gönderi” önceliği buna bakar.
+  const aiAuthors = new Set(
+    (
+      ctx.db.prepare('SELECT user_id FROM ai_agents').all() as unknown as Array<{ user_id: string }>
+    ).map((r) => r.user_id),
+  )
+
   return rows.map((row) => {
     const text = `${row.title} ${row.body ?? ''}`
     const base = {
@@ -324,6 +341,7 @@ function readPosts(ctx: Ctx, agent: AiAgentRow, persona: NpcPersona): ReadItem[]
       post: row,
       community_name: row.community_name ?? byId.get(row.community_id) ?? '',
       analysis,
+      author_is_ai: aiAuthors.has(row.author_id),
     }
   })
 }
@@ -404,7 +422,18 @@ function decide(
   }
 
   const pool = relevant.length > 0 ? relevant : neutral
-  const chosen = pool[Math.floor(rng() * pool.length) % pool.length]
+
+  // CEVAPSIZ GÖNDERİ ÖNCELİĞİ.
+  //
+  // Kullanıcı yeni bir konu açtığında beklenen şey, birkaç dakika içinde
+  // yorum/oy gelmesidir. NPC'ler gönderileri rastgele seçtiği için kendi
+  // açtıkları gönderilere takılıp yeni konulara hiç uğramıyordu. Henüz
+  // yorumalmamış, gerçek bir kullanıcının açtığı gönderiler bu yüzden
+  // havuzdan öne çıkar (yine de herkes her gönderiye cevap vermez:
+  // sonraki kilitler aynen geçerlidir).
+  const cold = pool.filter((i) => !i.author_is_ai && i.post.comment_count === 0)
+  const candidates = cold.length > 0 && rng() < 0.85 ? cold : pool
+  const chosen = candidates[Math.floor(rng() * candidates.length) % candidates.length]
   if (!chosen) return { action: 'skip', reason: 'uygun gönderi yok' }
 
   const { post, analysis } = chosen
@@ -438,25 +467,39 @@ function decide(
   // yalnızca oy kullanır ya da sessiz kalır. "Her gönderiye cevap verme"
   // kuralının motor içindeki karşılığı budur.
   const onTopic = relevant.length > 0 && !analysis.isTrivial
+  // Yeni ve cevapsız bir gönderi: “sessiz kalma” eğilimi kırılır. Kullanıcı
+  // konu açtı ve kimse cevap vermedi; NPC'nin burada susmaması gerekir.
+  const coldStart = !chosen.author_is_ai && post.comment_count === 0
   const policy = behaviorOf(ctx, agent.user_id, analysis.topic)
   const commentWeight = onTopic
     ? agent.comment_rate * policy.engage_w *
       (analysis.isTrivial ? 0.1 : 1) *
       (alreadyCommented ? 0.2 : 1) *
-      (friend ? 1.3 : 1)
+      (friend ? 1.3 : 1) *
+      (coldStart ? 2.5 : 1)
     : 0
-  const voteWeight = agent.vote_rate * (analysis.isTrivial ? 0.2 : 1) * 0.7
+  const voteWeight =
+    agent.vote_rate * (analysis.isTrivial ? 0.2 : 1) * 0.7 * (coldStart ? 1.6 : 1)
   const postWeight = onTopic
     ? agent.post_rate * policy.post_w *
-      (agent.posts_created >= MAX_POSTS_PER_TICK ? 0 : 1)
+      (agent.posts_created >= MAX_POSTS_PER_TICK ? 0 : 1) *
+      (coldStart ? 0.2 : 1)
     : 0
+  // Sessizlik ağırlığı: yeni konu varsa düşer, yoksa yüksektir.
+  const skipWeight = 0.8 + (analysis.isTrivial ? 1.5 : 0) - (coldStart ? 0.55 : 0)
 
-  const action = weightedPick(rng, [
+  // Ağırlığı 0 olan eylemler seçilemez. `weightedPick` 0'ı 0.01'e çektiği
+  // için sıfır ağırlık doğrudan listeden çıkarılır: ilgi alanı dışı bir
+  // gönderiye yorum yazılması böyle engellenir (aksi halde 50 karakter ×
+  // onlarca turda bir kere bile "olası" kalıyordu).
+  const options = [
     ['comment', commentWeight],
     ['vote', voteWeight],
     ['post', postWeight],
-    ['skip', 0.8 + (analysis.isTrivial ? 1.5 : 0)], // "hiçbir şey yapma" geçerli bir davranıştır
-  ] as Array<[Decision['action'], number]>)
+    ['skip', Math.max(0.15, skipWeight)], // "hiçbir şey yapma" geçerli bir davranıştır
+  ] as Array<[Decision['action'], number]>
+  const usable = options.filter(([, w]) => w > 0)
+  const action = weightedPick(rng, usable.length > 0 ? usable : ([['skip', 1]] as Array<[Decision['action'], number]>))
 
   return { action, reason: `konu=${analysis.topic} ilgi=${relevant.length}` }
 }
