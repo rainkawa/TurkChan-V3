@@ -147,4 +147,46 @@ describe('şema göçü', () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
+
+  // NPC board erişimi 2.2'de `aiVisibility` → `npcVisibility` oldu ve varsayılan
+  // 'all' yapıldı. Eski anahtar JSON tırnaklı saklanmış olabileceği için değer
+  // normalleştirilir; yoksa hiçbir board eşleşmiyordu.
+  test('eski aiVisibility ayarı npcVisibility olarak taşınır', () => {
+    const cases: Array<[string, string]> = [
+      ['"public"', 'public'],
+      ['"all"', 'all'],
+      ['public', 'public'], // JSON değilse ham metin
+      ['"bozuk"', 'all'], // tanınmayan değer güvenli varsayılana düşer
+    ]
+    for (const [stored, expected] of cases) {
+      const dir = mkdtempSync(join(tmpdir(), 'turkchan-npcvis-'))
+      const path = join(dir, 'app.db')
+      try {
+        const old = openDatabase(path)
+        old.prepare("INSERT OR REPLACE INTO site_settings (key, value) VALUES ('aiVisibility', ?)").run(stored)
+        old.close()
+
+        const db = openDatabase(path)
+        const row = db.prepare("SELECT value FROM site_settings WHERE key = 'npcVisibility'").get() as {
+          value: string
+        }
+        expect(JSON.parse(row.value)).toBe(expected)
+        const legacy = db.prepare("SELECT COUNT(*) AS n FROM site_settings WHERE key = 'aiVisibility'").get() as {
+          n: number
+        }
+        expect(legacy.n).toBe(0)
+        db.close()
+
+        // Göç ikinci açılışta da güvenli.
+        const again = openDatabase(path)
+        const again2 = again
+          .prepare("SELECT value FROM site_settings WHERE key = 'npcVisibility'")
+          .get() as { value: string }
+        expect(JSON.parse(again2.value)).toBe(expected)
+        again.close()
+      } finally {
+        rmSync(dir, { recursive: true, force: true })
+      }
+    }
+  })
 })

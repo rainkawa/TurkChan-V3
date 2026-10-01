@@ -23,6 +23,7 @@ import type {
 } from '../../types'
 import { newId } from '../../lib/ids'
 import { transaction } from '../../db'
+import { DEFAULT_SETTINGS, getSettings } from '../settings'
 import { logAction } from '../modlog'
 import { NPC_PERSONAS, type NpcPersona } from './personas'
 
@@ -474,18 +475,27 @@ export function npcActivityLogWithNames(
 /** NPC'lerin paylaşabileceği board görünürlükleri. */
 export type NpcBoardAccess = 'public' | 'restricted' | 'private' | 'all'
 
-/** Görünürlük → izin verilen görünürlükler. */
-export function npcEligibleVisibilities(ctx: Ctx): string[] {
-  const access = (getSettingsValue(ctx) ?? 'public') as NpcBoardAccess
-  if (access === 'all') return ['public', 'restricted', 'private']
-  return [access]
+/** Geçerli erişim değerleri (yarım kalmış/bozuk bir ayarı elemek için). */
+const ACCESS_VALUES: NpcBoardAccess[] = ['public', 'restricted', 'private', 'all']
+
+/**
+ * NPC board erişimi ayarı.
+ *
+ * `site_settings` değerleri JSON olarak saklanır (ör. `"all"`). Değer
+ * doğrudan SQL ile okunursa tırnaklar kalır ve hiçbir board eşleşmez —
+ * bu yüzden tek kaynak `getSettings()`'tir ve tanınmayan değerler güvenli
+ * varsayılana düşer.
+ */
+export function npcBoardAccess(ctx: Ctx): NpcBoardAccess {
+  const value = getSettings(ctx).npcVisibility
+  return ACCESS_VALUES.includes(value) ? value : DEFAULT_SETTINGS.npcVisibility
 }
 
-function getSettingsValue(ctx: Ctx): string | undefined {
-  const row = ctx.db
-    .prepare("SELECT value FROM site_settings WHERE key = 'aiVisibility'")
-    .get() as { value: string } | undefined
-  return row?.value
+/** Görünürlük → izin verilen görünürlükler. */
+export function npcEligibleVisibilities(ctx: Ctx): string[] {
+  const access = npcBoardAccess(ctx)
+  if (access === 'all') return ['public', 'restricted', 'private']
+  return [access]
 }
 
 /** NPC'lerin kullanabileceği boardlar. */
@@ -540,7 +550,7 @@ export function npcBoardCoverage(ctx: Ctx): {
     total += row.n
   }
   return {
-    access: (getSettingsValue(ctx) ?? 'public') as NpcBoardAccess,
+    access: npcBoardAccess(ctx),
     total,
     eligible: eligibleCommunities(ctx).length,
     byVisibility,

@@ -37,6 +37,8 @@ import {
   adjustReputation,
   bumpNpcCounters,
   bumpPresence,
+  eligibleCommunities,
+  npcEligibleVisibilities,
   parseList,
   parseRecord,
   personaFor,
@@ -143,10 +145,9 @@ function listEnabled(ctx: Ctx): AiAgentWithUser[] {
 }
 
 function eligibleCount(ctx: Ctx): number {
-  const row = ctx.db
-    .prepare('SELECT COUNT(*) AS n FROM communities WHERE archived = 0 AND deleted_at IS NULL')
-    .get() as { n: number }
-  return row.n
+  // Yönetim panelinde gösterilen sayıyla aynı olmalı: yalnızca NPC erişimi
+  // olan, arşivlenmemiş boardlar sayılır.
+  return eligibleCommunities(ctx).length
 }
 
 /** Aktivite seviyesine göre ağırlıklı NPC seçimi. */
@@ -324,11 +325,7 @@ function npcBoardList(ctx: Ctx, agentId: string): CommunityRow[] {
 }
 
 function npcVisibilities(ctx: Ctx): string[] {
-  const row = ctx.db.prepare("SELECT value FROM site_settings WHERE key = 'aiVisibility'").get() as
-    | { value: string }
-    | undefined
-  const access = row?.value ?? 'public'
-  return access === 'all' ? ['public', 'restricted', 'private'] : [access]
+  return npcEligibleVisibilities(ctx)
 }
 
 // ---------------------------------------------------------------------------

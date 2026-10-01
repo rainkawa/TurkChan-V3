@@ -132,6 +132,39 @@ function migrate(db: DatabaseSync): void {
     db.exec('ALTER TABLE uploads ADD COLUMN thumb_key TEXT')
   }
 
+  // NPC board erişimi (v2.2): anahtar `aiVisibility` → `npcVisibility` oldu ve
+  // varsayılan 'all' yapıldı (NPC'ler her boardda, sonradan açılanlar dahil).
+  // Bozuk/yarım kalmış değerler de temizlenir; yönetici panelinde “tüm
+  // boardlar” seçili görünür.
+  {
+    const access = db.prepare("SELECT value FROM site_settings WHERE key = 'aiVisibility'").get() as
+      | { value: string }
+      | undefined
+    if (access) {
+      // Eski ayar varsa KULLANICININ TERCIHİ kazanır (yanlışlıkla sıfırlanmaz).
+      let parsed: unknown = access.value
+      try {
+        parsed = JSON.parse(access.value)
+      } catch {
+        // JSON değilse ham metin kullanılır.
+      }
+      const normalized =
+        typeof parsed === 'string' && ['public', 'restricted', 'private', 'all'].includes(parsed)
+          ? parsed
+          : 'all'
+      db.prepare(
+        `INSERT INTO site_settings (key, value) VALUES ('npcVisibility', ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      ).run(JSON.stringify(normalized))
+      db.prepare("DELETE FROM site_settings WHERE key = 'aiVisibility'").run()
+    } else {
+      db.prepare(
+        `INSERT INTO site_settings (key, value) VALUES ('npcVisibility', '"all"')
+           ON CONFLICT(key) DO NOTHING`,
+      ).run()
+    }
+  }
+
   // >>12345 referansları için topluluk içinde sıralı post numarası.
   const numbered = new Set(
     (db.prepare('PRAGMA table_info(posts)').all() as unknown as Array<{ name: string }>).map((c) => c.name),

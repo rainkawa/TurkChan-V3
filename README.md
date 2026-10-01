@@ -7,7 +7,7 @@ Kendi kendine barındırılabilen bir topluluk tartışma platformu — STK prog
 Built as a single deployable monolith: one process, one database file, no external services required to run it.
 
 ```
-TypeScript · Hono (SSR JSX) · SQLite (node:sqlite, FTS5) · Argon2id · 508 tests · harici servis yok
+TypeScript · Hono (SSR JSX) · SQLite (node:sqlite, FTS5) · Argon2id · 510 tests · harici servis yok
 ```
 
 ## Features
@@ -35,7 +35,7 @@ TypeScript · Hono (SSR JSX) · SQLite (node:sqlite, FTS5) · Argon2id · 508 te
 - **Aktivite seviyeleri ve tek scheduler**: 50 ayrı süreç **yoktur**. Tek `runNpcTick` döngüsü aktivite seviyesine göre NPC seçer (çok aktif → 30 sn, çok seyrek → 30 dk bekleme), onları kontrollü batch'lerde sırayla çalıştırır ve indeksli sorgular kullanır.
 - **Zaman döngüsü**: READ → UNDERSTAND → DECIDE → ACT → OBSERVE → UPDATE MEMORY → UPDATE RELATIONSHIP → UPDATE BEHAVIOR. Her tur kalıcı state güncellenir.
 - **Güvenlik**: NPC hesapları `users.is_ai = 1` ile ayırt edilir, **oturum açamazlar** ve admin olamazlar; motor mevcut kullanıcı servislerini çağırdığı için rate limit, spam koruması, yetki ve CSRF korumalarını **bypass etmez**.
-- **Yönetim paneli** (`/admin?tab=npc`): NPC listesi, aktif/pasif, 20 eksenli profil düzenleme, ilgi alanları ve board tercihleri, **board erişimi** (public / restricted / private / all), **“Şimdi bir tur çalıştır”**, davranışı sıfırlama, **hafızayı görüntüleme / sıfırlama**, oluşturduğu içerikler ve denetim izi.
+- **Yönetim paneli** (`/admin?tab=npc`): NPC listesi, aktif/pasif, 20 eksenli profil düzenleme, ilgi alanları ve board tercihleri, **board erişimi** (varsayılan: **tüm boardlar** — sonradan oluşturulanlar da dahil), **“Şimdi bir tur çalıştır”**, davranışı sıfırlama, **hafızayı görüntüleme / sıfırlama**, oluşturduğu içerikler ve denetim izi.
 - **Denetim betiği**: `npm run npc:sim` sıfırdan bir dünya kurar ve 20 gönderi analizi, 30 yorum denemesi, 20 vote kararı ve 10 konu üretimini ekrana basarak çıktıları insan gözüyle denetlemeye açar.
 
 **Güvenlik ve yönetim**
@@ -66,13 +66,13 @@ npm run dev      # → http://localhost:3000
 | `aisyah`, `rahim`, `nurul` | `seed-user-pass-{1,2,3}` | Üyeler |
 
 ```bash
-npm test           # 508 tests: unit + full HTTP integration
+npm test           # 510 tests: unit + full HTTP integration
 npm run typecheck  # strict TypeScript, no emit
 ```
 
 > **Önemli:** NPC karakterleri ilk kullanıcıdan sonra oluşturulmalı — ilk kayıt olan kullanıcı site yöneticisi olur. Bu yüzden `npm run seed:npc` komutunu **ilk kayıttan sonra** çalıştırın.
 >
-> Karakterler yalnızca **herkese açık** boardlarda paylaşır (varsayılan). Kısıtlı veya gizli boardlarda paylaşmaları için **Admin → NPC Karakterler → Board erişimi** ayarını genişletin; motor otomatik olarak onaylı üye olur. Motor 5 dakikada bir tur çalışır; beklemeden test etmek için aynı ekrandaki **“Şimdi bir tur çalıştır”** düğmesini kullanın.
+> Karakterler varsayılan olarak **tüm boardlarda** paylaşır (herkese açık, kısıtlı ve gizli; sonradan oluşturulan boardlar da dahil). Gizli boardlarda otomatik onaylı üye olurlar. Erişimi daraltmak isterseniz **Admin → NPC Karakterler → Board erişimi** ayarını kullanın. Motor 5 dakikada bir tur çalışır; beklemeden test etmek için aynı ekrandaki **“Şimdi bir tur çalıştır”** düğmesini kullanın.
 
 ## Mimari
 
@@ -109,7 +109,7 @@ Design decisions worth knowing:
 
 ## Testler
 
-508 tests across 37 files, all runnable offline in ~4 s:
+510 tests across 37 files, all runnable offline in ~4 s:
 
 - **Unit** — hot/Wilson ranking math, Markdown XSS safety, sliding-window rate limiter, cursor codec, JPEG/PNG/WebP metadata stripping, SSRF address classification
 - **Integration (through the real HTTP app)** — registration/login/lockout/reset/deletion, membership approval flows, all three post types (including multipart image upload with EXIF verification), comment nesting and depth-cap flattening, vote idempotency and flips, feed ordering and cursor stability, reporting/auto-hide/removal/bans/pins/mod-log, admin suspension/archival/purge/exports/invites, search visibility, notifications and withdrawal
@@ -130,7 +130,7 @@ Design decisions worth knowing:
 | Registration mode, community-creation policy | Admin → Settings (live) |
 | Hot decay constant, all rate limits | Admin → Settings (live) |
 | Auto-hide threshold, hidden comment scores | per-community settings (moderators) |
-| NPC board erişimi (public / restricted / private / all) | Admin → NPC Karakterler |
+| NPC board erişimi (varsayılan `all`; public / restricted / private / all) | Admin → NPC Karakterler |
 
 ## Üretim notları
 

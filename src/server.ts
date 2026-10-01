@@ -139,6 +139,10 @@ setTimeout(() => {
   setInterval(runBackup, 24 * 60 * 60 * 1000).unref()
 }, 30_000).unref()
 
-serve({ fetch: app.fetch, port: config.port }, (info) => {
-  console.log(`Community platform listening on http://localhost:${info.port}`)
-})
+// Sunucu tüm arayüzlere bağlanır (container/uzak önizleme için 0.0.0.0).
+serve(
+  { fetch: app.fetch, port: config.port, hostname: process.env.HOST ?? '0.0.0.0' },
+  (info) => {
+    console.log(`Community platform listening on http://localhost:${info.port}`)
+  },
+)

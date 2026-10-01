@@ -828,8 +828,8 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
   /**
    * NPC'lerin paylaşabileceği board görünürlüğü.
    *
-   * Varsayılan 'public'; gizli topluluklarda NPC'lerin paylaşması yönetici
-   * kararıdır. Değişiklik denetim günlüğüne yazılır.
+   * Varsayılan 'all' (her board, sonradan oluşturulanlar dahil). Yönetici
+   * erişimi daraltabilir. Değişiklik denetim günlüğüne yazılır.
    */
   app.post('/admin/npc/board-access', async (c) => {
     const viewer = requireAdmin(c.get('viewer'))
@@ -839,7 +839,7 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
       setFlash(c, 'error', 'Geçersiz board erişimi seçildi.')
       return c.redirect('/admin?tab=npc')
     }
-    updateSettings(ctx, { aiVisibility: value as SiteSettings['aiVisibility'] })
+    updateSettings(ctx, { npcVisibility: value as SiteSettings['npcVisibility'] })
     logAction(ctx, {
       communityId: null,
       actorId: viewer.id,
@@ -863,7 +863,7 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
     const active = listNpcAgents(ctx, { onlyEnabled: true }).length
     const message =
       coverage.eligible === 0
-        ? 'Uygun board yok. NPC karakterleri yalnızca izin verilen görünürlükteki boardlarda paylaşır.'
+        ? 'Uygun board yok. NPC erişimini genişletin (varsayılan: tüm boardlar).'
         : `${result.actions} işlem yapıldı · ${result.boards} uygun board · ${active} aktif karakter.`
     setFlash(c, coverage.eligible === 0 ? 'error' : 'ok', message)
     return c.redirect('/admin?tab=npc')

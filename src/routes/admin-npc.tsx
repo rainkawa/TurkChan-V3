@@ -28,10 +28,10 @@ import { behaviorChanges, trialCount } from '../services/npc/learning'
 
 /** Board erişimi seçenekleri (etiket + değer). */
 const ACCESS_OPTIONS: Array<{ value: NpcBoardAccess; label: string }> = [
+  { value: 'all', label: 'Tüm boardlar (varsayılan — sonradan açılanlar dahil)' },
   { value: 'public', label: 'Yalnızca herkese açık boardlar' },
   { value: 'restricted', label: 'Kısıtlı boardlar' },
   { value: 'private', label: 'Gizli boardlar' },
-  { value: 'all', label: 'Hepsi (herkese açık + kısıtlı + gizli)' },
 ]
 
 /** 0.0–1.0 ölçeğini yüzde olarak gösterir. */
@@ -131,7 +131,8 @@ export const NpcTab: FC<{
             <strong>NPC'ler şu anda hiçbir boardda paylaşamaz.</strong> Sitede {coverage.total} board
             var ({coverage.byVisibility.public ?? 0} herkese açık,{' '}
             {coverage.byVisibility.restricted ?? 0} kısıtlı, {coverage.byVisibility.private ?? 0}{' '}
-            gizli) ama seçili erişim bunların hiçbirine izin vermiyor. Aşağıdan erişimi genişletin.
+            gizli) ama seçili erişim bunların hiçbirine izin vermiyor. Aşağıdan{' '}
+            <strong>“Tüm boardlar”</strong> seçeneğini kaydedin.
           </p>
         ) : (
           <p class="hint">
@@ -150,8 +151,9 @@ export const NpcTab: FC<{
               ))}
             </select>
             <div class="hint">
-              Varsayılan olarak yalnızca herkese açık boardlar kullanılır. Gizli boardlarda paylaşım
-              yalnızca burada açıkça seçilirse ve otomatik üyelikle mümkün olur.
+              Varsayılan olarak NPC'ler <strong>tüm boardlarda</strong> paylaşabilir — sonradan
+              oluşturulanlar da dahil. Gizli/kısıtlı boardlarda otomatik onaylı üye olurlar. Erişimi
+              daraltmak isterseniz yukarıdan seçin.
             </div>
           </div>
           <button class="btn" type="submit">Kaydet</button>

@@ -37,7 +37,8 @@ import {
   Agent,
   type TestWorld,
 } from '../testUtils'
-import { createNpcAgents, listNpcAgents, isNpcUser, updateNpcAgent, NPC_SLIDER_FIELDS, npcBoardCoverage } from '../../src/services/npc/agents'
+import { createNpcAgents, listNpcAgents, isNpcUser, updateNpcAgent, NPC_SLIDER_FIELDS, npcBoardCoverage, npcEligibleVisibilities, eligibleCommunities } from '../../src/services/npc/agents'
+import { updateSettings, getSettings } from '../../src/services/settings'
 import { runNpcTick, listActiveNpcs, measurePendingOutcomes } from '../../src/services/npc/engine'
 import { analyzeContext, detectTopic } from '../../src/services/npc/analyze'
 import { stem, conceptOf, trLower } from '../../src/services/npc/lexicon'
@@ -1105,10 +1106,54 @@ describe('19. Konu üretimi bağlamdan türetilir', () => {
       world.ctx.db.prepare('SELECT username FROM users WHERE is_admin = 1').get() as { username: string }
     ).username
     const adminAgent = await relogin(world, adminUsername)
+
+    // Varsayılan: NPC'ler HER boardda paylaşabilir (gizli dahil).
+    await createCommunityVia(adminAgent, 'herkeseacik')
     await createCommunityVia(adminAgent, 'gizli', 'private')
-    const coverage = npcBoardCoverage(world.ctx)
-    expect(coverage.eligible).toBe(0)
-    expect(coverage.access).toBe('public')
+    const varsayilan = npcBoardCoverage(world.ctx)
+    expect(varsayilan.access).toBe('all')
+    expect(varsayilan.eligible).toBe(2)
+    expect(eligibleCommunities(world.ctx)).toHaveLength(2)
+
+    // Yönetici erişimi daraltabilir.
+    updateSettings(world.ctx, { npcVisibility: 'public' })
+    const daraltilmis = npcBoardCoverage(world.ctx)
+    expect(daraltilmis.access).toBe('public')
+    expect(daraltilmis.eligible).toBe(1)
+    expect(eligibleCommunities(world.ctx).map((c) => c.name)).toEqual(['herkeseacik'])
+
+    updateSettings(world.ctx, { npcVisibility: 'all' })
+    expect(eligibleCommunities(world.ctx)).toHaveLength(2)
+  })
+
+  it('board erişimi ayarı JSON olarak saklanır ve doğru okunur', async () => {
+    // REGRESYON: site_settings değerleri JSON saklanır ("all"). Değer ham SQL
+    // ile okunduğunda tırnaklar kalıyor ve HİÇBİR board eşleşmiyordu —
+    // yönetim paneli "uygun board yok" diye uyarıyor, seçim kaydedilmiyordu.
+    const world = await npcWorld()
+    const adminUsername = (
+      world.ctx.db.prepare('SELECT username FROM users WHERE is_admin = 1').get() as { username: string }
+    ).username
+    const adminAgent = await relogin(world, adminUsername)
+    await createCommunityVia(adminAgent, 'oyun')
+
+    updateSettings(world.ctx, { npcVisibility: 'all' })
+    const raw = world.ctx.db
+      .prepare("SELECT value FROM site_settings WHERE key = 'npcVisibility'")
+      .get() as { value: string }
+    expect(raw.value).toBe('"all"')
+    // Ham (tırnaklı) değer kullanılsa idi sıfır board eşleşirdi.
+    expect(npcEligibleVisibilities(world.ctx)).toEqual(['public', 'restricted', 'private'])
+    expect(npcBoardCoverage(world.ctx).eligible).toBe(1)
+
+    // Form üzerinden kaydetme de ayarı gerçekten değiştirmeli.
+    const res = await adminAgent.post('/admin/npc/board-access', { visibility: 'public' })
+    expect(res.status).toBe(302)
+    expect(npcBoardCoverage(world.ctx).access).toBe('public')
+    const again = await adminAgent.post('/admin/npc/board-access', { visibility: 'all' })
+    expect(again.status).toBe(302)
+    expect(npcBoardCoverage(world.ctx).eligible).toBe(1)
+    expect(npcBoardCoverage(world.ctx).access).toBe('all')
   })
 })
 

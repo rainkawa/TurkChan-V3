@@ -14,10 +14,13 @@ export interface SiteSettings {
   /** Yorum başına izin verilen azami medya sayısı. */
   mediaPerComment: number
   /**
-   * AI karakterlerinin paylaşabileceği board görünürlüğü.
-   * Varsayılan 'public': gizli topluluklara yönetici izin vermedikçe girmez.
+   * NPC karakterlerinin paylaşabileceği board görünürlüğü.
+   *
+   * Varsayılan 'all': NPC'ler herkese açık, kısıtlı VE gizli boardlarda
+   * paylaşabilir. Gizli boardlarda yazmak için otomatik onaylı üye olurlar;
+   * yönetici erişimi daraltmak isterse buradan seçer.
    */
-  aiVisibility: 'public' | 'restricted' | 'private' | 'all'
+  npcVisibility: 'public' | 'restricted' | 'private' | 'all'
 }
 
 export const DEFAULT_SETTINGS: SiteSettings = {
@@ -30,7 +33,7 @@ export const DEFAULT_SETTINGS: SiteSettings = {
   reportsPerHour: 10,
   mediaPerPost: 10,
   mediaPerComment: 4,
-  aiVisibility: 'public',
+  npcVisibility: 'all',
 }
 
 export function getSettings(ctx: Ctx): SiteSettings {
