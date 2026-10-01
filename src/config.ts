@@ -24,6 +24,15 @@ export interface AppConfig {
   trustProxy: boolean
   /** Genel istek sınırı: IP başına dakikada izin verilen istek sayısı. */
   globalRequestsPerMinute: number
+  /**
+   * AI karakter davranış motoru (v2.1.2). Varsayılan olarak AÇIKTIR;
+   * AI_ENABLED=0 ile tamamen kapatılabilir (örn. gerçek kullanıcı trafiği
+   * olan bir kurulumda). Kapatmak mevcut içeriği silmez, sadece yeni
+   * aktivite üretmez.
+   */
+  aiEnabled: boolean
+  /** Davranış motorunun kaç dakikada bir çalışacağı. */
+  aiTickMinutes: number
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -45,5 +54,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     communityPurgeAfterMs: 30 * DAY_MS,
     trustProxy: env.TRUST_PROXY === '1' || env.TRUST_PROXY === 'true',
     globalRequestsPerMinute: Number(env.GLOBAL_RATE_PER_MIN ?? 600),
+    aiEnabled: env.AI_ENABLED !== '0' && env.AI_ENABLED !== 'false',
+    aiTickMinutes: Math.max(1, Number(env.AI_TICK_MINUTES ?? 5)),
   }
 }

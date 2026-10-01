@@ -22,6 +22,10 @@ CREATE TABLE IF NOT EXISTS users (
   rank_override TEXT,                 -- manual rank id; NULL = follow karma
   staff_role TEXT NOT NULL DEFAULT '' CHECK (staff_role IN ('','moderator','super_moderator','co_admin','admin')),
   is_admin INTEGER NOT NULL DEFAULT 0,
+  -- AI/NPC hesabı mı? 0 = gerçek kullanıcı (varsayılan). Bu bayrak
+  -- backend seviyesinde ayırt edilebilirlik sağlar: giriş, DM, yönetim ve
+  -- API yolları bunu kontrol eder. AI hesapları parola ile giriş YAPAMAZ.
+  is_ai INTEGER NOT NULL DEFAULT 0,
   deleted INTEGER NOT NULL DEFAULT 0,
   suspended_until INTEGER,          -- epoch ms; NULL = not suspended (unless indefinite)
   suspended_indefinitely INTEGER NOT NULL DEFAULT 0,
@@ -349,6 +353,97 @@ CREATE TABLE IF NOT EXISTS site_settings (
   value TEXT NOT NULL
 );
 
+-- ===========================================================================
+
+-- ===========================================================================
+
+-- ===========================================================================
+
+-- ===========================================================================
+-- AI karakterler (NPC)
+-- ---------------------------------------------------------------------------
+-- Bu tablolar sitenin normal kullanıcı/board/post/comment/vote mekanizmasını
+-- DEĞİŞTİRMEZ; yalnızca ek nitelikler tutar. AI karakterleri de users
+-- tablosunda birer satırdır (is_ai=1), böylece gönderi/yorum/oy yazan tüm
+-- mevcut kod yolları onlar için de geçerlidir ve hiçbir özellik "AI içeriği"
+-- ile "gerçek içerik" arasında davranışsal fark görmez.
+-- ===========================================================================
+
+-- Karakterin kimlik profili + davranış parametreleri.
+-- Ölçekler 0.0–1.0 arasında REAL olarak tutulur; ayarlar arayüzünden
+-- değiştirilebilir ve davranış motoru bunları doğrudan okur.
+CREATE TABLE IF NOT EXISTS ai_agents (
+  user_id TEXT PRIMARY KEY REFERENCES users(id),
+  archetype TEXT NOT NULL,             -- kişilik şablonu anahtarı (ör. 'hilar', 'sinirli')
+  bio TEXT NOT NULL DEFAULT '',
+  -- Konuşma tarzı / yazım özellikleri
+  verbosity REAL NOT NULL DEFAULT 0.5, -- 0 = tek cümle, 1 = uzun açıklama
+  humor REAL NOT NULL DEFAULT 0.5,      -- 0 = ciddi, 1 = çok komik/troll
+  assertiveness REAL NOT NULL DEFAULT 0.5, -- tartışmacılık (yüksek = kavgacı)
+  politeness REAL NOT NULL DEFAULT 0.5,    -- nezaket
+  activity REAL NOT NULL DEFAULT 0.5,      -- sıklık (düşük = nadiren paylaşır)
+  profanity REAL NOT NULL DEFAULT 0,        -- küfür eğilimi
+  emoji_rate REAL NOT NULL DEFAULT 0.3,     -- emoji kullanma sıklığı
+  -- Oy verme eğilimleri
+  upvote_bias REAL NOT NULL DEFAULT 0.7,    -- yukarı oy verme eğilimi
+  downvote_bias REAL NOT NULL DEFAULT 0.1,  -- aşağı oy verme eğilimi
+  comment_rate REAL NOT NULL DEFAULT 0.5,   -- yorum yazma eğilimi
+  post_rate REAL NOT NULL DEFAULT 0.2,      -- gönderi açma eğilimi
+  -- JSON sütunlar: interests (ilgi alanları), likes/dislikes (konu türleri),
+  -- board_prefs (board tercihleri → ağırlık), peers (uyum/çatışma).
+  interests TEXT NOT NULL DEFAULT '[]',
+  likes TEXT NOT NULL DEFAULT '[]',
+  dislikes TEXT NOT NULL DEFAULT '[]',
+  board_prefs TEXT NOT NULL DEFAULT '{}',
+  peers TEXT NOT NULL DEFAULT '{}',
+  -- Durum ve sayaçlar
+  enabled INTEGER NOT NULL DEFAULT 1,       -- 0 = pasif (davranış motoru yok sayar)
+  posts_created INTEGER NOT NULL DEFAULT 0,
+  comments_created INTEGER NOT NULL DEFAULT 0,
+  votes_cast INTEGER NOT NULL DEFAULT 0,
+  reputation REAL NOT NULL DEFAULT 0,       -- itibar (sosyal statü)
+  last_active_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+-- Karakterler arası ilişki (arkadaşlık / düşmanlık / uyum).
+-- Simetrik değil: A'nın B'ye affinitesi ile B'nin A'ya affinitesi farklı
+-- olabilir (A B'yi saygıyla severken B A'yı kaba bulabilir).
+CREATE TABLE IF NOT EXISTS ai_relationships (
+  agent_id TEXT NOT NULL REFERENCES users(id),
+  peer_id TEXT NOT NULL REFERENCES users(id),
+  affinity REAL NOT NULL DEFAULT 0,     -- -1 (düşman) .. +1 (dost)
+  interactions INTEGER NOT NULL DEFAULT 0,
+  last_interaction_at INTEGER,
+  PRIMARY KEY (agent_id, peer_id)
+);
+
+-- AI karakterlerinin yaptığı her işlemin denetim izi (append-only).
+-- Yönetim panelinde "oluşturduğu içerikler" ve audit görünümü bunu okur.
+CREATE TABLE IF NOT EXISTS ai_activity_log (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL REFERENCES users(id),
+  action TEXT NOT NULL,                  -- post | comment | vote | join | react
+  target_type TEXT,
+  target_id TEXT,
+  community_id TEXT,
+  detail TEXT,
+  created_at INTEGER NOT NULL
+);
+
+-- Board hakimiyeti: bir karakterin belirli bir boarddaki ağırlığı.
+-- Aktivite motoru bunu okur; sosyal statü/itibar buradan türetilir.
+CREATE TABLE IF NOT EXISTS ai_board_presence (
+  agent_id TEXT NOT NULL REFERENCES users(id),
+  community_id TEXT NOT NULL REFERENCES communities(id),
+  posts INTEGER NOT NULL DEFAULT 0,
+  comments INTEGER NOT NULL DEFAULT 0,
+  votes INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (agent_id, community_id)
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts USING fts5(
   title, body, post_id UNINDEXED
 );
@@ -396,4 +491,10 @@ CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, read
 CREATE INDEX IF NOT EXISTS idx_conversation_members_user ON conversation_members(user_id);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_message_reports_message ON message_reports(message_id);
+CREATE INDEX IF NOT EXISTS idx_ai_agents_enabled ON ai_agents(enabled, activity DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_rel_peer ON ai_relationships(peer_id);
+CREATE INDEX IF NOT EXISTS idx_ai_log_agent ON ai_activity_log(agent_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_log_created ON ai_activity_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_presence_community ON ai_board_presence(community_id);
+CREATE INDEX IF NOT EXISTS idx_users_is_ai ON users(is_ai) WHERE is_ai = 1;
 `

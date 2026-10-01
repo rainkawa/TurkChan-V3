@@ -155,6 +155,12 @@ function migrate(db: DatabaseSync): void {
     }
   }
 
+  // AI/NPC hesapları (v2.1.2). Mevcut kurulumlarda users tablosunda bu sütun
+  // yok; CREATE TABLE IF NOT EXISTS eklemez, bu yüzden burada ALTER edilir.
+  if (!userColumns.has('is_ai')) {
+    db.exec('ALTER TABLE users ADD COLUMN is_ai INTEGER NOT NULL DEFAULT 0')
+  }
+
   // Gizlilik: başarısız giriş denemelerinde IP adresi saklanmaz. Kaba kuvvet
   // koruması kullanıcı adı üzerinden çalışır, IP bazlı sınır bellekte tutulur.
   const attemptColumns = new Set(

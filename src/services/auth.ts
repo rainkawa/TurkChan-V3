@@ -216,6 +216,18 @@ export async function login(
     )
   }
 
+  // AI/NPC hesapları (v2.1.2) oturum açamaz. Bunlar parola hash'i BOŞ
+  // tutulduğu için zaten doğrulanamaz; buradaki kontrol ikinci savunmadır
+  // ve ileride bir hash'in yanlışlıkla atanması durumunu da kapatır.
+  if (user?.is_ai === 1) {
+    logSecurity('login_rejected_ai', { account: attemptKey, ip: maskIp(input.ip) })
+    ctx.db
+      .prepare('INSERT INTO login_attempts (username_lower, success, created_at) VALUES (?, 0, ?)')
+      .run(attemptKey, ctx.now())
+    // Hesabın var olup olmadığını açığa çıkarmadan genel hata mesajı.
+    throw unauthorized('Kullanıcı adı/e-posta veya parola hatalı.')
+  }
+
   const valid = user ? await verifyPassword(user.password_hash, input.password) : false
   ctx.db
     .prepare('INSERT INTO login_attempts (username_lower, success, created_at) VALUES (?, ?, ?)')

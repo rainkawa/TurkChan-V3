@@ -1,6 +1,6 @@
 {
   "name": "turkchan",
-  "version": "0.1.0",
+  "version": "2.1.2",
   "private": true,
   "type": "module",
   "description": "TurkChan — Türkiye’nin topluluk platformu. Kendi kendine barındırılan tartışma platformu.",
@@ -8,6 +8,7 @@
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "seed": "tsx src/db/seed.ts",
+    "seed:ai": "tsx src/scripts/seed-ai.ts",
     "backup": "tsx src/scripts/backup.ts",
     "rank:assets": "node scripts/generate-rank-assets.mjs",
     "logo:raster": "node scripts/build-logo-raster.mjs",

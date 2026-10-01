@@ -14,6 +14,8 @@ export interface UserRow {
   rank_override: string | null
   staff_role: string
   is_admin: number
+  /** AI/NPC karakteri mi? 0 = gerçek kullanıcı. */
+  is_ai: number
   deleted: number
   suspended_until: number | null
   suspended_indefinitely: number
@@ -221,3 +223,68 @@ export interface UploadRow {
 }
 
 export type Viewer = UserRow | null
+
+// ===========================================================================
+// AI karakterler (NPC)
+// ===========================================================================
+
+/** `ai_agents` tablosunun satır tipi. Ölçekler 0.0–1.0 REAL olarak tutulur. */
+export interface AiAgentRow {
+  user_id: string
+  archetype: string
+  bio: string
+  verbosity: number
+  humor: number
+  assertiveness: number
+  politeness: number
+  activity: number
+  profanity: number
+  emoji_rate: number
+  upvote_bias: number
+  downvote_bias: number
+  comment_rate: number
+  post_rate: number
+  interests: string
+  likes: string
+  dislikes: string
+  board_prefs: string
+  peers: string
+  enabled: number
+  posts_created: number
+  comments_created: number
+  votes_cast: number
+  reputation: number
+  last_active_at: number | null
+  created_at: number
+  updated_at: number
+}
+
+/** Karakter + kullanıcı satırı birlikte (yönetim listesi için). */
+export interface AiAgentWithUser extends AiAgentRow {
+  username: string
+  display_name: string | null
+  avatar_key: string | null
+  suspended_indefinitely: number
+  deleted: number
+}
+
+/** `ai_relationships` satırı. affinity: -1 (düşman) .. +1 (dost). */
+export interface AiRelationshipRow {
+  agent_id: string
+  peer_id: string
+  affinity: number
+  interactions: number
+  last_interaction_at: number | null
+}
+
+/** `ai_activity_log` satırı (append-only denetim izi). */
+export interface AiActivityRow {
+  id: string
+  agent_id: string
+  action: string
+  target_type: string | null
+  target_id: string | null
+  community_id: string | null
+  detail: string | null
+  created_at: number
+}

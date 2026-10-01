@@ -20,6 +20,16 @@ import {
   updateAdminUser,
 } from '../services/admin'
 import { createCommunity } from '../services/communities'
+import { AiTab } from './admin-ai'
+import {
+  createAiAgents,
+  getAiAgent,
+  listAiAgents,
+  parseRecord,
+  resetAiAgent,
+  setAiAgentEnabled,
+  updateAiAgent,
+} from '../services/ai/agents'
 import { reportQueue } from '../services/reports'
 import { siteAdminLog } from '../services/modlog'
 import { getSettings, updateSettings, type SiteSettings } from '../services/settings'
@@ -180,12 +190,13 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
 
     const tabs = (
       <nav class="sort-tabs">
-        {(['reports', 'users', 'communities', 'anonymous', 'stats', 'settings', 'invites', 'log'] as const).map((tb) => (
+        {(['reports', 'users', 'communities', 'anonymous', 'ai', 'stats', 'settings', 'invites', 'log'] as const).map((tb) => (
           <a href={`/admin?tab=${tb}`} class={tab === tb ? 'active' : ''}>
             {tb === 'reports' ? t.admin.reports
               : tb === 'users' ? t.admin.users
               : tb === 'communities' ? t.admin.communities
               : tb === 'anonymous' ? t.admin.anonymous
+              : tb === 'ai' ? 'AI Karakterler'
               : tb === 'stats' ? t.admin.stats
               : tb === 'settings' ? t.admin.settings
               : tb === 'invites' ? t.admin.invites
@@ -462,6 +473,16 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
             )}
           </div>
         </>
+      )
+    } else if (tab === 'ai') {
+      const agents = listAiAgents(ctx)
+      content = (
+        <AiTab
+          ctx={ctx}
+          agents={agents}
+          editId={c.req.query('edit') ?? ''}
+          showContent={c.req.query('content') === '1'}
+        />
       )
     } else if (tab === 'stats') {
       const viewed = topViewedPosts(ctx, 50)
@@ -789,6 +810,99 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
       else throw err
     }
     return c.redirect('/admin?tab=communities')
+  })
+
+  // ==========================================================================
+  // AI karakter yönetimi (v2.1.2)
+  // --------------------------------------------------------------------------
+  // Tüm rotalar requireAdmin ile korunur. Form gövdeleri CSRF middleware'i
+  // tarafından zaten doğrulanır.
+  // ==========================================================================
+
+  /** Karakteri aktif/pasif yapar. */
+  app.post('/admin/ai/toggle', async (c) => {
+    const viewer = requireAdmin(c.get('viewer'))
+    const body = await formData(c)
+    const userId = body.id ?? ''
+    try {
+      setAiAgentEnabled(ctx, viewer.id, userId, body.enabled === '1')
+      setFlash(c, 'ok', body.enabled === '1' ? 'Karakter aktifleştirildi.' : 'Karakter pasifleştirildi.')
+    } catch (err) {
+      if (err instanceof AppError) setFlash(c, 'error', err.message)
+      else throw err
+    }
+    return c.redirect('/admin?tab=ai')
+  })
+
+  /** Karakter profilini günceller (ölçekler, ilgi alanları, board tercihleri). */
+  app.post('/admin/ai/:id', async (c) => {
+    const viewer = requireAdmin(c.get('viewer'))
+    const userId = c.req.param('id')
+    try {
+      if (!getAiAgent(ctx, userId)) throw notFound('AI karakter bulunamadı.')
+      const parsed = await c.req.parseBody()
+      const num = (key: string): number => Number(parsed[key] ?? 0) / 100
+      const list = (key: string): string[] =>
+        String(parsed[key] ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+
+      // "ad:80, spor:40" biçimini çözümle.
+      const boardPrefs: Record<string, number> = {}
+      for (const entry of list('boardPrefs')) {
+        const [name, weight] = entry.split(':')
+        if (!name) continue
+        boardPrefs[name.trim()] = Math.min(1, Math.max(0, Number(weight ?? 50) / 100))
+      }
+
+      updateAiAgent(ctx, viewer.id, userId, {
+        bio: String(parsed.bio ?? ''),
+        interests: list('interests'),
+        likes: list('likes'),
+        dislikes: list('dislikes'),
+        boardPrefs,
+        activity: num('activity'),
+        verbosity: num('verbosity'),
+        humor: num('humor'),
+        assertiveness: num('assertiveness'),
+        politeness: num('politeness'),
+        comment_rate: num('comment_rate'),
+        post_rate: num('post_rate'),
+        upvote_bias: num('upvote_bias'),
+        downvote_bias: num('downvote_bias'),
+        emoji_rate: num('emoji_rate'),
+        profanity: num('profanity'),
+      })
+      setFlash(c, 'ok', `AI karakter güncellendi: ${userId}`)
+    } catch (err) {
+      if (err instanceof AppError) setFlash(c, 'error', err.message)
+      else throw err
+    }
+    return c.redirect(`/admin?tab=ai&edit=${userId}`)
+  })
+
+  /** Karakterin davranışını sıfırlar (içerikler korunur). */
+  app.post('/admin/ai/:id/reset', async (c) => {
+    const viewer = requireAdmin(c.get('viewer'))
+    const userId = c.req.param('id')
+    try {
+      if (!getAiAgent(ctx, userId)) throw notFound('AI karakter bulunamadı.')
+      resetAiAgent(ctx, viewer.id, userId)
+      setFlash(c, 'ok', 'Karakter davranışı sıfırlandı (içerikler korundu).')
+    } catch (err) {
+      if (err instanceof AppError) setFlash(c, 'error', err.message)
+      else throw err
+    }
+    return c.redirect(`/admin?tab=ai&edit=${userId}`)
+  })
+
+  /** Eksik karakterleri oluşturur (idempotent). */
+  app.post('/admin/ai/create', (c) => {
+    const viewer = requireAdmin(c.get('viewer'))
+    const created = createAiAgents(ctx)
+    setFlash(c, 'ok', created > 0 ? `${created} AI karakter oluşturuldu.` : 'Tüm karakterler zaten var.')
+    return c.redirect('/admin?tab=ai')
   })
 
   app.post('/admin/settings', async (c) => {

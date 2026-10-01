@@ -9,6 +9,8 @@ import { RateLimiter } from './lib/ratelimit'
 import { LocalObjectStorage } from './services/storage'
 import { purgeExpiredCommunities } from './services/admin'
 import { purgeExpiredSessions } from './services/auth'
+import { runAiTick } from './services/ai/activity'
+import { listAiAgents } from './services/ai/agents'
 import { backupDatabase, backupMedia, pruneBackups, verifyBackup } from './lib/backup'
 import { logError, logInfo } from './lib/logging'
 import { join } from 'node:path'
@@ -83,6 +85,40 @@ function runBackup(): void {
 
 runMaintenance()
 setInterval(runMaintenance, 24 * 60 * 60 * 1000).unref()
+
+/**
+ * AI karakter davranış motoru (v2.1.2).
+ *
+ * Karakterler bu turda gönderi açar, yorum yazar, yoruma cevap verir ve
+ * oy verir. Motor MEVCUT kullanıcı servislerini çağırdığı için rate limit,
+ * spam koruması ve yetki kontrolleri AI için de aynen geçerlidir.
+ *
+ * `AI_ENABLED=0` ile kapatılabilir; kapatıldığında hiçbir işlem yapılmaz
+ * ve mevcut içerik korunur. Hata durumunda sunucu ETKİLENMEZ: yalnızca
+ * bir tur atlanır ve hata loglanır.
+ */
+function runAiActivity(): void {
+  if (!config.aiEnabled) return
+  // Hiç karakter yoksa zamanlayıcı hiçbir şey yapmaz.
+  if (listAiAgents(ctx, { onlyEnabled: true }).length === 0) return
+  try {
+    const result = runAiTick(ctx)
+    if (result.actions > 0) {
+      logInfo('ai_tick', { actions: result.actions, posts: result.posts, comments: result.comments, votes: result.votes })
+    }
+  } catch (err) {
+    logError(err instanceof Error ? err : new Error(String(err)), { event: 'ai_tick_failed' })
+  }
+}
+
+if (config.aiEnabled) {
+  // Açılıştan 60 sn sonra ilk tur: kullanıcılar siteyi görsün, sonra
+  // karakterler yavaş yavaş hareket ediyormuş gibi görünsün.
+  setTimeout(() => {
+    runAiActivity()
+    setInterval(runAiActivity, config.aiTickMinutes * 60 * 1000).unref()
+  }, 60_000).unref()
+}
 
 setTimeout(() => {
   runBackup()
