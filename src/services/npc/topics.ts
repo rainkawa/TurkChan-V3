@@ -45,16 +45,24 @@ function pick<T>(rng: () => number, items: readonly T[]): T {
 }
 
 /** Kavram ailesinden gerçek bir konu sözcüğü. */
-function topicWord(topic: string, rng: () => number): string {
+function topicWord(topic: string, rng: () => number, offset = 0): string {
   const concept = CONCEPTS.find((c) => c.id === topic)
   if (!concept) return ''
   // İlk iki stem soyut ("oyun"), sonrakiler somuttur ("minecraft", "valorant").
   // Sözlükte ASCII karşılıkları da var ("sarki", "sanatci"); bunlar bağlam için
   // gereklidir ama başlığa girerse Türkçe yazım bozulur.
-  const turkish = concept.stems.slice(2, 12).filter((s) => /[ıİşğüöçŞĞÜÖÇ]/u.test(s))
-  const concrete = turkish.length > 0 ? turkish : concept.stems.slice(2, 10)
+  const turkish = concept.stems.slice(2).filter((s) => /[ıİşğüöçŞĞÜÖÇ]/u.test(s))
+  // Sözlüğün bir kısmı tek başına kullanılamayan kök biçimleridir ("oyn",
+  // "oyna", "oynat"); başlığa girince bozuk okunuyordu.
+  const nouns = turkish.filter(
+    (s) => s.length >= 4 && !/[^aeıioöuü]{2,}$/u.test(s) && !/(na|nata|yor|mış|mis|di|du|dü|da|de)$/u.test(s),
+  )
+  const concrete = nouns.length >= 2 ? nouns : turkish.length > 0 ? turkish : concept.stems.slice(2, 10)
   const pool = concrete.length > 0 ? concrete : concept.stems
-  return pick(rng, pool)
+  if (pool.length === 0) return ''
+  // `offset` kişi başına döndürme sağlar: on NPC aynı boardda hep aynı
+  // kelimeyi seçip on benzer başlık açmaz.
+  return pool[(offset + Math.floor(rng() * pool.length)) % pool.length] as string
 }
 
 /** Gündemdeki gerçek bir başlıktan somut bir kelime çeker. */
@@ -85,7 +93,7 @@ export function composeTopicPost(ctx: Ctx, input: PostInput): ComposedPost | nul
   const analysisFull = sourceText === '' ? analysis : analyzeContext(sourceText.slice(0, 600))
   const topic = analysisFull.topic !== 'gündelik' ? analysisFull.topic : analysis.topic
 
-  const word = topicWord(topic, makeRng(seed)) || boardText.split(' ')[0] || ''
+  const word = topicWord(topic, makeRng(seed), seed % 5) || boardText.split(' ')[0] || ''
   if (word === '') return null
 
   const anchor = agendaAnchor(agenda, makeRng(seed + 11))
@@ -141,23 +149,42 @@ function buildPost(
   const { input, word, anchor, opinion, familiarity, known, boardText } = parts
   const { persona } = input
 
-  // BAŞLIK: gerçek sözcüklerden kurulur (şablon havuzu yok).
+  // BAŞLIK: gerçek sözcüklerden kurulur (şablon havuzu yok). Yapılar
+  // birbirinden ayrık tutulur; aksi halde 50 gönderi 9 kalıba döner.
   const titleFrames = [
-    `${word} tarafında ${pick(rng, ['bir şeyler değişti', 'eskisi gibi değil', 'uzun süredir kimse bakmıyor'])}`,
-    `${word} konusunda ${pick(rng, ['kafamda bir soru var', 'bir açıklama bekliyorum', 'iki farklı görüş gördüm'])}`,
-    `${word} ile ilgili ${pick(rng, ['kendi notlarımı paylaşayım', 'uzun zamandır biriken izlenimlerim var', 'deneyimlerimi yazayım'])}`,
+    () => `${word}: ${pick(rng, ['ne değişti, ne değişmedi', 'son biriken izlenimler', 'üç şeyi karşılaştırdım'])}`,
+    () => `${word} için ${pick(rng, ['açıklama bekliyorum', 'somut bir çözüm arıyorum', 'iki farklı deneyim gördüm'])}`,
+    () => `${word} konusunda ${pick(rng, ['kafamda bir soru var', 'bir açıklama bekliyorum', 'karşı görüşüm değişti'])}`,
+    () => `${word} ile ilgili ${pick(rng, ['kendi notlarımı paylaşayım', 'uzun zamandır biriken izlenimlerim var', 'deneyimlerimi yazayım'])}`,
+    () => `${pick(rng, ['Not', 'Soru', 'Tespit'])}: ${word} tarafında ${pick(rng, ['sessiz bir köşe var', 'biraz daha konuşalım', 'acele edilmesin'])}`,
+    () => `${capitalizeFirst(word)} ${pick(rng, ['konusunda', 'üzerine'])} ${pick(rng, ['dürüst bir yorum', 'kısa bir karşılaştırma', 'uzun bir liste değil'])}`,
+    () => `${pick(rng, ['Bugün', 'Bu hafta', 'Son günlerde'])} ${word} ${pick(rng, ['gündemde', 'gündemin başında', 'sıkça geçiyor'])}`,
   ]
-  let title = pick(rng, titleFrames)
-  if (anchor !== '' && rng() < 0.5) title = `${title} (${anchor})`.slice(0, 110)
+  // Gündem kelimesi başlığa ek parantez olarak yapıştırılıyordu ("(telefonum)")
+  // ve anlam taşımıyordu; artık yalnızca gövdede, kaynak cümle içinde geçer.
+  const title = pick(rng, titleFrames)().slice(0, 110)
 
-  // GÖVDE: düşünce parçalarından kurulur.
+  // GÖVDE: düşünce parçalarından kurulur. Giriş cümlesi karakterin yazım
+  // uzunluğuna ve niyetine göre seçilir; her gönderi aynı iskeleti kullanmaz.
   const sentences: string[] = []
-  const opener = pick(rng, [
-    `${boardText.split(' ')[0] ?? word} tarafında sürekli aynı şeyler konuşuluyor`,
-    `${capitalizeFirst(word)} tarafında son zamanlarda kafamda birikenler var`,
-    `buradaki ${word} başlıklarını okurken şunu düşündüm`,
-    `${capitalizeFirst(word)} başlıkları altında bugün biraz bekledim`,
-  ])
+  const board = boardText.split(' ')[0] ?? word
+  const opener =
+    persona.verbosity < 0.4
+      ? pick(rng, [
+          `${capitalizeFirst(word)} tarafında kısa bir not bırakayım`,
+          `${capitalizeFirst(word)} konusunda söyleyeceklerim birkaç cümle`,
+        ])
+      : persona.curiosity > 0.6
+        ? pick(rng, [
+            `${capitalizeFirst(word)} başlıklarını okurken bir şey dikkatimi çekti`,
+            `${board} tarafında ${word} başlıklarını takip ediyorum`,
+          ])
+        : pick(rng, [
+            `${board} tarafında sürekli aynı şeyler konuşuluyor`,
+            `${capitalizeFirst(word)} tarafında son zamanlarda kafamda birikenler var`,
+            `buradaki ${word} başlıklarını okurken şunu düşündüm`,
+            `${capitalizeFirst(word)} başlıkları altında bugün biraz bekledim`,
+          ])
   sentences.push(opener)
   if (anchor !== '') {
     sentences.push(`${capitalizeFirst(anchor)} tarafındaki tartışma da buna yakın bir konu gibi görünüyor`)

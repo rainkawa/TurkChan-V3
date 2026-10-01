@@ -522,7 +522,9 @@ const NpcQualityCard: FC<{ ctx: Ctx }> = ({ ctx }) => {
       <p class="hint">
         Metinler hazır kalıplardan seçilmez; düşünce → plan → parça → dilbilgisi → denetim zincirinden
         kurulur. Aşağıdaki ölçütler son {m.samples} yorum üzerinden hesaplanır. Metrikler
-        <code>metrics.ts</code> içinde yerel olarak hesaplanır.
+        <code>metrics.ts</code> içinde yerel olarak hesaplanır. Henüz ölçülmemiş bir davranış denemesi
+        yoksa “yararlı cevap oranı” kalite puanından türetilir; denemeler ölçüldükçe gerçek ödül
+        oranına geçer.
       </p>
       {m.samples === 0 && <p class="hint">Ölçüm için henüz yeterli yorum yok.</p>}
       {m.samples > 0 && (

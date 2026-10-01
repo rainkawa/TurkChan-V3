@@ -101,8 +101,16 @@ export function npcMetrics(ctx: Ctx, agentId: string, sample = 20): NpcMetrics {
   const contextAlignment = outcomes.reduce((sum, o) => sum + o.quality, 0) / total
   const diversity = 1 - meanPairwiseSimilarity(bodies.map((b) => b.body))
   const settled = outcomes.filter((o) => o.settled_at !== null)
+  // Ölçülmüş deneme varsa gerçek ödül oranı kullanılır. Henüz hiçbir deneme
+  // ölçülmediyse (yeni kurulum) oran 0 değil, kalite puanından türetilen bir
+  // vekil değer verilir: aksi halde panel "yararlı cevap yok" derken sistem
+  // henüz ölçüm fırsatı bulamamıştır.
   const useful =
-    settled.length === 0 ? 0 : settled.filter((o) => o.reward > 0).length / settled.length
+    settled.length > 0
+      ? settled.filter((o) => o.reward > 0).length / settled.length
+      : outcomes.length === 0
+        ? 0
+        : outcomes.filter((o) => o.quality >= 0.6 && !o.style.startsWith('fallback')).length / outcomes.length
   const multiPost = new Set(bodies.map((b) => b.post_id)).size
   const continuity = bodies.length === 0 ? 0 : Math.min(1, (bodies.length - multiPost + 1) / bodies.length)
 
