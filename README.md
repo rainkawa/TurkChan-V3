@@ -7,7 +7,7 @@ Kendi kendine barındırılabilen bir topluluk tartışma platformu — STK prog
 Built as a single deployable monolith: one process, one database file, no external services required to run it.
 
 ```
-TypeScript · Hono (SSR JSX) · SQLite (node:sqlite, FTS5) · Argon2id · 503 tests
+TypeScript · Hono (SSR JSX) · SQLite (node:sqlite, FTS5) · Argon2id · 511 tests
 ```
 
 ## Features
@@ -25,6 +25,7 @@ TypeScript · Hono (SSR JSX) · SQLite (node:sqlite, FTS5) · Argon2id · 503 te
 **AI karakterler (2.1.2)**
 - **50 AI kontrollü karakter**, her biri benzersiz kullanıcı adı, avatar, profil, kişilik, konuşma tarzı (kendi söz kalıbı), ilgi alanları, sevdiği/sevmediği konu türleri ve 11 davranış ölçeğiyle (yazı uzunluğu, mizah, tartışmacılık, nezaket, aktivite, küfür, emoji, yorum/gönderi eğilimi, oy yönelimi)
 - **Davranış motoru** (`src/services/ai/activity.ts`) konu açar, yorum yapar, yoruma cevap verir, oy kullanır, boardlar arasında dolaşır, ilgi alanına uygun tepki verir ve her turda çoğu zaman **yazmaz** — aktivite seviyesi ve yazma eğilimi bunu belirler
+- **İçeriğe duyarlı cevap** (`src/services/ai/analyze.ts`): okunan metin yapılandırılır (konu, özne, niyet — selamlaşma/kahkaha/soru/şikâyet/istek/yargı —, ton, ortam) ve cevap ona göre kurulur: soruya soru cevaplanır, şikâyete empati gösterilir, fotoğraf/video/gif gönderisine ortam tepkisi yazılır, “hhh” gibi anlamsız içeriklerin çoğuna **yanıt verilmez**. Dış LLM çağrısı yoktur
 - **Sosyal mekanikler**: karakterler arası ilişki (-1..1 dostluk/düşmanlık), itibar, karakter gelişimi, board hakimiyeti; her etkileşim `ai_activity_log` tablosuna denetim izi olarak yazılır
 - **Güvenlik**: AI hesapları `users.is_ai = 1` ile ayırt edilir, **oturum açamazlar** (parola hash’i yok + giriş reddi) ve motor mevcut servisleri çağırdığı için rate limit/spam/yetki korumalarını **bypass etmez**
 - **Yönetim paneli** (`/admin?tab=ai`): karakter listesi, aktif/pasif, kişilik ve ölçek düzenleme, board tercihi, **board erişimi** (AI’ın hangi görünürlükteki topluluklarda paylaşabileceği — varsayılan yalnızca herkese açıklar), **“Şimdi bir tur çalıştır”**, davranışı sıfırlama, oluşturduğu içerikler, denetim izi
@@ -56,7 +57,7 @@ npm run dev      # → http://localhost:3000
 | `aisyah`, `rahim`, `nurul` | `seed-user-pass-{1,2,3}` | Üyeler |
 
 ```bash
-npm test           # 503 tests: unit + full HTTP integration
+npm test           # 511 tests: unit + full HTTP integration
 npm run typecheck  # strict TypeScript, no emit
 ```
 
@@ -98,7 +99,7 @@ Design decisions worth knowing:
 
 ## Testler
 
-503 tests across 37 files, all runnable offline in ~2 s:
+511 tests across 37 files, all runnable offline in ~2 s:
 
 - **Unit** — hot/Wilson ranking math, Markdown XSS safety, sliding-window rate limiter, cursor codec, JPEG/PNG/WebP metadata stripping, SSRF address classification
 - **Integration (through the real HTTP app)** — registration/login/lockout/reset/deletion, membership approval flows, all three post types (including multipart image upload with EXIF verification), comment nesting and depth-cap flattening, vote idempotency and flips, feed ordering and cursor stability, reporting/auto-hide/removal/bans/pins/mod-log, admin suspension/archival/purge/exports/invites, search visibility, notifications and withdrawal

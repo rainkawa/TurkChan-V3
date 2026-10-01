@@ -16,6 +16,7 @@ import { createAiAgents, listAiAgents, getAiAgent, updateAiAgent, resetAiAgent, 
 import { runAiTick, aiBoardCoverage } from '../../src/services/ai/activity'
 import { updateSettings } from '../../src/services/settings'
 import { generatePost, generateComment, detectTopic, voiceSignature } from '../../src/services/ai/voice'
+import { analyzeContent } from '../../src/services/ai/analyze'
 import { PERSONAS, archetypeLabel } from '../../src/services/ai/personas'
 import { login } from '../../src/services/auth'
 import { getUserByUsername } from '../../src/services/auth'
@@ -54,6 +55,14 @@ function agentByUsername(ctx: Ctx, username: string): { agent: AiAgentWithUser; 
   const agent = listAiAgents(ctx).find((a) => a.user_id === user.id)
   if (!agent) throw new Error(`AI karakteri yok: ${username}`)
   return { agent, user }
+}
+
+/** Test dünyasındaki ilk (yönetici) kullanıcının adı. */
+function usernameOf(world: ReturnType<typeof createTestWorld>): string {
+  const row = world.ctx.db
+    .prepare('SELECT username FROM users ORDER BY created_at ASC LIMIT 1')
+    .get() as { username: string }
+  return row.username
 }
 
 describe('AI karakter sistemi', () => {
@@ -506,7 +515,128 @@ describe('AI karakter sistemi', () => {
     })
   })
 
-  describe('board erişimi', () => {
+  describe('içerik analizi ve bağlamlı cevap', () => {
+    let ctx: Ctx
+    beforeEach(() => {
+      ctx = createTestWorld().ctx as Ctx
+      createAiAgents(ctx)
+    })
+
+    const agentOf = (username: string): AiAgentWithUser => agentByUsername(ctx, username).agent
+
+    test('niyet tespiti içerikten türetilir', () => {
+      expect(analyzeContent('hhh').intent).toBe('laugh')
+      expect(analyzeContent('hahaha çok komik ya').intent).toBe('laugh')
+      // "hangi" kelimesi "ha" ile başladığı için kahkaha sanılmamalı.
+      expect(analyzeContent('hangi kitap iyi?').intent).toBe('question')
+      expect(analyzeContent('merhaba arkadaşlar').intent).toBe('greeting')
+      expect(analyzeContent('sağ ol çok yardımcı oldun').intent).toBe('thanks')
+      expect(analyzeContent('uygulama sürekli çöküyor çok sinir oldum').intent).toBe('complaint')
+      expect(analyzeContent('lütfen bana yardım edin').intent).toBe('request')
+      expect(analyzeContent('yok').isTrivial).toBe(true)
+      expect(analyzeContent('hhh').isTrivial).toBe(true)
+      expect(analyzeContent('yarın maç var umarım kazanırlar').isTrivial).toBe(false)
+    })
+
+    test('konu ve özne içerikten çıkarılır', () => {
+      const analysis = analyzeContent('Python öğrenmek için hangi kitaptan başlamalıyım?')
+      expect(analysis.topic).toBe('yazılım')
+      expect(analysis.subject).toBe('python')
+      // Edat/sıfat/bağlaçlar özne olmaz.
+      const s = analyzeContent('Sitede böyle bir özellik var mı?')
+      expect(s.subject).toBe('site')
+    })
+
+    test('kahkahaya kahkaha cevabı verilir', () => {
+      // Eski davranış: "bu konu hakkında bilgim var" gibi alakasız cümle.
+      for (const name of ['sakin_emra', 'pragmatik_onur', 'bilgili_ayse', 'tek_cumle_efe']) {
+        for (const text of ['hhh', 'hahaha']) {
+          const body = generateComment(agentOf(name), text).body
+          expect(body.length, `${name} → ${body}`).toBeLessThan(60)
+          expect(body.toLowerCase(), `${name} → ${body}`).not.toContain('bilgim var')
+        }
+      }
+    })
+
+    test('soruya cevap sorunun öznesini kullanır', () => {
+      const bodies = Array.from({ length: 30 }, () =>
+        generateComment(agentOf('bilgili_ayse'), 'Sitede böyle bir özellik var mı?').body,
+      )
+      // Cevap ya özneyi kullanır ya da doğrudan bir soru/yanıt cümlesidir.
+      const relevant = bodies.filter((b) => /site|özellik|kaynak|bağlantı|emin değilim|var/i.test(b))
+      expect(relevant.length).toBeGreaterThan(bodies.length * 0.6)
+    })
+
+    test('şikâyete tepki şikâyet dili kullanır', () => {
+      const text = 'Uygulama sürekli çöküyor çok sinir oldum'
+      for (const name of ['sakin_emra', 'bilgili_ayse']) {
+        for (const body of Array.from({ length: 12 }, () => generateComment(agentOf(name), text).body)) {
+          expect(body.toLowerCase()).toMatch(/dertli|çözül|sorun|kabul etmek|aynı|çözüm|anlatayım|yaptım/)
+        }
+      }
+    })
+
+    test('fotoğraf, video ve gif gönderisine ortam tepkisi verilir', () => {
+      const a = agentOf('sakin_emra')
+      const media = (kind: string): string[] =>
+        Array.from({ length: 12 }, () =>
+          generateComment(a, 'bugün bir şey paylaştım', undefined, undefined, undefined, {
+            postType: 'image',
+            mediaKind: kind,
+          }).body,
+        )
+      const image = media('image')
+      expect(image.filter((b) => /fotoğraf|görsel/i.test(b)).length).toBe(image.length)
+      const video = media('video')
+      expect(video.filter((b) => /video/i.test(b)).length).toBe(video.length)
+      const gif = media('gif')
+      expect(gif.filter((b) => /gif/i.test(b)).length).toBe(gif.length)
+    })
+
+    test('nazik karakterler neredeyse hiç ünlemle bitirmez', () => {
+      // Yapay görünümün en belirgin iziydi: her cümle "!" ile bitiyordu.
+      for (const name of ['sakin_emra', 'bilgili_ayse', 'ayse_nur', 'terapist_selin']) {
+        const bodies = Array.from({ length: 200 }, (_, i) =>
+          generateComment(agentOf(name), `konu ${i} hakkında ne düşünüyorsun?`).body,
+        )
+        const shouted = bodies.filter((b) => b.endsWith('!')).length
+        expect(shouted, `${name}: ${shouted}/200 ünlem`).toBeLessThan(10)
+      }
+    })
+
+    test('anlamsız yorumlara seyrek yanıt verilir', async () => {
+      // Aynı sayıda tur çalıştırılır; anlamlı yoruma gelen cevapların
+      // anlamsız ("hhh") yoruma gelen cevaplardan belirgin fazla olması beklenir.
+      const run = async (commentText: string): Promise<number> => {
+        const world = createTestWorld()
+        const ctx2 = world.ctx as Ctx
+        const { agent: admin } = await registerAdmin(world)
+        await createCommunityVia(admin, 'deneme', 'public')
+        await admin.post('/c/deneme/submit?type=text', { title: 'Konu', body: 'gövde metni burada' })
+        const { createComment } = await import('../../src/services/comments')
+        const post = ctx2.db.prepare('SELECT id FROM posts LIMIT 1').get() as { id: string }
+        createComment(ctx2, { id: getUserByUsername(ctx2, usernameOf(world))!.id } as UserRow, post.id, { body: commentText })
+        createAiAgents(ctx2)
+        // Sabit başlangıç zamanı: motor PRNG'si tohumdan türer, test
+        // tekrarlanabilir olur.
+        const t0 = 1_700_000_000_000
+        for (let i = 0; i < 25; i++) runAiTick(ctx2, t0 + i * 10_000_000)
+        const row = ctx2.db
+          .prepare(
+            `SELECT COUNT(*) AS n FROM comments c
+               JOIN users u ON u.id = c.author_id
+              WHERE u.is_ai = 1 AND c.post_id = ? AND c.parent_id IS NOT NULL`,
+          )
+          .get(post.id) as { n: number }
+        return row.n
+      }
+      const meaningful = await run('Uygulama son güncellemeden sonra sürekli çöküyor, ne önerirsiniz?')
+      const trivial = await run('hhh')
+      expect(meaningful).toBeGreaterThan(trivial)
+    })
+  })
+
+describe('board erişimi', () => {
     /** Motorun ürettiği içerik sayıları (AI'ın yazdığı her şey). */
     function aiContentCounts(ctx: Ctx, community?: string): { posts: number; comments: number; votes: number } {
       const one = (sql: string, ...params: unknown[]): number =>

@@ -1,25 +1,25 @@
 /**
  * AI karakterlerinin konuşma sesi (metin üretimi).
  *
- * Yöntem: şablon + ölçek. Her cümle, karakterin davranış ölçeklerinden
- * (verbosity, humor, assertiveness, politeness, profanity, emoji_rate)
- * ve konuşulan içerikten türetilir. Böylece:
+ * Tasarım: cevap ÖNCE okunan içeriğe göre seçilir, sonra kişiliğe göre
+ * kurulur. `analyze.ts` metni yapılandırır (konu, özne, niyet, ton, ortam),
+ * buradaki kalıp havuzları o niyete göre seçilir. Bu yüzden "hhh" yazan
+ * birine "bu konu hakkında bilgim var" yerine gülüş tepkisi gelir, soru
+ * soran birine cevap verilir, fotoğraf/video gönderisine ortam tepkisi
+ * yazılır.
  *
- *   - Aynı konuya iki farklı karakter FARKLI cevap verir (çünkü ölçekleri
- *     farklıdır ve seçilen kalıplar farklıdır).
- *   - Aynı karakter iki farklı konuya farklı cevap verir (konu metni
- *     kalıplara girer).
- *   - Metinler birbirinin kopyası olmaz: varyant havuzu geniş, seçim
- *     PRNG ile yapılır ve son kullanılan kalıplar tekrar seçilmez.
- *
- * Tamamen deterministik DEĞİLDİR (her çağrıda farklı olabilir) ama
- * karakterin kişiliği tutarlıdır — kişilik veriden gelir, rastgelelik
- * yalnızca varyant seçimindedir.
+ * Kalıplar kasıtlı olarak KISA ve günlük dildir: cümle üst üste yığmak,
+ * virgülle boğmak ve her cümlenin sonuna noktalama koymak yapay görünür.
+ * Karakterin söz kalıbı (persona `tic`) her cevapta geçer; 50 persona
+ * içinde benzersiz olduğu için iki karakter aynı cümleyi kuramaz.
  *
  * Dışarıdan LLM/dış servis çağrısı YOKTUR: sistem tamamen çevrimdışıdır.
  */
 import { PERSONAS } from './personas'
+import { analyzeContent, questionKind, type ContentAnalysis, type Intent } from './analyze'
 import type { AiAgentRow } from '../../types'
+
+export { detectTopic } from './analyze'
 
 /**
  * Metin üreticisinin ihtiyaç duyduğu profil satırı.
@@ -46,6 +46,20 @@ function ticFor(agent: VoiceAgent): string {
   if (!agent.username) return ''
   return TICS.get(agent.username) ?? ''
 }
+
+/**
+ * Yalnızca girişte anlamlı olan kalıplar ("Önce tanımı netleştirelim." gibi).
+ * Bunlar cümlenin SONUNA konursa yarım kalır, bu yüzden hep başa gelir.
+ */
+const START_ONLY_TICS = new Set([
+  'Önce tanımı netleştirelim.',
+  'Önce tanımlara bakalım.',
+  'Önce malzemeye bakalım.',
+  'Önce ilkeyi koyalım.',
+  'Önce biraz açayım.',
+  'Kendi başımdan anlatayım.',
+  'Ben anlatayım baştan.',
+])
 
 /**
  * Söz kalıbını cümleye yerleştirir.
@@ -98,7 +112,6 @@ class RecentMemory {
   private seen = new Set<string>()
   constructor(private limit = 40) {}
 
-  /** Kalıp daha önce kullanıldıysa false döner (kaç kez denendiğine bağlı). */
   isStale(key: string, attempts: number): boolean {
     return this.seen.has(key) && attempts > 0
   }
@@ -119,38 +132,230 @@ class RecentMemory {
 const memory = new RecentMemory()
 
 // ---------------------------------------------------------------------------
-// Sözlükler
+// Cevap kalıpları — niyete göre seçilir
 // ---------------------------------------------------------------------------
 
-/** Konu/board adından ilgi alanı tahmini için anahtar kelimeler. */
-const TOPIC_KEYWORDS: Array<{ key: string; words: string[]; topic: string }> = [
-  { key: 'yazılım', words: ['yazılım', 'kod', 'program', 'geliştir', 'python', 'javascript', 'hata', 'sistem'], topic: 'yazılım' },
-  { key: 'spor', words: ['spor', 'maç', 'futbol', 'basketbol', 'transfer', 'takım', 'gol'], topic: 'spor' },
-  { key: 'müzik', words: ['müzik', 'şarkı', 'albüm', 'konser', 'grup', 'parça'], topic: 'müzik' },
-  { key: 'yemek', words: ['yemek', 'tarif', 'yemek', 'mutfak', 'pasta', 'çay', 'kahve'], topic: 'yemek' },
-  { key: 'eğitim', words: ['eğitim', 'okul', 'ders', 'sınav', 'üniversite', 'ödev', 'hoca'], topic: 'eğitim' },
-  { key: 'bilim', words: ['bilim', 'uzay', 'fizik', 'kimya', 'araştırma', 'deney'], topic: 'bilim' },
-  { key: 'ekonomi', words: ['ekonomi', 'fiyat', 'para', 'borsa', 'maaş', 'zam', 'vergi'], topic: 'ekonomi' },
-  { key: 'siyaset', words: ['siyaset', 'meclis', 'bakan', 'parti', 'seçim', 'kanun'], topic: 'siyaset' },
-  { key: 'sağlık', words: ['sağlık', 'hastalık', 'doktor', 'beslenme', 'uyku', 'ilaç'], topic: 'sağlık' },
-  { key: 'teknoloji', words: ['teknoloji', 'telefon', 'internet', 'yapay zeka', 'gadget', 'internet'], topic: 'teknoloji' },
-  { key: 'oyun', words: ['oyun', 'gamer', 'fps', 'multiplayer', 'konsol'], topic: 'oyun' },
-  { key: 'sinema', words: ['sinema', 'film', 'dizi', 'oyuncu', 'kurgu'], topic: 'sinema' },
-  { key: 'tarih', words: ['tarih', 'tarihi', 'imparatorluk', 'savaş', 'eski'], topic: 'tarih' },
-  { key: 'hobi', words: ['hobi', 'balık', 'bahçe', 'marangoz', 'fotoğraf'], topic: 'hobi' },
-  { key: 'gündelik', words: ['günlük', 'yaşam', 'rutin', 'gece', 'sabah'], topic: 'gündelik' },
+/**
+ * Cevap cümleleri. `{k}` = içerikten çıkarılan özne, `{topic}` = konu
+ * anahtarı. Cümleler kısa tutulur: yapay görünümün en büyük kaynağı,
+ * kalıpları arka arkaya yığmaktı.
+ */
+const POOLS = {
+  /** "hhh", "ahaha" gibi kahkaha içeriklerine tepki. */
+  laugh: [
+    'Kahkaha attın da.', 'Gülmem gerekiyordu.', 'Ben de güldüm.',
+    'Anlaşılan iş güldürücüymüş.', 'Gülüyorsun iyi.', 'Bu da güzelmiş.',
+  ],
+  /** Selamlaşmaya cevap. */
+  greeting: [
+    'Selam.', 'Merhaba.', 'Selam, nasılsın?', 'Hoş geldin.',
+    'Merhaba, umarım iyisin.', 'Selamlar.',
+  ],
+  /** Teşekküre cevap. */
+  thanks: [
+    'Rica ederim.', 'Ne demek, ne demek.', 'Rica ederim, kolay gelsin.',
+    'Önemli değil.', 'Asla.',
+  ],
+  /** Soruya cevap ({k} = sorunun öznesi). */
+  answer: {
+    why: [
+      'Nedenini ben de tam bilmiyorum.', 'Sebep biraz daha karmaşık görünüyor.',
+      'Nedenini sorgulamak lazım.', 'Kesin sebebini bilen varsa yazsın.',
+      'Bence sebebi başka bir yerde.', 'Nedeni açıkçası çok net değil.',
+    ],
+    how: [
+      'Nasıl yapılacağını bilmiyorum, ama deneyenler anlatmış.',
+      'Yöntem kişiden kişiye değişiyor.', '{k} için adım adım anlatmak gerek.',
+      'En sağlıklısı {k} konusunda güvenilir bir kaynak bulmak.',
+      'Bunu denemedim, ama mantıklı görünüyor.',
+    ],
+    exist: [
+      'Sanırım var.', 'Var, ama nerede olduğunu bilmiyorum.',
+      '{k} konusunda kaynak gösterebilirim.',
+      'Emin değilim, {k} için bir bağlantı lazım.',
+      'Olur gibi ama doğruluğunu teyit etmek gerekir.',
+    ],
+    generic: [
+      '{k} konusunda fikrim var ama kısaca.',
+      '{k} üzerine düşüncelerimi yazayım.',
+      '{k} konusunu biraz açar mısın?',
+      'Bunu düşünmüştim, {k} hakkında görüşüm şu.',
+      '{k} konusunda kafamda birkaç şey var.',
+    ],
+  },
+  /** Şikâyete tepki. */
+  complaint: [
+    '{k} konusunda başım da dertli.', 'Aynı sorunu yaşayan var sanırım.',
+    'Umarım {k} çözülür, sinir bozucu bir durum.',
+    'Bunu kabul etmek zor.', 'Seninle aynı şekilde düşünüyorum.',
+    'Başka çözümü var mı bilmiyorum ama umarım çözülür.',
+  ],
+  /** Yardım isteğine cevap. */
+  request: [
+    '{k} için bir yol varsa paylaşıyorum: kaynağa bakmak en iyisi.',
+    'Deneyimimi anlatayım, işe yaramazsa kusura bakma.',
+    'Bunu daha önce yaptım, biraz uzun sürüyordu.',
+    '{k} konusunda en çok sorulan şey buydu sanırım.',
+    'Adım adım anlatayım istersen.',
+  ],
+  /** Genel yargı/fikir. */
+  opinion: {
+    agree: ['Katılıyorum.', 'Aynen.', 'Bende de öyle.', 'Tespitin doğru.'],
+    disagree: ['Katılmıyorum.', 'Bence tam tersi.', 'Olmadı bu.', 'Bunda katılmıyorum.'],
+    question: ['Bunu anlamadım.', 'Nasıl yani?', 'Biraz açar mısın?', 'Emin misin?'],
+    neutral: ['İlginç.', 'Hmm.', 'Düşüneceğim.', 'Dur bir saniye.', 'Anladım.'],
+    build: ['Bir de şunu ekleyeyim.', 'Devamı var.', 'Üstüne bir şey daha.'],
+  },
+  /** Ortam tepkileri (fotoğraf / video / gif / bağlantı). */
+  media: {
+    image: ['Fotoğrafa baktım, ilginç.', 'Görsel iyi.', 'Fotoğrafı beğendim.', 'Bu fotoğraf güzelmiş.'],
+    gif: ['Gif iyi.', 'Bu gif güldürdü.', 'Gif de güzel.', 'Gif şakaya yakışmış.'],
+    video: ['Videoyu izledim.', 'Videoda anlatılanlar ilginç.', 'Videoyu beğendim.', 'Videonun sesi iyi çıkmış.'],
+    embed: ['Bağlantıya baktım.', 'Bağlantıdaki içerik ilginç.', 'Bunu okudum, ilginçmiş.'],
+  },
+  /** İçerik anlamsızsa: kısa karşılık (motor bunların çoğuna yanıt vermez). */
+  empty: ['Anladım.', 'Tamam.', 'Not aldım.', 'Geçti.', 'Neyse.'],
+} as const
+
+/** Cevabı ikinci cümleyle uzatır — uzun yazan karakterler için. */
+const SECOND_SENTENCES = [
+  'Nasıl bir şey hissettirdi sende?',
+  'Başka görüşü olan var mı?',
+  'Benim tecrübem farklıydı.',
+  'Devamını merak ediyorum.',
+  'Sen olsan ne derdin?',
 ]
 
-/** Bir konu metninden baskın konu anahtarını bulur. */
-export function detectTopic(text: string): string {
-  const lower = text.toLowerCase()
-  let best = { topic: 'gündelik', score: 0 }
-  for (const entry of TOPIC_KEYWORDS) {
-    const score = entry.words.reduce((sum, w) => (lower.includes(w) ? sum + 1 : sum), 0)
-    if (score > best.score) best = { topic: entry.topic, score }
-  }
-  return best.topic
+/** Bağlaç + devam cümlesi (çok uzun yazanlar için). */
+const CONNECTORS = ['Bir de şunu ekleyeyim:', 'Neyse,', 'Dahası,', 'Bu arada,']
+
+/** Uzun geliştirme cümleleri (gönderi gövdesi için). */
+const DEVELOPERS = [
+  'Birkaç gündür bu konuyu düşünüyorum, sonunda yazmaya karar verdim.',
+  'Benim deneyimim şöyle oldu, umarım birilerine işe yarar.',
+  'Farklı görüşlerinizi de merak ediyorum, özellikle karşıt olanları.',
+  'Konuyu biraz daha açayım ki tam anlaşılsın.',
+  'Yazmayı uzun uzatmak istemiyorum ama birkaç noktaya değineyim.',
+]
+
+/** Kısa cümlelik karakterler için tek parça cevaplar. */
+const SHORT_REPLIES = [
+  'Katılıyorum.', 'Katılmıyorum.', 'Doğru.', 'Yanlış.', 'Emin değilim.',
+  'Bunu bilmiyorum.', 'İlginç.', 'Haklısın.', 'Olabilir.', 'Olur.', 'Olmaz.',
+  'Kesinlikle.', 'Asla.', 'Bu sefer haklısın.', 'Bir dakika.', 'Bunu düşüneceğim.',
+  'Bana göre öyle değil.', 'Uyuşuyorum.', 'Öyle de olur.', 'Bence olur.',
+  'Bunu beğenmedim.', 'Güzel olmuş.', 'Geçer.', 'Sana katılıyorum.', 'Kısmen.',
+  'Tartışırız.', 'Dur bir saniye.', 'Haklı olabilirsin.', 'Bunun cevabı yok bence.',
+]
+
+/** Küfürlü son ekler (yüksek profanity gerektirir). */
+const PROFANITY_TAILS = ['Ne saçmalı.', 'Boş ver.', 'Anlaşılmıyor.']
+
+/** Nazik son ekler. */
+const POLITE_TAILS = ['Teşekkürler.', 'İyi fikir, sağ ol.', 'Saygılar.']
+
+/** Emoji havuzu. */
+const EMOJIS = ['🙂', '😂', '😅', '😕', '🤔', '👍', '🔥', '👏', '😎', '😔', '❤️', '💯', '👀', '✅', '🙏', '☕', '🎉']
+
+// ---------------------------------------------------------------------------
+// Karakterin konuşma imzası
+// ---------------------------------------------------------------------------
+
+/**
+ * Karakterin konuşma imzası.
+ *
+ * Kalıp havuzları kaydırılır (rotate), böylece karakter A'nın açılışı
+ * karakter B'de başka bir açılışa denk gelir; noktalama kişiselleştirilir.
+ */
+export interface VoiceSignature {
+  /** Kalıp havuzlarının kaydırma ofseti. */
+  rotate: number
+  /** Cümle sonu noktalama eğilimi. */
+  endMark: string
+  /** Araya giren "düşünme" parçası ekleme olasılığı. */
+  fillerChance: number
 }
+
+/**
+ * Karakter kimliğinden türetilen kararlı bir sayı (FNV-1a).
+ *
+ * Yalnızca davranış ölçeklerinden türetilen ofset, benzer profilli iki
+ * karaktere AYNI imzayı veriyordu. Kimlik karıştırıcı koymak her karaktere
+ * farklı bir başlangıç noktası verir.
+ */
+function stableHash(text: string): number {
+  let hash = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+  return hash >>> 0
+}
+
+/** Profil ölçeklerinden türetilmiş konuşma imzası (aynı profil → aynı imza). */
+export function voiceSignature(agent: AiAgentRow): VoiceSignature {
+  const fromTraits = Math.floor(agent.verbosity * 7 + agent.humor * 5 + agent.assertiveness * 3)
+  const rotate = (fromTraits + stableHash(agent.user_id)) % 7
+  let endMark = '.'
+  if (agent.profanity > 0.6 || agent.assertiveness > 0.85) endMark = '!'
+  else if (agent.politeness < 0.25) endMark = '.'
+  else if (agent.emoji_rate > 0.7 && agent.politeness > 0.6) endMark = '.'
+  const fillerChance = Math.min(0.8, agent.verbosity * 0.5 + (1 - agent.assertiveness) * 0.3)
+  return { rotate, endMark, fillerChance }
+}
+
+/** Havuzu karakter imzasına göre kaydırılmış olarak döner. */
+function rotatePool<T>(items: readonly T[], rotate: number): readonly T[] {
+  if (items.length === 0) return items
+  const offset = ((rotate % items.length) + items.length) % items.length
+  return [...items.slice(offset), ...items.slice(0, offset)]
+}
+
+/**
+ * Cümlenin son noktalama işaretini belirler.
+ *
+ * Yapay görünümün en belirgin iziydi: her cümlenin sonunda "!" olması.
+ * Artık "!" yalnızca gerçekten sert bir karakterde ve karşı görüşte,
+ * seyrek olarak kullanılır; soru cevaplarında "?" gelir; emojiyle biten
+ * cümlüye hiç noktalama eklenmez.
+ */
+function finish(text: string, mark: '.' | '?' | '!'): string {
+  const trimmed = text.trim().replace(/[.!?…]+$/u, '')
+  if (/\p{Extended_Pictographic}$/u.test(trimmed)) return trimmed
+  return `${trimmed}${mark}`
+}
+
+/** Gönderi gövdesinin son noktalama işareti (her zaman yumuşak). */
+function applyEndMark(text: string): string {
+  return finish(text, '.')
+}
+
+/** Kalıptaki {k} ve {topic} yer tutucularını doldurur. */
+function fill(template: string, analysis: ContentAnalysis): string {
+  // Özne kalıbın BAŞINDA geliyorsa büyük harfle başlar ("Site konusu"),
+  // cümlenin ortasında küçük kalır ("umarım site çözülür").
+  const atStart = template.startsWith('{k}') || template.startsWith('{topic}')
+  const raw = analysis.subject || analysis.topic
+  const subject = atStart ? capitalize(raw) : raw
+  return template.replace(/\{k\}/g, subject).replace(/\{topic\}/g, analysis.topic)
+}
+
+/** Emoji ekleme: sadece kendi eğilimi kadar. */
+function maybeEmoji(agent: AiAgentRow, text: string, rng: () => number): string {
+  if (rng() < agent.emoji_rate * 0.35) {
+    return `${text} ${pick(rng, EMOJIS)}`
+  }
+  return text
+}
+
+/** Cümle başını büyük harfe çevirir. */
+function capitalize(text: string): string {
+  return text.charAt(0).toLocaleUpperCase('tr') + text.slice(1)
+}
+
+// ---------------------------------------------------------------------------
+// Gönderi üretimi
+// ---------------------------------------------------------------------------
 
 /** Gönderi başlıkları — konuya göre. */
 const TITLE_TEMPLATES: Record<string, string[]> = {
@@ -171,256 +376,13 @@ const TITLE_TEMPLATES: Record<string, string[]> = {
   gündelik: ['Günün sorusu', 'Bir şeyler paylaşmak istedim', 'Bugünün özeti', 'Küçük bir konu'],
 }
 
-/** Gönderi gövdeleri — açılış cümlesi kalıpları. */
+/** Gövde açılış cümleleri (uzunluk ölçeğine göre filtrelenir). */
 const OPENERS: Array<{ text: string; minVerbosity: number }> = [
   { text: 'Bugün {t} konusunu düşünüyorum da, bir şeyler söylemek istedim.', minVerbosity: 0.4 },
   { text: '{t} üzerine uzun zamandır kafa yoruyorum.', minVerbosity: 0.5 },
   { text: 'Merhaba, {t} konusunda deneyimimi paylaşmak istiyorum.', minVerbosity: 0.45 },
   { text: '{t} hakkında bir sorum var aslında.', minVerbosity: 0.3 },
   { text: 'Şu {t} meselesi kafamı meşgul ediyor.', minVerbosity: 0.4 },
-]
-
-/** Gövde geliştirme cümleleri (uzun yazılar için). */
-const DEVELOPERS = [
-  'Birkaç gündür bu konuyu düşünüyorum, sonunda yazmaya karar verdim.',
-  'Benim deneyimim şöyle oldu, umarım birilerine işe yarar.',
-  'Farklı görüşlerinizi de merak ediyorum, özellikle karşıt olanları.',
-  'Konuyu biraz daha açayım ki tam anlaşılsın.',
-  'Bu arada geçen yıl da benzer bir şey yaşamıştım.',
-  'Yazmayı uzun uzatmak istemiyorum ama birkaç noktaya değineyim.',
-  'Umarım yanlış anlamamışsınız, yazarken kafam biraz dağınıktı.',
-]
-
-/** Cevap/niyet tipleri. */
-type Stance = 'agree' | 'disagree' | 'question' | 'neutral' | 'build'
-
-const STANCE_OPENERS: Record<Stance, string[]> = {
-  agree: ['Katılıyorum,', 'Doğru söylüyorsun,', 'Bu konuda seninle aynı fikirdeyim,', 'Haklısın,'],
-  disagree: ['Katılmıyorum açıkçası,', 'Bence bu yanlış,', 'Bunu kabul etmiyorum,', 'Bence tam tersi,'],
-  question: ['Peki neden?', 'Kim böyle düşünüyor?', 'Sen ne dersin bu konuda?', 'Bunu merak ettim,'],
-  neutral: ['İlginç bir konu,', 'Şunu düşündüm de,', 'Bu konuda farklı bir şey anlatayım,'],
-  build: ['Buna eklemek isterim ki,', 'Bir adım geri gideyim,', 'Kafamda başka bir şey canlandı,'],
-}
-
-const STANCE_TAILS: Record<Stance, string[]> = {
-  agree: [
-    ' benim de kafamda aynısı vardı.',
-    ' bunu hep düşünmüşüm de kimse söylememişti.',
-    ' gerçekten iyi bir tespit.',
-  ],
-  disagree: [
-    ' çünkü ortada çok fazla şey karışıyor.',
-    ' bunun böyle olmadığı kanıtlanmış ki.',
-    ' bence burada bir yanlış var.',
-  ],
-  question: [
-    ' sizce ne olur peki?',
-    ' bunu merak ettim açıkçası.',
-    ' cevabı bilen varsa yazsın.',
-  ],
-  neutral: [
-    ' özellikle bu boyutu hiç düşünmemiştim.',
-    ' benim için yeni bir şey oldu.',
-    ' daha fazla okumak istiyorum bu konuda.',
-  ],
-  build: [
-    ' ama bir de şu var:',
-    ' buna karşılık şunu da eklemeliyim.',
-    ' sadece bu kadar da değil.',
-  ],
-}
-
-/** Yorum gövdesi kalıpları. */
-const COMMENT_TEMPLATES: Array<{ stance: Stance; minVerbosity: number; weight: number }> = [
-  { stance: 'agree', minVerbosity: 0.0, weight: 1.0 },
-  { stance: 'disagree', minVerbosity: 0.1, weight: 1.0 },
-  { stance: 'question', minVerbosity: 0.0, weight: 0.8 },
-  { stance: 'neutral', minVerbosity: 0.15, weight: 0.7 },
-  { stance: 'build', minVerbosity: 0.3, weight: 0.6 },
-]
-
-/**
- * Yalnızca girişte anlamlı olan kalıplar ("Önce tanımı netleştirelim." gibi).
- * Bunlar cümlenin SONUNA konursa yarım kalır, bu yüzden hep başa gelir.
- */
-const START_ONLY_TICS = new Set([
-  'Önce tanımı netleştirelim.',
-  'Önce tanımlara bakalım.',
-  'Önce malzemeye bakalım.',
-  'Önce ilkeyi koyalım.',
-  'Önce biraz açayım.',
-  'Kendi başımdan anlatayım.',
-  'Ben anlatayım baştan.',
-])
-
-/** Emoji havuzu. */
-const EMOJIS = ['🙂', '😂', '😅', '😕', '🤔', '👍', '🔥', '👏', '😎', '😔', '😡', '❤️', '💯', '🤯', '👀', '✅', '❌', '🙏', '☕', '🎉']
-
-/** Küfürlü son ekler (düşük nezaket + yüksek profanity gerektirir). */
-const PROFANITY_TAILS = [' ne saçmalı.', ' boş ver.', ' anlaşılmıyor.']
-
-/** Nazik son ekler. */
-const POLITE_TAILS = [' teşekkürler.', ' iyi fikir, sağ ol.', ' saygılar.']
-
-/** Kısa cevaplar (tek cümlelik karakterler için). */
-const SHORT_REPLIES = [
-  'Katılıyorum.', 'Katılmıyorum.', 'Doğru.', 'Yanlış.', 'Emin değilim.',
-  'Bunu bilmiyorum.', 'İlginç.', 'Haklısın.', 'Olabilir.', 'Olur.', 'Olmaz.',
-  'Kesinlikle.', 'Asla.', 'Haklısın bu sefer.', 'Bir dakika.', 'Bunu düşüneceğim.',
-  'Bana göre öyle değil.', 'Uyuşuyorum.', 'Öyle de olur.', 'Bence olur.',
-  'Bunu beğenmedim.', 'Güzel olmuş.', 'Geçer.', 'Sana katılıyorum.', 'Kısmen.',
-  'Bilmiyorum, ama düşünüyorum.', 'Tartışırız.', 'Bana sor.', 'Dur bir saniye.',
-  'Haklı olabilirsin.', 'Olabilir, kesin değil.', 'Bunun cevabı yok bence.',
-]
-
-/**
- * Kısa yazan karakterler için TUTUM'a göre kısa tepkiler. Havuz, düşük
- * verbosity karakterlerinin hepsinin aynı cümleyi kurmasını engeller:
- * her cümle farklı bir sırada birleştirilir.
- */
-const SHORT_BY_STANCE: Record<Stance, { core: string[]; tails: string[] }> = {
-  agree: {
-    core: ['Katılıyorum', 'Katılırım', 'Doğru', 'Haklısın', 'Aynen', 'Onaylıyorum', 'Bende de öyle', 'Tespitin doğru', 'İnandım buna'],
-    tails: ['', ' bu sefer.', ' bu konuda.', ' kesinlikle.', ' en azından.', ' sanırım.'],
-  },
-  disagree: {
-    core: ['Katılıyorum', 'Olmaz', 'Yanlış', 'Bence öyle değil', 'Bunu kabul etmiyorum', 'Hayır', 'Yok', 'Bu çıkmıyor', 'Tersi doğru'],
-    tails: ['', ' bence.', ' ne yazık ki.', ' maalesef.', ' yine de.', ' açıkçası.'],
-  },
-  question: {
-    core: ['Neden', 'Kim', 'Ne demek', 'Nereden', 'Anladım mı', 'Emin misin', 'Nasıl yani', 'Kaç yaşında', 'Hangi'],
-    tails: ['?', ' acaba?', ' peki?', '?'],
-  },
-  neutral: {
-    core: ['İlginç', 'Hmm', 'Anladım', 'Geçti', 'Not aldım', 'Dur bir saniye', 'Düşüneceğim', 'Bakıyorum', 'Tamam'],
-    tails: ['.', ' yani.', ' galiba.', ' her hâlükârda.', '.'],
-  },
-  build: {
-    core: ['Bunu da ekleyeyim', 'Devamı var', 'Bunun da var', 'Bir şey daha', 'Ayrıca', 'Üstüne', 'Bunu da söyleyeyim', 'Ek olarak'],
-    tails: ['', ' var.', ' unutmayalım.', ' bence.', ' yine de.'],
-  },
-}
-
-/**
- * Kısa karakterin tek cümlelik cevabını ÜÇ parçadan kurar:
- *   [açılış] + [çekirdek] + [kapanış]
- *
- * Düz bir cümle listesi yetmez: iki kısa-yazan karakter aynı 7 cümleden
- * örneklediğinde havuzları kaçınılmaz olarak örtüşür (ölçüm: 60 örnekte
- * 18 eşleşme). Parçalar karakter imzasına göre kaydırıldığı için iki
- * farklı karakterin pratikte aynı cümleyi kurması çok daha zordur.
- */
-function shortComment(rng: () => number, stance: Stance, signature: VoiceSignature): string {
-  const entry = SHORT_BY_STANCE[stance]
-  const opener = pick(rng, rotatePool(SHORT_OPENERS, signature.rotate))
-  const rawCore = pick(rng, rotatePool(entry.core, signature.rotate))
-  const core = opener === '' ? rawCore : rawCore.charAt(0).toLocaleLowerCase('tr') + rawCore.slice(1)
-  const tail = pick(rng, rotatePool(entry.tails, signature.rotate))
-  return `${opener}${core}${tail}`
-}
-
-/** Kısa cevapların ön ekleri — kombinasyon çeşitliliğini artırır. */
-const SHORT_OPENERS = ['', 'Bence ', 'Açıkçası ', 'Yani ', 'Dürüst olmak gerekirse ', 'Kısaca ', 'Ya ', 'Neyse ']
-
-/** Kibar/yardımsever ekler (baştaki boşluk eklenerek birleştirilir). */
-const HELPFUL_TAILS = [
-  'Belki şöyle deneyebilirsiniz.',
-  'Daha fazla bilgi isterseniz yazın.',
-  'Yardımcı olabilirsem seve seve anlatırım.',
-  'Bunun için iyi bir kaynak var.',
-]
-
-/** Süksüz/teknik cümle parçaları. */
-const DEVELOPER_REPLIES = [
-  'Kaynağı da paylaşabilir misiniz?',
-  'Örnek verebilir misiniz?',
-  'Bu konuda elimde biraz veri var, isteyen olursa yazayım.',
-  'Sonuçta ne çıktı, biraz daha açar mısınız?',
-]
-
-
-/**
- * Karakterin konuşma imzası.
- *
- * Aynı kalıptan iki farklı karakterin aynı cümleyi kurması, "herkesin
- * cevabı birbirinin kopyası" izlenimi verir. Bu yüzden her karakter
- * profilinden TÜRETİLEN bir kalıp ofseti ve noktalama tarzı alır:
- *
- *   - Kalıp havuzları kaydırılır (rotate), böylece karakter A'nın
- *     "Katılıyorum," açılışı karakter B'de başka bir açılışa denk gelir.
- *   - Noktalama kişiselleştirilir: kaba karakter "!" kullanır, çekingen
- *     karakter "..." vb.
- *
- * Sonuç: aynı konuya iki karakter pratikte olarak aynı cümleyi kuramaz.
- */
-export interface VoiceSignature {
-  /** Kalıp havuzlarının kaydırma ofseti. */
-  rotate: number
-  /** Cümle sonu noktalama. */
-  endMark: string
-  /** Araya giren "düşünme" parçası ekleme olasılığı. */
-  fillerChance: number
-}
-
-/**
- * Karakter kimliğinden türetilen kararlı bir sayı (FNV-1a).
- *
- * Neden: yalnızca davranış ölçeklerinden türetilen ofset, benzer profilli
- * iki karaktere AYNI imzayı veriyordu (ölçüm: iki "umursamaz" karakter
- * 60 cevaplık havuzda 18 eşleşme üretiyordu). Kimlik karıştırıcı koymak
- * her karaktere farklı bir başlangıç noktası verir.
- */
-function stableHash(text: string): number {
-  let hash = 0x811c9dc5
-  for (let i = 0; i < text.length; i++) {
-    hash ^= text.charCodeAt(i)
-    hash = Math.imul(hash, 0x01000193) >>> 0
-  }
-  return hash >>> 0
-}
-
-/** Profil ölçeklerinden türetilmiş konuşma imzası (aynı profil → aynı imza). */
-export function voiceSignature(agent: AiAgentRow): VoiceSignature {
-  // Ölçekler KİMLİĞİ de etkiler: benzer profilli iki karakter farklı
-  // cümle kurabilsin.
-  const fromTraits = Math.floor(agent.verbosity * 7 + agent.humor * 5 + agent.assertiveness * 3)
-  const rotate = (fromTraits + stableHash(agent.user_id)) % 7
-  let endMark = '.'
-  if (agent.profanity > 0.6 || agent.assertiveness > 0.85) endMark = '!'
-  else if (agent.politeness < 0.25) endMark = '.'
-  else if (agent.emoji_rate > 0.7 && agent.politeness > 0.6) endMark = '.'
-  const fillerChance = Math.min(0.8, agent.verbosity * 0.5 + (1 - agent.assertiveness) * 0.3)
-  return { rotate, endMark, fillerChance }
-}
-
-/** Havuzu karakter imzasına göre kaydırılmış olarak döner. */
-function rotatePool<T>(items: readonly T[], rotate: number): readonly T[] {
-  if (items.length === 0) return items
-  const offset = ((rotate % items.length) + items.length) % items.length
-  return [...items.slice(offset), ...items.slice(0, offset)]
-}
-
-/** Cümleyi karakterin noktalama imzasına göre düzeltir. */
-function applyEndMark(text: string, signature: VoiceSignature): string {
-  const trimmed = text.trim().replace(/[.!?]+$/, '')
-  // Emojiyle biten metne noktalama eklenmez ("... tespit. 💯." gibi görünmesin).
-  if (/\p{Extended_Pictographic}$/u.test(trimmed)) return trimmed
-  return `${trimmed}${signature.endMark}`
-}
-
-/** Ara bağlaçlar — uzun yazan karakterlerin cümle çeşitliliğini artırır. */
-const CONNECTORS = [
-  ' Yani,', ' Dahası,', ' Açıkçası,', ' Bir de şu var:', ' Neyse,',
-  ' Kısacası,', ' Bu arada,', ' Sonuç olarak,',
-]
-
-/** Karakterin cümleleri arasına koyabileceği kişisel ara cümleler. */
-const FILLERS = [
-  ' en azından benim öyle görüşüm.',
-  ' en azından şimdilik bu.',
-  ' belki yanılıyorum da.',
-  ' yine de öyle düşünüyorum.',
-  ' sonradan değişebilir.',
 ]
 
 export interface GeneratedText {
@@ -438,39 +400,28 @@ export interface GeneratedText {
 export function generatePost(agent: VoiceAgent, seed?: number): GeneratedText {
   const rng = makeRng(seed)
   const signature = voiceSignature(agent)
-  const topic = pick(rng, parseTopics(agent.interests))
-  const keyword = topic ?? 'gündelik'
+  const topics = parseTopics(agent.interests)
+  const keyword = (topics.length > 0 ? pick(rng, topics) : 'gündelik') ?? 'gündelik'
 
-  // Başlık: kısa ve doğal. Havuz karakter imzasına göre kaydırılır.
   const baseTitles = TITLE_TEMPLATES[keyword] ?? TITLE_TEMPLATES['gündelik'] ?? []
-  const titlePool = rotatePool(baseTitles, signature.rotate)
-  const title = capitalize(fillTopic(pick(rng, titlePool), keyword))
+  const title = capitalize(fillTopic(pick(rng, rotatePool(baseTitles, signature.rotate)), keyword))
 
-  // Gövde uzunluğu doğrudan verbosity'ten türer.
   let body = ''
   const openerPool = rotatePool(OPENERS.filter((o) => agent.verbosity >= o.minVerbosity), signature.rotate)
   const opener = pick(rng, openerPool.length > 0 ? openerPool : OPENERS)
   body += fillTopic(opener.text, keyword)
 
-  // Uzun yazanlar ek cümle ekler; kısa yazanlar durur. Her ek cümle
-  // karakterin imzasına göre farklı bir bağlaçla bağlanır.
+  // Uzun yazanlar ek cümle ekler; kısa yazanlar durur. Cümle sayısı
+  // verbosity ile sınırlıdır: uzun yazı "akıcı", yapay yığın değil.
   const extra = Math.round(agent.verbosity * 3)
-  const connectors = rotatePool(CONNECTORS, signature.rotate)
   const developers = rotatePool(DEVELOPERS, signature.rotate)
-  const fillers = rotatePool(FILLERS, signature.rotate)
+  const connectors = rotatePool(CONNECTORS, signature.rotate)
   for (let i = 0; i < extra; i++) {
     if (rng() > agent.verbosity) break
-    if (i === 0) {
-      body += ' ' + pick(rng, developers)
-    } else if (rng() < signature.fillerChance) {
-      body += pick(rng, connectors) + pick(rng, fillers)
-    } else {
-      body += ' ' + pick(rng, developers)
-    }
+    body += i === 0 ? ` ${pick(rng, developers)}` : ` ${pick(rng, connectors)} ${pick(rng, developers)}`
   }
 
-  // Mizahi karakterlere espri eklenir.
-  if (rng() < agent.humor * 0.5) {
+  if (agent.verbosity > 0.15 && rng() < agent.humor * 0.4) {
     body += ' ' + pick(rng, rotatePool([
       'Neyse, en azından güldük.',
       'Herkes kendi yolunu bulsun.',
@@ -479,22 +430,124 @@ export function generatePost(agent: VoiceAgent, seed?: number): GeneratedText {
     ], signature.rotate))
   }
 
-  // Küfür / nezaket son ekleri.
-  if (rng() < agent.profanity * 0.4) body += pick(rng, rotatePool(PROFANITY_TAILS, signature.rotate))
-  else if (rng() < agent.politeness * 0.4) body += pick(rng, rotatePool(POLITE_TAILS, signature.rotate))
+  // Tek cümlelik karakterler ("tek cümle" arketipi) ek cümle almaz.
+  if (agent.verbosity > 0.15) {
+    if (rng() < agent.profanity * 0.4) body += pick(rng, rotatePool(PROFANITY_TAILS, signature.rotate))
+    else if (rng() < agent.politeness * 0.4) body += ` ${pick(rng, rotatePool(POLITE_TAILS, signature.rotate))}`
+  }
 
   body = applyTic(body, ticFor(agent), rng)
   body = maybeEmoji(agent, body, rng)
-  return { title, body: applyEndMark(body, signature), topic: keyword }
+  return { title, body: applyEndMark(body), topic: keyword }
+}
+
+// ---------------------------------------------------------------------------
+// Yorum üretimi — içeriğe göre
+// ---------------------------------------------------------------------------
+
+/** Cevabın tutumu; ilişki/itibar hesabında kullanılır. */
+export type Stance = 'agree' | 'disagree' | 'question' | 'neutral' | 'build'
+
+/** Gönderi ortamı: cevabın fotoğraf/vidoya göre değişmesi için. */
+export interface MediaContext {
+  postType?: string
+  mediaKind?: string
+}
+
+/** Niyet + kişilik + ortam → cevap cümlesi ve soru mu değil mi. */
+function composeReply(
+  rng: () => number,
+  agent: VoiceAgent,
+  analysis: ContentAnalysis,
+  signature: VoiceSignature,
+  stance: Stance,
+  context: string,
+): { core: string; ask: boolean } {
+  // 1) Anlamsız içerik ("hhh", ":)"): karşılığı da kısa olmalı.
+  if (analysis.isTrivial) {
+    const core =
+      analysis.intent === 'laugh'
+        ? pick(rng, rotatePool(POOLS.laugh, signature.rotate))
+        : pick(rng, rotatePool(POOLS.empty, signature.rotate))
+    return { core, ask: false }
+  }
+
+  // 2) Ortam: fotoğraf / video / gif / bağlantı gönderisine tepki.
+  if (analysis.mediaKind !== 'none') {
+    const key = (['image', 'gif', 'video', 'embed'] as const).find((k) => k === analysis.mediaKind)
+    const pool = key ? POOLS.media[key] : POOLS.media.image
+    let body = pick(rng, rotatePool(pool, signature.rotate))
+    // Uzun yazanlar ortamı yorumun içine bağlar.
+    if (agent.verbosity > 0.5 && analysis.subject !== '' && rng() < 0.6) {
+      body += ` "${analysis.subject}" konusu da buna bağlı bence.`
+    }
+    return { core: body, ask: false }
+  }
+
+  // 3) Niyete göre kalıp havuzu.
+  let core: string
+  switch (analysis.intent) {
+    case 'laugh':
+      core = pick(rng, rotatePool(POOLS.laugh, signature.rotate))
+      break
+    case 'greeting':
+      core = pick(rng, rotatePool(POOLS.greeting, signature.rotate))
+      break
+    case 'thanks':
+      core = pick(rng, rotatePool(POOLS.thanks, signature.rotate))
+      break
+    case 'question':
+      core = pick(rng, rotatePool(POOLS.answer[questionKind(analysis, context)], signature.rotate))
+      break
+    case 'complaint':
+      core = pick(rng, rotatePool(POOLS.complaint, signature.rotate))
+      break
+    case 'request':
+      core = pick(rng, rotatePool(POOLS.request, signature.rotate))
+      break
+    default:
+      core = pick(rng, rotatePool(POOLS.opinion[stance], signature.rotate))
+      break
+  }
+  core = fill(core, analysis)
+  let ask = /\?\s*$/u.test(core)
+
+  // 4) Kişilik: uzun yazanlar ikinci bir cümle ekler, sert karakter karşı
+  // görüşte küfürlü bir kapanış yapar. Kısa yazanlar tek cümlede kalır.
+  if (agent.verbosity > 0.45 && rng() < agent.verbosity * 0.6) {
+    const extra = pick(rng, rotatePool(SECOND_SENTENCES, signature.rotate))
+    core += ` ${extra}`
+    ask = /\?\s*$/u.test(core)
+  } else if (
+    agent.profanity > 0.5 &&
+    stance === 'disagree' &&
+    rng() < 0.4 &&
+    // Küfür bir selamlaşmaya ya da kahkahaya yakışmaz.
+    analysis.intent !== 'greeting' &&
+    analysis.intent !== 'laugh' &&
+    analysis.intent !== 'thanks'
+  ) {
+    core += ` ${pick(rng, rotatePool(PROFANITY_TAILS, signature.rotate))}`
+  }
+
+  // 5) İçerikten bir kelimeyi geri yankılamak cevabı konuya bağlar.
+  //    Tırnak kullanılır: kelimenin biçimi ne olursa olsun cümle bozulmaz.
+  if (analysis.subject !== '' && analysis.intent === 'opinion' && rng() < 0.45) {
+    core += ` "${analysis.subject}" kısmını biraz daha açar mısın?`
+    ask = true
+  }
+  return { core, ask }
 }
 
 /**
  * Karakterin bir yoruma cevabını üretir.
  *
  * @param agent Karakter profili.
- * @param context Konuşmanın içeriği (cevabın konusu buradan gelir).
- * @param stance Cevabın tutumu; verilmezse karakterin kişiliğinden türetilir.
- * @param peerRelation Karakterin cevapladığı kişiye ilişkisi (-1..1).
+ * @param context Cevaplanan içerik (yorum metni veya gönderi başlığı+gövdesi).
+ * @param seed Tohum; verilmezse zamana bağlı.
+ * @param stance Tutum; verilmezse karakterin kişiliğinden türetilir.
+ * @param peerRelation Cevaplanan kişiye ilişkisi (-1..1).
+ * @param media Gönderi ortamı (fotoğraf/video/gif/bağlantı).
  */
 export function generateComment(
   agent: VoiceAgent,
@@ -502,13 +555,13 @@ export function generateComment(
   seed?: number,
   stance?: Stance,
   peerRelation?: number,
+  media?: MediaContext,
 ): { body: string; stance: Stance; topic: string } {
   const rng = makeRng(seed)
   const signature = voiceSignature(agent)
-  const topic = detectTopic(context)
-
-  // Tutum: karakterin kişiliği + karşı tarafa ilişkisi belirler.
+  const analysis = analyzeContent(context, media ?? {})
   const relation = peerRelation ?? 0
+
   const resolvedStance =
     stance ??
     weighted<Stance>(rng, [
@@ -519,71 +572,16 @@ export function generateComment(
       ['build', agent.verbosity * 0.5 + 0.2],
     ])
 
-  // Tek cümlelik karakterler: parçalardan kurulan kısa bir cevap.
-  if (agent.verbosity < 0.1) {
-    let body = shortComment(rng, resolvedStance, signature)
-    body = applyTic(body, ticFor(agent), rng)
-    body = maybeEmoji(agent, body, rng)
-    return { body: applyEndMark(body, signature), stance: resolvedStance, topic }
-  }
+  // Sadece yazmak için yazmaz: anlamsız içerik ve kısa tepkilerde
+  // karakter sessiz kalabilir (motor ayrıca rastgele atlar).
+  const { core, ask } = composeReply(rng, agent, analysis, signature, resolvedStance, context)
 
-  // Açılış ve kapanış havuzları karakter imzasına göre kaydırılır: iki
-  // farklı karakter aynı stance'te bile farklı cümle kurar. Kapanışlar
-  // baştaki boşlukla geldiği için araya ayrıca boşluk konmaz.
-  const openers = rotatePool(STANCE_OPENERS[resolvedStance], signature.rotate)
-  const tails = rotatePool(STANCE_TAILS[resolvedStance], signature.rotate)
-  let body = pick(rng, openers) + pick(rng, tails)
-
-  // Uzun yazanlar ek açıklama yapar.
-  const extra = Math.round(agent.verbosity * 2.4)
-  const connectors = rotatePool(CONNECTORS, signature.rotate)
-  const replies = rotatePool(DEVELOPER_REPLIES, signature.rotate)
-  const fillers = rotatePool(FILLERS, signature.rotate)
-  for (let i = 0; i < extra; i++) {
-    if (rng() > agent.verbosity) break
-    if (i === 0) {
-      body += ' ' + pick(rng, replies)
-    } else if (rng() < signature.fillerChance) {
-      body += pick(rng, connectors) + pick(rng, fillers)
-    } else {
-      body += ' ' + pick(rng, replies)
-    }
-  }
-
-  // Yardımsever karakterler çözüm önerir.
-  if (rng() < agent.politeness * agent.humor * 0.4) {
-    body += ' ' + pick(rng, rotatePool(HELPFUL_TAILS, signature.rotate))
-  }
-
-  // Mizah.
-  if (rng() < agent.humor * 0.35) {
-    body += ' ' + pick(rng, rotatePool([
-      'Neyse, benden bu kadarı.',
-      'Herkes kendi görüşünde.',
-      'Zor konu gerçekten.',
-      'Sonra tekrar bakarız.',
-    ], signature.rotate))
-  }
-
-  // Küfür.
-  if (rng() < agent.profanity * 0.35) body += pick(rng, rotatePool(PROFANITY_TAILS, signature.rotate))
-
-  body = applyTic(body, ticFor(agent), rng)
+  let body = applyTic(core, ticFor(agent), rng)
   body = maybeEmoji(agent, body, rng)
-  return { body: applyEndMark(body, signature), stance: resolvedStance, topic }
-}
-
-/** Cümle başını büyük harfe çevirir (konu anahtarları küçük harfle gelir). */
-function capitalize(text: string): string {
-  return text.charAt(0).toLocaleUpperCase('tr') + text.slice(1)
-}
-
-/** Emoji ekleme: sadece kendi eğilimi kadar. */
-function maybeEmoji(agent: AiAgentRow, text: string, rng: () => number): string {
-  if (rng() < agent.emoji_rate * 0.5) {
-    return `${text} ${pick(rng, EMOJIS)}`
-  }
-  return text
+  // "!" yalnızca sert karakterde ve karşı görüşte; normalde sade "." / "?".
+  const aggressive = signature.endMark === '!' && resolvedStance === 'disagree' && rng() < 0.35
+  const mark = aggressive ? '!' : ask ? '?' : '.'
+  return { body: finish(body, mark), stance: resolvedStance, topic: analysis.topic }
 }
 
 /** `{t}` yer tutucusunu konu anahtarıyla doldurur. */

@@ -25,6 +25,7 @@ import { isAdminPower } from '../ranks'
 import { getSettings } from '../settings'
 import { AppError } from '../errors'
 import { generateComment, generatePost, makeRng, detectTopic } from './voice'
+import { analyzeContent } from './analyze'
 import {
   adjustRelationship,
   adjustReputation,
@@ -364,6 +365,19 @@ function maybeComment(
   // Yorum yazacaksa bazen mevcut bir yoruma cevap verir (tartışma zinciri).
   const parent = maybePickParent(ctx, agent, post, rng)
 
+  // Cevaplanan içerik: yorum varsa yorumun kendisi, yoksa gönderi.
+  // Metin üreticisi bu içeriği okuyup ona göre cevap kurar.
+  const context = parent ? parent.body : `${post.title} ${post.body ?? ''}`
+  const media = { postType: post.type, mediaKind: post.media_kind }
+  const analysis = analyzeContent(context, media)
+
+  // Anlamsız içerik ("hhh", ":)") çoğu zaman yanıtlanmaz: gerçek bir
+  // kullanıcı da her kahkahaya cevap yazmaz.
+  if (analysis.isTrivial && rng() < 0.85) {
+    ctx.db.prepare('UPDATE ai_agents SET last_active_at = ?, updated_at = ? WHERE user_id = ?').run(now, now, agent.user_id)
+    return false
+  }
+
   // Cevap verdiği yazarın karaktere ilişkisi cevabın tonunu etkiler.
   let peerRelation = 0
   let peerId: string | null = null
@@ -380,8 +394,7 @@ function maybeComment(
     }
   }
 
-  const context = `${post.title} ${post.body ?? ''} ${parent?.body ?? ''}`
-  const text = generateComment(agent, context, Math.floor(rng() * 2 ** 31), undefined, peerRelation)
+  const text = generateComment(agent, context, Math.floor(rng() * 2 ** 31), undefined, peerRelation, media)
 
   try {
     const comment = createComment(ctx, user, post.id, {
