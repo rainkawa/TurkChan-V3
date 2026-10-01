@@ -56,19 +56,35 @@ function sentences(text: string): string[] {
  */
 export function contextScore(text: string, analysis: ContextAnalysis): number {
   const textRoots = new Set(text.split(/\s+/u).map(stem).filter((w) => w.length >= 3))
-  const sourceRoots = new Set([...analysis.words.map(stem), ...analysis.keywords.map(stem)])
+  const sourceRoots = [...new Set([...analysis.words.map(stem), ...analysis.keywords.map(stem)])]
+
+  /**
+   * Türkçe ek soyutlaması nedeniyle kökler birebir eşleşmez: gönderide
+   * “telefonum”, cevapta “telefon” vardır. Kısa kökler öneki olduğunda aynı
+   * kelime sayılır — “telefonum”/“telefon”, “yavaşladı”/“yavaş”.
+   */
+  const shares = (a: string, b: string): boolean => {
+    if (a === b) return true
+    const [short, long] = a.length <= b.length ? [a, b] : [b, a]
+    return short.length >= 4 && long.startsWith(short)
+  }
 
   // Kaynak köklerinin kaçı yanıtta geçiyor?
   let overlap = 0
   for (const root of sourceRoots) {
-    if (root.length >= 3 && textRoots.has(root)) overlap += 1
+    if (root.length < 3) continue
+    if ([...textRoots].some((t) => shares(root, t))) overlap += 1
   }
   // Öznenin doğrudan geçmesi en güçlü sinyaldir.
+  const subjectRoot = stem(analysis.subject)
   const subjectBonus =
-    analysis.subject !== '' && textRoots.has(stem(analysis.subject)) ? 0.35 : 0
+    analysis.subject !== '' &&
+    [...textRoots].some((t) => shares(subjectRoot, t))
+      ? 0.35
+      : 0
 
   if (overlap === 0 && subjectBonus === 0) return 0
-  const ratio = overlap / Math.max(1, Math.min(6, sourceRoots.size))
+  const ratio = overlap / Math.max(1, Math.min(6, sourceRoots.length))
   return Math.min(1, 0.35 + ratio * 0.9 + subjectBonus)
 }
 

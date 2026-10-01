@@ -23,6 +23,7 @@
  *  17. Yetki izolasyonu (NPC oturum açamaz, admin olamaz)
  *  18. API'siz çalışma
  *  19. Konu üretimi bağlamdan türetilir
+ *  20. Sorulara cevap verilir (bilgi tabanı)
  */
 import { describe, it, expect } from 'vitest'
 import { readdirSync, readFileSync } from 'node:fs'
@@ -43,6 +44,7 @@ import { runNpcTick, listActiveNpcs, measurePendingOutcomes } from '../../src/se
 import { analyzeContext, detectTopic } from '../../src/services/npc/analyze'
 import { stem, conceptOf, trLower } from '../../src/services/npc/lexicon'
 import { composeComment, composePost, suggestTopics } from '../../src/services/npc/compose'
+import { findAnswer, KNOWLEDGE } from '../../src/services/npc/knowledge'
 import { scoreText, MIN_SCORE } from '../../src/services/npc/quality'
 import {
   rememberConcept,
@@ -398,8 +400,11 @@ describe('6. Uygun yorum üretimi (bağlam + kişilik + konu + önceki etkileşi
     const persona = NPC_PERSONAS.find((p) => p.archetype === 'yardimsever') ?? NPC_PERSONAS[0]!
     const agentId = npcId(world.ctx, persona.username)
     const peer = npcId(world.ctx, NPC_PERSONAS[14]!.username)
-    const content = 'Bu gönderideki yazılım hatasını nasıl düzeltebilirim?'
+    // Bilgi tabanında karşılığı OLMAYAN bir içerik: üretici kalıp yoluna
+    // düşmeli, ilişki ekseni tutumu değiştirebilmeli.
+    const content = 'Bu oyun güncellemesi berbat, siz ne düşünüyorsunuz?'
     const analysis = analyzeContext(content)
+    expect(findAnswer(content, analysis)).toBeNull()
 
     const fresh = composeComment(world.ctx, { agentId, persona, analysis, content, seed: 11 })
     noteInteraction(world.ctx, agentId, peer, 'disagree', 0.4, T0)
@@ -555,10 +560,14 @@ describe('9. Tekrar engelleme', () => {
 
     const first = composeComment(world.ctx, { agentId, persona, analysis, content, seed: 3 })
     expect(first).not.toBeNull()
-    expect(phraseUses(world.ctx, agentId, first!.body)).toBe(1)
+    // Kalite kapısından geçen ilk aday hemen hatırlanır; geçemeyen
+    // (yedek) aday yayınlanmadığı için hatırlanmaz.
+    const before = phraseUses(world.ctx, agentId, first!.body)
+    expect(before).toBe(first!.score.ok ? 1 : 0)
 
     // Aynı ifade defalarca hatırlanırsa tekrar cezası artar.
     for (let i = 0; i < 6; i++) rememberPhrase(world.ctx, agentId, first!.body, T0 + i)
+    expect(phraseUses(world.ctx, agentId, first!.body)).toBe(before + 6)
 
     const score = scoreText(world.ctx, agentId, first!.body, analysis, persona)
     expect(score.repetition).toBeLessThan(0.9)
@@ -1219,6 +1228,83 @@ describe('19. Konu üretimi bağlamdan türetilir', () => {
     expect(again.status).toBe(302)
     expect(npcBoardCoverage(world.ctx).eligible).toBe(1)
     expect(npcBoardCoverage(world.ctx).access).toBe('all')
+  })
+})
+
+describe('20. Sorulara cevap verilir (bilgi tabanı)', () => {
+  it('HTML sorusuna HTML cevabı verilir, kalıp cümle kurulmaz', async () => {
+    const world = await npcWorld()
+    const content = 'Merhaba, HTML ana şablonunu atar mısınız?'
+    const analysis = analyzeContext(content)
+    const hit = findAnswer(content, analysis)
+    expect(hit?.topic).toBe('html-sablon')
+
+    const persona = NPC_PERSONAS[3]!
+    const composed = composeComment(world.ctx, {
+      agentId: npcId(world.ctx, persona.username),
+      persona,
+      analysis,
+      content,
+      seed: 5,
+    })
+    expect(composed).not.toBeNull()
+    expect(composed!.stance).toBe('build')
+    expect(trLower(composed!.body)).toMatch(/html/iu)
+    // Cevap, gönderinin kendi kelimelerini yankılamakla yetinmez.
+    expect(composed!.body).toMatch(/doctype|head|charset|title/iu)
+  })
+
+  it('telefon sorusuna oyun cevabı verilmez', () => {
+    const content = 'Telefonum çok yavaşladı, ne yapmalıyım?'
+    const hit = findAnswer(content, analyzeContext(content))
+    expect(hit?.topic).toBe('telefon-yavaslik')
+  })
+
+  it('konuyu göstermeyen genel ifade cevap tablosuna girmez', () => {
+    // “ne yapmalıyım” bir konu değildir: her soruya aynı cevabı veren
+    // genel kayıt bilinçli olarak yoktur.
+    for (const content of [
+      'Ne yapmalıyım?',
+      'Yardım İstiyorum',
+      'Lütfen yardım edin, ne yapmalıyım?',
+    ]) {
+      expect(findAnswer(content, analyzeContext(content))).toBeNull()
+    }
+  })
+
+  it('bilgi tabanındaki her kayıt kendi kelimeleriyle eşleşir', () => {
+    for (const entry of KNOWLEDGE) {
+      const needle = entry.match[0]!
+      const hit = findAnswer(`${needle} nasıl yapılır?`, analyzeContext(`${needle} nasıl yapılır?`))
+      expect(hit).not.toBeNull()
+    }
+  })
+
+  it('kısa kökler (örn. “yap”) önek eşleşmesiyle yanlış cevap üretmez', () => {
+    // REGRESYON: “yap” kökü “yapmalıyım” ile önek eşleşip yemek tarifi
+    // cevabı üretiyordu.
+    const content = 'Lütfen yardım edin, ne yapmalıyım?'
+    expect(findAnswer(content, analyzeContext(content))).toBeNull()
+  })
+
+  it('“konu/soru/paylaşır” gibi kelimeler özne olarak cümleye yansımaz', async () => {
+    // REGRESYON: “Bu konuda düşüncelerinizi paylaşır mısınız?” gönderisine
+    // “Paylaşır konusunda kahkaha attırdı ya” gibi anlamsız cümleler yazılıyordu.
+    const world = await npcWorld()
+    const content = 'Bu konuda düşüncelerinizi paylaşır mısınız?'
+    const analysis = analyzeContext(content)
+    for (let seed = 1; seed <= 30; seed++) {
+      const persona = NPC_PERSONAS[(seed % 6)]!
+      const composed = composeComment(world.ctx, {
+        agentId: npcId(world.ctx, persona.username),
+        persona,
+        analysis,
+        content,
+        seed,
+      })
+      if (!composed) continue
+      expect(composed.body).not.toMatch(/konuda konusunda|paylaşır konusunda|düşüncelerinizi konusunda/iu)
+    }
   })
 })
 

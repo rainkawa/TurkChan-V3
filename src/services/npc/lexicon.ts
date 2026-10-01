@@ -113,7 +113,7 @@ export const CONCEPTS: Concept[] = [
   {
     id: 'oyun',
     label: 'Oyun',
-    stems: ['oyun', 'oyna', 'oynan', 'oynat', 'gamer', 'konsol', 'fps', 'multiplayer', 'steam', 'minecraft', 'pubg', 'valorant', 'oyuncu', 'takım', 'klan', 'guild', 'pvp', 'boss', 'görev', 'level', 'xp', 'skin'],
+    stems: ['oyun', 'oyna', 'oyn', 'oynan', 'oynat', 'gamer', 'konsol', 'fps', 'multiplayer', 'steam', 'minecraft', 'pubg', 'valorant', 'oyuncu', 'takım', 'klan', 'guild', 'pvp', 'boss', 'görev', 'level', 'xp', 'skin'],
   },
   {
     id: 'yazilim',
@@ -208,8 +208,17 @@ export function conceptOf(word: string): Concept | null {
       // ÖNEKI olduğunda de eşleşme kabul edilir (en az 4 harf).
       if (stemForm.length >= 4 && s.startsWith(stemForm)) return concept
       // Ek soyutlaması fazla çalıştığında: "yavaşladı" → "yavaşlad".
-      // Kök, ailenin bir üyesinin ÖNEKI olduğunda da eşleşir.
-      if (s.length >= 3 && stemForm.length >= 5 && stemForm.startsWith(s)) return concept
+      // Kök, ailenin bir üyesinin ÖNEKI olduğunda da eşleşir — ama fark en
+      // fazla 3 harf olmalıdır: aksi halde "kon" kökü "konsol"a uyup
+      // "Bu konuda …" cümlesi oyun konusuna sürükleniyordu.
+      if (
+        s.length >= 5 &&
+        stemForm.length >= 5 &&
+        stemForm.length - s.length <= 3 &&
+        stemForm.startsWith(s)
+      ) {
+        return concept
+      }
     }
   }
   return null
@@ -321,5 +330,10 @@ export const MOCK_RE = /(😂|🤣|😏|🙃)|(\b(adam|yaa|helal)[^.!?]{0,30}(?:
 /** Emoji listesi (kişilik oranına göre seçilir). */
 export const EMOJIS = ['🙂', '😂', '😅', '😕', '🤔', '👍', '🔥', '👏', '😎', '😔', '❤️', '💯', '👀', '✅', '🙏', '☕', '🎉', '🧐', '💡', '😅']
 
-/** Argo/kesme kalıpları — sadece `slang` eğilimi yüksekken kullanılır. */
-export const SLANG_MARKERS = ['la', 'lan', 'aq', 'va', 'helal', 'moruk', 'kanka', 'abi', 'reis', 'adam']
+/**
+ * Argo/kesme kalıpları — sadece `slang_rate` yüksekken kullanılır.
+ *
+ * Her biri kendi başına bir cümledir: yarım kalan kalıplar (“va”)
+ * cümleyi bozduğu için bilinçli olarak elendi.
+ */
+export const SLANG_MARKERS = ['la', 'lan', 'aq', 'helal', 'moruk', 'kanka', 'abi', 'reis', 'adam']

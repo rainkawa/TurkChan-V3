@@ -72,8 +72,21 @@ export function conceptLabel(id: string): string {
   return CONCEPTS.find((c) => c.id === id)?.label ?? id
 }
 
-/** Fiil görünüşlü ekler: özne seçiminde “istiyorum” gibi kelimeler elenir. */
-const VERB_LOOKING = /(iyorum|üyorum|iyorsun|iyoruz|iyor|uyor|du|du|dü|tı|ti|tu|tü|mış|miş|mus|müs|yor)$/u
+/**
+ * Fiil görünüşlü ekler: özne seçiminde “istiyorum”, “düştü” gibi kelimeler
+ * elenir. İkinci çoğul şahıs ekleri (“düşüncelerinizi”, “yapınız”) de fiil
+ * görünüşlüdür; özne olamazlar.
+ */
+const VERB_LOOKING = /(iyorum|üyorum|iyorsun|iyoruz|iyor|uyor|du|dü|dı|di|tı|ti|tu|tü|mış|miş|mus|müs|yor|dir|dür|tır|tir|n[ıiuü]z|n[ıiuü]zi|n[ıiuü]y[ıiuü]|ş[ıi]r|[ıi]r)$/u
+
+/**
+ * “odak” seçiminde elenecek fiil/biçim kalıpları.
+ *
+ * “ne yapabilirim”, “yapmalıyım” gibi fiillemeler odağa giremez; odağın
+ * gönderinin konusunu taşıyan isim olması gerekir (telefonum, performansım).
+ */
+const FOCUS_EXCLUDE_TAIL = /(iyorum|üyorum|iyor|uyor|sun|sün|larım|lerim|dir|dür|n[ıiuü]z|n[ıiuü]zi|n[ıiuü]y[ıiuü])$/u
+const FOCUS_EXCLUDE_ANY = /(abilir|ebilir|yım|yim|mım|mim|irim|isin)$/u
 
 /**
  * Cevapta tekrar edilecek en belirgin kelime.
@@ -83,6 +96,13 @@ const VERB_LOOKING = /(iyorum|üyorum|iyorsun|iyoruz|iyor|uyor|du|du|dü|tı|ti|
  * “istiyorum tarafında fikrim olur” gibi tuhaf çıkıyor.
  */
 function pickSubject(keywords: string[], words: string[], topic: string): string {
+  // Önce gönderide GERÇEKTEN geçen, konuya ait kelime aranır. Kök üzerinden
+  // dönmek “Sunucu” yerine “Sunuc” gibi kırpılmış kelimeler üretiyordu
+  // ("Sunuc konusunda farklı düşünüyorum").
+  const onTopicWord = words.find(
+    (w) => w.length >= 4 && !VERB_LOOKING.test(w) && !DESCRIPTORS.has(w) && conceptOf(w)?.id === topic,
+  )
+  if (onTopicWord) return onTopicWord
   const onTopic = keywords.find((k) => conceptOf(k)?.id === topic)
   if (onTopic) return onTopic
   // Stopword filtresi burada uygulanMAZ: "Yardım İstiyorum" gönderisinin
@@ -93,6 +113,26 @@ function pickSubject(keywords: string[], words: string[], topic: string): string
   )
   if (candidate) return candidate
   return keywords[0] ?? words[0] ?? ''
+}
+
+/**
+ * Gönderinin EN SPESİFİK kelimesi — “oyun” değil, “performansım”.
+ *
+ * Cevap seçimi (knowledge.ts) bu kelimeye bakar: “Oyun performansım düştü”
+ * sorusunda “performans” bilgisi aranmalı, genel “ne yapmalıyım” kalıbı değil.
+ */
+function pickFocus(words: string[], keywords: string[]): string {
+  const ranked = words
+    .filter(
+      (w) =>
+        w.length >= 5 &&
+        !DESCRIPTORS.has(w) &&
+        !VERB_LOOKING.test(w) &&
+        !FOCUS_EXCLUDE_TAIL.test(w) &&
+        !FOCUS_EXCLUDE_ANY.test(w),
+    )
+    .sort((a, b) => b.length - a.length)
+  return ranked[0] ?? keywords[0] ?? words[0] ?? ''
 }
 
 /**
@@ -111,6 +151,9 @@ export interface ContextAnalysis {
   concepts: Array<{ id: string; score: number }>
   /** Konuyu taşıyan kök kelimeler (en fazla 6). */
   keywords: string[]
+  /** Cevapta tekrar edilecek en belirgin kök. */
+  /** En spesifik kelime (cevap seçimi için). */
+  focus: string
   /** Cevapta tekrar edilecek en belirgin kök. */
   subject: string
   /** Cümlede geçen gerçek kelimeler (kök değil) — alıntı için. */
@@ -211,6 +254,7 @@ export function analyzeContext(
   const topic = strongConcept || 'gündelik'
 
   const subject = pickSubject(keywords, words, topic)
+  const focus = pickFocus(words, keywords)
 
   // KAHKHAHA + konu kelimesi yok → cevaplanacak bir içerik değildir.
   // "HAHAHA bu çok komik 😂" tam olarak bu durumdur.
@@ -227,6 +271,7 @@ export function analyzeContext(
     concepts,
     keywords,
     subject,
+    focus,
     words: contentWords,
     intents,
     intent,

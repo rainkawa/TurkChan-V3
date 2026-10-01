@@ -29,6 +29,7 @@ import { scoreText } from './quality'
 import type { QualityScore } from './quality'
 import { normalizePhrase, rememberPhrase, topConcepts } from './memory'
 import { behaviorOf } from './learning'
+import { findAnswer } from './knowledge'
 import type { NpcRelationshipRow } from '../../types'
 
 /** Bir üretim denemesi için en fazla aday sayısı. */
@@ -127,6 +128,18 @@ function applyTic(text: string, persona: NpcPersona, rng: () => number): string 
 // Kalıp havuzları — HEPSİ bağlam alanı doldurur
 // ---------------------------------------------------------------------------
 
+/**
+ * Yardım isteyen içeriklerde NPC'nin açılışı.
+ *
+ * DİKKAT: gönderiyi yazan yardım İSTİYOR; NPC de “bana yardım lazım” diyerek
+ * aynı cümleyi tekrarlamaz, kendisi çözüm tarafında durur.
+ */
+const HELP_OPENERS: string[] = [
+  '{konu} konusunda sana birkaç şey söyleyebilirim',
+  '{özne} tarafında önce şunu denemek mantıklı',
+  '{konu} için pratik bir yol var',
+]
+
 /** Niyete göre açılış kalıpları. `{konu}` ve `{özne}` ile doldurulur. */
 const OPENERS: Record<string, string[]> = {
   laugh: ['{özne} konusunda kahkaha attırdı ya', 'bu {konu} espirisi güzelmiş'],
@@ -134,7 +147,7 @@ const OPENERS: Record<string, string[]> = {
   thanks: ['{konu} için teşekkürler', 'sağ ol, {konu} konusunda yardımcı oldun'],
   question: ['{konu} konusunda bir sorum var', '{özne} hakkında merak ettim'],
   complaint: ['{konu} konusunda gerçekten sıkıldım', 'bu {konu} meselesi çok yorucu'],
-  request: ['{konu} için biraz yardım lazım', '{konu} konusunda ne önerirsiniz'],
+  request: ['{konu} konusunda ne önerirsiniz', '{özne} tarafında denediğin bir şey var mı'],
   news: ['{konu} konusunda bilgi paylaşayım', '{konu} tarafında yeni gelişme var'],
   experience: ['{konu} konusunda kendi tecrübem şu', '{özne} ile ilgili yaşadıklarım'],
   praise: ['{konu} konusunda çok iyi olmuş', '{özne} gerçekten başarılı'],
@@ -189,7 +202,7 @@ const ADVICE: Record<string, string[]> = {
   ],
   yazilim: [
     '{konu} için önce küçük bir örnekle başla',
-    '{konu} konusunda hata mesajını okumayı atla',
+    '{konu} sorununda hata mesajının en alt satırına bak',
   ],
   teknoloji: [
     '{konu} için önce yeniden başlatmayı dene',
@@ -262,7 +275,17 @@ const EXPERIENCE: string[] = [
  * `{konu}` → kavram etiketi, `{özne}` → içerikten çıkarılmış kök.
  */
 function fill(template: string, analysis: ContextAnalysis, words: string[]): string {
-  const subject = analysis.subject !== '' ? analysis.subject : (words[0] ?? 'konu')
+  const raw = analysis.subject !== '' ? analysis.subject : (words[0] ?? 'konu')
+  // “konu”, “soru”, “gönderi” gibi kelimeler gerçek bir özne değildir:
+  // kalıba konduğunda “konuda konusunda farklı düşünüyorum” gibi
+  // anlamsız tekrarlar çıkıyordu. Bu durumda gönderinin odağı kullanılır,
+  // o da metada ise nötr bir zamir (“bu”) seçilir.
+  const isMeta = (w: string): boolean => /^(konu|soru|mesaj|yorum|g[öo]nderi)/u.test(trLower(w))
+  const subject = isMeta(raw)
+    ? analysis.focus !== '' && !isMeta(analysis.focus)
+      ? analysis.focus
+      : 'bu'
+    : raw
   // "gündelik" bir etiket değil, kavram yokluğudur: "bu" ile birleşince
   // cümle doğal okunur ("bu konusunda…").
   const topic = analysis.topic === 'gündelik' ? 'bu' : analysis.topicLabel.toLocaleLowerCase('tr')
@@ -340,45 +363,71 @@ function draftComment(input: ComposeInput, rng: () => number): { body: string; s
 
   const fillOne = (list: string[]): string => fill(pick(rng, list), analysis, words)
 
-  // 0) KONUSUZ YARDIM İSTEĞİ — konu uydurmak yerine netleştir.
+  /** Stil eklerini (argo, söz kalıbı, bitiş, emoji) toplu uygular. */
+  const style = (text: string): string =>
+    maybeEmoji(finish(applyTic(maybeSlang(ensureStop(text), persona, rng), persona, rng)), persona, rng, 1)
+
+  // 0) SORU CEVABI — bilgi tabanında karşılığı varsa CEVAP yazılır.
+  //
+  // Bu adım önce gelir: “HTML ana şablonunu atar mısınız?” sorusuna
+  // kalıp cümleleri değil, sorunun cevabı üretilir. Cevap yoksa üretici
+  // bir sonraki adıma (konuşma kalıplarına) düşer.
+  const answer = findAnswer(input.content, analysis)
+  if (answer && !analysis.isTrivial) {
+    // On NPC aynı soruya cevap verdiğinde kelimesi kelimesine aynı metni
+    // yapmamaları için kaydın iki anlatımı arasında seçim yapılır.
+    const phrasing = answer.alt && rng() < 0.5 ? answer.alt : answer.answer
+    let body = fill(phrasing, analysis, words)
+    // Yalnızca bilgi tabanındaki GERÇEK ek bilgi eklenir. Genel “birkaç şeyi
+    // ayırmak lazım” türü dolgu cümleleri cevabı sulandırıyordu.
+    if (answer.followUp && rng() < 0.45 + persona.verbosity * 0.4) {
+      body += ` ${fill(answer.followUp, analysis, words)}`
+    }
+    return { body: style(body), stance: 'build' }
+  }
+
+  // 0b) KONUSUZ YARDIM İSTEĞİ — konu uydurmak yerine netleştir.
   if (
     analysis.concepts.length === 0 &&
     analysis.mediaKind === 'none' &&
     !analysis.isTrivial &&
     (analysis.isQuestion || analysis.isHelpRequest)
   ) {
-    let body = ensureStop(fill(pick(rng, CLARIFY), analysis, words))
-    if (persona.empathy > 0.5) body += ` ${ensureStop(pick(rng, EMPATHIC_NOPIC))}`
+    let body = fill(pick(rng, CLARIFY), analysis, words)
+    body = ensureStop(body)
+    if (persona.empathy > 0.5) body += ` ${pick(rng, EMPATHIC_NOPIC)}`
     if (persona.curiosity > 0.6 && rng() < persona.curiosity * 0.5) {
       body += ` ${ensureStop(fill(pick(rng, CURIOUS), analysis, words))}`
     }
-    body = maybeSlang(body, persona, rng)
-    body = applyTic(body, persona, rng)
-    body = finish(body)
-    body = maybeEmoji(body, persona, rng, 1)
-    return { body, stance: 'question' }
+    return { body: style(body), stance: 'question' }
   }
 
-  // 1) AÇILIŞ — niyete göre. Konu zorunlu olarak geçer.
-  const openers = OPENERS[intent] ?? OPENERS['opinion'] ?? []
+  // 1) AÇILIŞ — niyete göre. Yardım isteyen gönderide NPC çözüm tarafında
+  // durur (gönderiyi yankılayan “yardım lazım” cümlesi tekrarlanmaz).
+  const openers = analysis.isHelpRequest ? HELP_OPENERS : (OPENERS[intent] ?? OPENERS['opinion'] ?? [])
   let body = fillOne(openers)
 
   // 2) GÖVDE — tutuma göre.
   body += `. ${fillOne(BODIES[stance])}`
 
   // 3) EK CÜMLE — bağlama ve kişiliğe göre.
+  let concreteAdded = false
   if (analysis.sentiment === 'negative' && persona.empathy > 0.5) {
     body += `. ${fillOne(EMPATHIC)}`
   } else if (analysis.isHelpRequest && persona.curiosity > 0.4) {
     body += `. ${fillOne(ADVICE[analysis.topic] ?? ADVICE['genel'] ?? [])}`
+    concreteAdded = true
   } else if (analysis.isNews && persona.seriousness > 0.4) {
     body += `. ${fillOne(NEWS)}`
+    concreteAdded = true
   } else if (analysis.isExperience && persona.empathy > 0.4) {
     body += `. ${fillOne(EXPERIENCE)}`
+    concreteAdded = true
   }
 
-  // 4) UZUN YAZAN — ek detay.
-  if (persona.verbosity > 0.6 && rng() < persona.verbosity) {
+  // 4) UZUN YAZAN — ek detay. Somut bir cümle zaten varsa tekrarı önle:
+  //    ardışık “dolgu” cümleleri yorumu anlamsızlaştırıyordu.
+  if (!concreteAdded && persona.verbosity > 0.6 && rng() < persona.verbosity) {
     body += `. ${pick(rng, ELABORATIONS)}`
   }
 

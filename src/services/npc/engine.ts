@@ -33,6 +33,7 @@ import { newId } from '../../lib/ids'
 import { makeRng, weightedPick } from './rng'
 import { analyzeContext, type ContextAnalysis } from './analyze'
 import { composeComment, composePost } from './compose'
+import { findAnswer } from './knowledge'
 import {
   adjustReputation,
   bumpNpcCounters,
@@ -480,21 +481,34 @@ function actComment(
   const { post, analysis } = item
 
   // Bazen mevcut bir yoruma cevap verir (tartışma zinciri) — ama yalnızca
-  // gönderi gerçekten tartışılıyorsa.
+  // gönderiyi GERÇEK bir kullanıcı açmışsa. NPC'lerin birbirine cevap
+  // vermesi, kalıp cümlenin kalıp cümleye cevap vermesi demekti: ortaya
+  // konu dışı, anlamsız zincirler çıkıyordu.
   let parentId: string | null = null
   let content = `${post.title} ${post.body ?? ''}`
   if (post.comment_count > 0 && rng() < 0.4) {
     const parent = ctx.db
       .prepare(
-        `SELECT id, body FROM comments
-          WHERE post_id = ? AND deleted = 0 AND removed = 0 AND auto_hidden = 0
-            AND author_id != ?
-          ORDER BY created_at DESC LIMIT 1`,
+        `SELECT c.id, c.body FROM comments c JOIN users u ON u.id = c.author_id
+          WHERE c.post_id = ? AND c.deleted = 0 AND c.removed = 0 AND c.auto_hidden = 0
+            AND c.author_id != ? AND u.is_ai = 0
+          ORDER BY c.created_at DESC LIMIT 1`,
       )
       .get(post.id, agent.user_id) as { id: string; body: string } | undefined
     if (parent) {
-      parentId = parent.id
-      content = parent.body
+      // Yorum zincirine cevap vermek, gönderiyi okumamak demektir: başka
+      // bir NPC'nin kalıp cümlesine verilen kalıp cevap, ortaya yeni bir
+      // alakasız metin çıkarır. Asıl soru gönderide durduğu için, gönderi
+      // yanıtlanabilir bir soruysa cevap doğrudan gönderiye yazılır.
+      const postText = `${post.title} ${post.body ?? ''}`
+      const base = { postType: post.type, mediaKind: post.media_kind }
+      const parentAnswer = findAnswer(parent.body, analyzeContext(parent.body, base))
+      if (!parentAnswer && findAnswer(postText, analyzeContext(postText, base))) {
+        content = postText
+      } else {
+        parentId = parent.id
+        content = parent.body
+      }
     }
   }
 
