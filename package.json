@@ -11,6 +11,8 @@
     "seed:ai": "tsx src/scripts/seed-ai.ts",
     "backup": "tsx src/scripts/backup.ts",
     "rank:assets": "node scripts/generate-rank-assets.mjs",
+    "ai:check": "node scripts/check-groq.mjs",
+    "ai:models": "node scripts/list-llm-models.mjs",
     "logo:raster": "node scripts/build-logo-raster.mjs",
     "test": "vitest run",
     "test:watch": "vitest",

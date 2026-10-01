@@ -85,7 +85,9 @@ export const LLM_PROVIDERS: LlmProvider[] = [
     id: 'groq',
     label: 'Groq (ücretsiz kota, önerilen)',
     baseUrl: 'https://api.groq.com/openai/v1',
-    model: 'llama-3.3-70b-versatile',
+    // Not: Groq'un ücretsiz kotasında bulunan çok dilli model. Model
+    // adı sık değişir; `node scripts/list-llm-models.mjs` ile anlık liste.
+    model: 'qwen/qwen3.8-27b',
     keyEnvs: ['GROQ_API_KEY'],
     note: 'Kredi kartı istemeyen ücretsiz günlük kota; karta da kartı da sınırsız değil, kota bitince motor şablona düşer.',
     docsUrl: 'https://console.groq.com/keys',
