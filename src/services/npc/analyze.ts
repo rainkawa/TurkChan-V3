@@ -72,6 +72,29 @@ export function conceptLabel(id: string): string {
   return CONCEPTS.find((c) => c.id === id)?.label ?? id
 }
 
+/** Fiil görünüşlü ekler: özne seçiminde “istiyorum” gibi kelimeler elenir. */
+const VERB_LOOKING = /(iyorum|üyorum|iyorsun|iyoruz|iyor|uyor|du|du|dü|tı|ti|tu|tü|mış|miş|mus|müs|yor)$/u
+
+/**
+ * Cevapta tekrar edilecek en belirgin kelime.
+ *
+ * Konu varsa ona ait kelime; konu yoksa (“Yardım İstiyorum”) fiil görünüşlü
+ * eklerden kaçınıp en uzun anlamlı kelime seçilir — aksi halde cümle
+ * “istiyorum tarafında fikrim olur” gibi tuhaf çıkıyor.
+ */
+function pickSubject(keywords: string[], words: string[], topic: string): string {
+  const onTopic = keywords.find((k) => conceptOf(k)?.id === topic)
+  if (onTopic) return onTopic
+  // Stopword filtresi burada uygulanMAZ: "Yardım İstiyorum" gönderisinin
+  // öznesi tam olarak durak kelimesi olan "yardım"dır. Yalnızca fiil
+  // görünüşlü ekler ve sıfat/zarflar elenir.
+  const candidate = words.find(
+    (w) => w.length >= 5 && !VERB_LOOKING.test(w) && !DESCRIPTORS.has(w),
+  )
+  if (candidate) return candidate
+  return keywords[0] ?? words[0] ?? ''
+}
+
 /**
  * Metni yapılandırılmış bağlama çevirir.
  *
@@ -187,8 +210,7 @@ export function analyzeContext(
     top && (top.score >= 2 || (top.score >= 1 && contentWords.length >= 4)) ? top.id : ''
   const topic = strongConcept || 'gündelik'
 
-  const subject =
-    keywords.find((k) => conceptOf(k)?.id === topic) ?? keywords[0] ?? ''
+  const subject = pickSubject(keywords, words, topic)
 
   // KAHKHAHA + konu kelimesi yok → cevaplanacak bir içerik değildir.
   // "HAHAHA bu çok komik 😂" tam olarak bu durumdur.

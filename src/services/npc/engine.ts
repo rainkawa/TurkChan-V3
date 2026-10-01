@@ -193,7 +193,10 @@ function runOneNpc(ctx: Ctx, row: AiAgentWithUser, rng: () => number, now: numbe
   // Aynı NPC kısa sürede tekrar tetiklenmez (aktivite seviyesi düşükse
   // bekleme süresi daha uzundur).
   const cooldown = cooldownMs(row.activity)
-  if (row.last_active_at !== null && now - row.last_active_at < cooldown) return false
+  if (row.last_active_at !== null && now - row.last_active_at < cooldown) {
+    logSkip(ctx, row.user_id, 'bekleme süresi', now)
+    return false
+  }
 
   const user = ctx.db.prepare('SELECT * FROM users WHERE id = ?').get(row.user_id) as
     | UserRow
@@ -215,6 +218,7 @@ function runOneNpc(ctx: Ctx, row: AiAgentWithUser, rng: () => number, now: numbe
   // --- DECIDE ---
   const decision = decide(ctx, agent, persona, read, rng)
   if (decision.action === 'skip') {
+    logSkip(ctx, agent.user_id, decision.reason, now)
     touch(ctx, agent.user_id, now)
     return false
   }
@@ -289,14 +293,38 @@ function readPosts(ctx: Ctx, agent: AiAgentRow, persona: NpcPersona): ReadItem[]
     ) as unknown as Array<PostRow & { community_name: string }>
 
   // UNDERSTAND: her gönderi bağlamına çevrilir.
-  return rows.map((row) => ({
-    post: row,
-    community_name: row.community_name ?? byId.get(row.community_id) ?? '',
-    analysis: analyzeContext(`${row.title} ${row.body ?? ''}`, {
+  //
+  // Bir gönderinin kendi kelimeleri bir kavram ailesine oturmuyorsa
+  // ("Yardım İstiyorum") gönderinin YERİ de bağlamdır: boardun adı, başlığı
+  // ve açıklaması konuyu verir. Komşu gönderiler bilinçli olarak KULLANILMAZ —
+  // boardda yan yana duran iki konu birbirine bulaşmamalıdır.
+  const boardMeta = new Map(
+    communities.map((c) => [c.id, `${c.name} ${c.title} ${c.description ?? ''}`]),
+  )
+
+  return rows.map((row) => {
+    const text = `${row.title} ${row.body ?? ''}`
+    const base = {
       postType: row.type,
       mediaKind: row.media_kind,
-    }),
-  }))
+    }
+    let analysis = analyzeContext(text, base)
+    if (analysis.concepts.length === 0 && !analysis.isTrivial) {
+      const boardText = boardMeta.get(row.community_id) ?? ''
+      if (boardText.trim() !== '') {
+        const withContext = analyzeContext(
+          `${text} ${boardText}`.slice(0, 800),
+          base,
+        )
+        if (withContext.concepts.length > 0) analysis = withContext
+      }
+    }
+    return {
+      post: row,
+      community_name: row.community_name ?? byId.get(row.community_id) ?? '',
+      analysis,
+    }
+  })
 }
 
 /** NPC'nin paylaşabileceği boardlar (yasaklar düşülmüş). */
@@ -725,6 +753,29 @@ function logNpc(
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(newId(), agentId, action, targetType, targetId, communityId, detail, now)
+}
+
+/**
+ * "NPC bir şey yapmadı" durumunu denetim izine yazar.
+ *
+ * Sessizlik kasıtlıdır ama yönetici için görünmezse hata sanılır. Bu kayıt
+ * “neden yazmadı?” sorusunu panelden yanıtlar. Gürültüyü önlemek için aynı
+ * NPC başına saatte en fazla bir kayıt yazılır.
+ */
+function logSkip(ctx: Ctx, agentId: string, reason: string, now: number): void {
+  const recent = ctx.db
+    .prepare(
+      `SELECT 1 FROM ai_activity_log
+        WHERE agent_id = ? AND action = 'skip' AND created_at > ? LIMIT 1`,
+    )
+    .get(agentId, now - 3_600_000)
+  if (recent) return
+  ctx.db
+    .prepare(
+      `INSERT INTO ai_activity_log (id, agent_id, action, target_type, target_id, community_id, detail, created_at)
+       VALUES (?, ?, 'skip', 'tick', NULL, NULL, ?, ?)`,
+    )
+    .run(newId(), agentId, reason, now)
 }
 
 // ---------------------------------------------------------------------------

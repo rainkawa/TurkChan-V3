@@ -212,6 +212,28 @@ const ELABORATIONS: string[] = [
   'Konu biraz daha geniş, tek cevapla bitmiyor.',
 ]
 
+/** Konu yokken kullanılan empati cümleleri (kavram adı geçmez). */
+const EMPATHIC_NOPIC: string[] = [
+  'sorunun çözüldüğünü umarım',
+  'merak ettim, sonucu yazarsan sevinirim',
+  'umuyorum ki çabuk çözülür',
+]
+
+/**
+ * Kavram ailesi tanınmayan ama gerçek bir soru/yardım isteği olan içerikler
+ * için kalıplar.
+ *
+ * Bunlar KONU UYDURMAZ: yalnızca okunan gönderinin kendi kelimelerine
+ * (`{özne}`) atıf yapar ve konuyu netleştirmeyi ister. “Yardım İstiyorum”
+ * gibi bir gönderiye oyun cümlesi kurmanın tek dürüst karşılığı budur.
+ */
+const CLARIFY: string[] = [
+  '{özne} kısmını biraz açar mısın, tam anlamadım',
+  'hangi konuda yardım istediğini biraz daha somut yazar mısın',
+  '{özne} için ne denediğini paylaşırsan daha iyi yardımcı olabilirim',
+  'biraz daha detay verirsen {özne} tarafında fikrim olur',
+]
+
 /** Şüpheci karakterler için sorgulayan kalıplar. */
 const SKEPTICAL: string[] = [
   'Bu iddianın kaynağı ne, emin misin?',
@@ -240,10 +262,11 @@ const EXPERIENCE: string[] = [
  * `{konu}` → kavram etiketi, `{özne}` → içerikten çıkarılmış kök.
  */
 function fill(template: string, analysis: ContextAnalysis, words: string[]): string {
-  const subject = analysis.subject !== '' ? analysis.subject : (words[0] ?? analysis.topicLabel)
-  return template
-    .replace(/\{konu\}/gu, analysis.topicLabel.toLocaleLowerCase('tr'))
-    .replace(/\{özne\}/gu, subject)
+  const subject = analysis.subject !== '' ? analysis.subject : (words[0] ?? 'konu')
+  // "gündelik" bir etiket değil, kavram yokluğudur: "bu" ile birleşince
+  // cümle doğal okunur ("bu konusunda…").
+  const topic = analysis.topic === 'gündelik' ? 'bu' : analysis.topicLabel.toLocaleLowerCase('tr')
+  return template.replace(/\{konu\}/gu, topic).replace(/\{özne\}/gu, subject)
 }
 
 /** Rastgele seçim (deterministik tohumlu). */
@@ -317,6 +340,25 @@ function draftComment(input: ComposeInput, rng: () => number): { body: string; s
 
   const fillOne = (list: string[]): string => fill(pick(rng, list), analysis, words)
 
+  // 0) KONUSUZ YARDIM İSTEĞİ — konu uydurmak yerine netleştir.
+  if (
+    analysis.concepts.length === 0 &&
+    analysis.mediaKind === 'none' &&
+    !analysis.isTrivial &&
+    (analysis.isQuestion || analysis.isHelpRequest)
+  ) {
+    let body = ensureStop(fill(pick(rng, CLARIFY), analysis, words))
+    if (persona.empathy > 0.5) body += ` ${ensureStop(pick(rng, EMPATHIC_NOPIC))}`
+    if (persona.curiosity > 0.6 && rng() < persona.curiosity * 0.5) {
+      body += ` ${ensureStop(fill(pick(rng, CURIOUS), analysis, words))}`
+    }
+    body = maybeSlang(body, persona, rng)
+    body = applyTic(body, persona, rng)
+    body = finish(body)
+    body = maybeEmoji(body, persona, rng, 1)
+    return { body, stance: 'question' }
+  }
+
   // 1) AÇILIŞ — niyete göre. Konu zorunlu olarak geçer.
   const openers = OPENERS[intent] ?? OPENERS['opinion'] ?? []
   let body = fillOne(openers)
@@ -381,17 +423,22 @@ function draftComment(input: ComposeInput, rng: () => number): { body: string; s
 export function composeComment(ctx: Ctx, input: ComposeInput): ComposedReply | null {
   const policy = behaviorOf(ctx, input.agentId, input.analysis.topic)
 
-  // BAĞLAM YOKSA YAZMA. Okunan içerikte hiçbir kavram ailesi tanınmadıysa
-  // (ve ortam da bir görsel değilse) üretilecek cümlenin konu dışı olması
-  // kaçınılmazdır. "HAHAHA bu çok komik" için üretilen futbol cümlesi
-  // tam olarak bu boşluktan geliyordu. Karakter sessiz kalır.
-  if (
-    input.analysis.mediaKind === 'none' &&
-    input.analysis.concepts.length === 0 &&
-    !input.analysis.isQuestion
-  ) {
-    return null
-  }
+  // BAĞLAM YOKSA KONU UYDURMA. Okunan içerikte hiçbir kavram ailesi
+  // tanınmadıysa üretilecek cümlenin konu dışı olması kaçınılmazdır.
+  // "HAHAHA bu çok komik" için üretilen futbol cümlesi tam olarak bu
+  // boşluktan geliyordu.
+  //
+  // Tek istisna: gerçek bir soru/yardım isteği ("Yardım İstiyorum") için
+  // konuyu uydurmak yerine gönderinin KENDİ kelimelerine atıf yapıp
+  // netleştirme istenir — bu da bağlamlı bir cevaptır.
+  const topicless =
+    input.analysis.mediaKind === 'none' && input.analysis.concepts.length === 0
+  const canClarify =
+    topicless &&
+    (input.analysis.isQuestion || input.analysis.isHelpRequest) &&
+    input.analysis.wordCount >= 2 &&
+    !input.analysis.isTrivial
+  if (topicless && !canClarify) return null
 
   let best: ComposedReply | null = null
 

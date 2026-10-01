@@ -498,9 +498,14 @@ const NpcContentView: FC<{ ctx: Ctx; agent: AiAgentWithUser }> = ({ ctx, agent }
 /** NPC işlemlerinin denetim izi. */
 const NpcActivityCard: FC<{ ctx: Ctx }> = ({ ctx }) => {
   const entries = npcActivityLogWithNames(ctx, 60)
+  const skips = entries.filter((e) => e.action === 'skip')
   return (
     <div class="card">
       <h2>NPC işlem günlüğü</h2>
+      <p class="hint">
+        NPC'ler her gönderiye cevap vermez; karar verip sessiz kalmak da bir davranıştır.
+        Sessiz kalan NPC'lerin nedeni “skip” kaydı olarak burada görünür (saatte bir kez).
+      </p>
       {entries.length === 0 && <p class="hint">Henüz kayıt yok.</p>}
       {entries.length > 0 && (
         <div class="table-wrap">
@@ -520,6 +525,12 @@ const NpcActivityCard: FC<{ ctx: Ctx }> = ({ ctx }) => {
             </tbody>
           </table>
         </div>
+      )}
+      {skips.length > 0 && (
+        <p class="hint">
+          Son sessizlik nedenleri:{' '}
+          {[...new Set(skips.map((s) => s.detail ?? '—'))].join(' · ')}
+        </p>
       )}
     </div>
   )

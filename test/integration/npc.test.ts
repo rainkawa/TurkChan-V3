@@ -1058,6 +1058,71 @@ describe('18. API\'siz çalışma', () => {
 })
 
 describe('19. Konu üretimi bağlamdan türetilir', () => {
+  it('konu kelimesi içermeyen bir yardım gönderisine de cevap verir', async () => {
+    // REGRESYON: "Yardım İstiyorum" gibi kavram ailesine oturmayan gönderiler
+    // sessiz kalıyordu — NPC hiçbir işlem yapmıyordu.
+    const world = await npcWorld()
+    const adminUsername = (
+      world.ctx.db.prepare('SELECT username FROM users WHERE is_admin = 1').get() as { username: string }
+    ).username
+    const adminAgent = await relogin(world, adminUsername)
+    await createCommunityVia(adminAgent, 'yardim')
+
+    const postId = await createPostVia(adminAgent, 'yardim', 'Yardım İstiyorum', 'Lütfen yardım edin, ne yapmalıyım?')
+    for (let t = 1; t <= 12; t++) {
+      world.setNow(T0 + t * 60_000)
+      runNpcTick(world.ctx, world.ctx.now())
+    }
+    const replies = world.ctx.db
+      .prepare('SELECT body FROM comments WHERE post_id = ? AND deleted = 0')
+      .all(postId) as unknown as Array<{ body: string }>
+    expect(replies.length).toBeGreaterThan(0)
+    for (const r of replies) {
+      // Konu uydurulmaz, gönderinin kendi kelimesine atıf yapılır.
+      expect(/(oyun|futbol|minecraft|valorant)/iu.test(r.body)).toBe(false)
+      expect(r.body.trim().length).toBeGreaterThan(10)
+    }
+  })
+
+  it('konusuz yardım isteğine verilen cevap gönderinin kelimesine bağlıdır', async () => {
+    const world = await npcWorld()
+    const content = 'Yardım İstiyorum'
+    const analysis = analyzeContext(content)
+    expect(analysis.concepts).toHaveLength(0)
+    expect(analysis.isHelpRequest || analysis.isQuestion).toBe(true)
+    expect(analysis.subject).toBe('yardım')
+
+    const composed = composeComment(world.ctx, {
+      agentId: npcId(world.ctx, NPC_PERSONAS[15]!.username),
+      persona: NPC_PERSONAS[15]!,
+      analysis,
+      content,
+      seed: 3,
+    })
+    expect(composed).not.toBeNull()
+    expect(trLower(composed!.body)).toContain('yardım')
+    expect(composed!.score.context).toBeGreaterThan(0)
+  })
+
+  it('NPC sessiz kaldığında nedeni denetim günlüğüne yazılır', async () => {
+    const world = await npcWorld()
+    const adminUsername = (
+      world.ctx.db.prepare('SELECT username FROM users WHERE is_admin = 1').get() as { username: string }
+    ).username
+    const adminAgent = await relogin(world, adminUsername)
+    await createCommunityVia(adminAgent, 'oyun')
+    await createPostVia(adminAgent, 'oyun', 'HAHAHA bu çok komik', 'HAHAHA bu çok komik 😂')
+
+    for (let t = 1; t <= 4; t++) {
+      world.setNow(T0 + t * 60_000)
+      runNpcTick(world.ctx, world.ctx.now())
+    }
+    const skips = world.ctx.db
+      .prepare("SELECT detail FROM ai_activity_log WHERE action = 'skip'")
+      .all() as unknown as Array<{ detail: string }>
+    expect(skips.length).toBeGreaterThan(0)
+    expect(skips.some((s) => (s.detail ?? '').length > 0)).toBe(true)
+  })
   it('ilgi alanı olmayan NPC Minecraft konusu açmaz', async () => {
     const world = await npcWorld()
     const adminUsername = (
