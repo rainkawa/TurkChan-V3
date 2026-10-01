@@ -62,6 +62,11 @@ function humorLine(input: FragmentInput, style: StyleInput): string | null {
     `${capitalize(noun)} artık kendi halinden komik`,
     `${capitalize(noun)} konusu ciddi bir yere gidiyor`,
     `bunu söyleyen benden çok haklı`,
+    thought.symptom === ''
+      ? `${capitalize(noun)} tarafında işin rengi ne bilmiyorum`
+      : `${capitalize(noun)} konusunda hep aynı şeyi yaşıyoruz`,
+    `bunu bir yerden okumuş gibi geliyor`,
+    `${capitalize(noun)} için duyduğum şey bambaşka, sonra konuşalım`,
   ]
   return pickOne(input, lines)
 }

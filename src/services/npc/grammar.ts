@@ -114,10 +114,9 @@ export function accusative(word: string): string {
   const dropped = withDroppedN(target, vowel)
   if (dropped !== null) return head(word) + dropped
   if (endsWithVowel(target)) return head(word) + target + buffer(target) + vowel
-  // Yumuşama yalnızca ARKA ünlü eklerde olur: kitap → kitabı, saat → saati.
-  return FRONT.has(vowel)
-    ? head(word) + target + vowel
-    : head(word) + soften(target, 'voiced') + vowel
+  // Belirtme hâlinde ünsüz yumuşaması yalnızca p/ç/k'da olur:
+  // kitap → kitabı, ağaç → ağacı. "t" yumuşamaz: saat → saati.
+  return head(word) + caseSoftening(target, vowel) + vowel
 }
 
 /** Yönelme hâli: kitap → kitaba, telefon → telefona, güncelleme → güncellemeye. */
@@ -147,9 +146,26 @@ export function dative(word: string): string {
     // Düz iyelik biçimlerinde tampon yok: oyun → oyuna, yapı → yapıya.
     return /[aeoöuü]/u.test(last) ? `${head(word)}${target}y${vowel}` : head(word) + target + vowel
   }
-  return FRONT.has(vowel)
-    ? head(word) + target + vowel
-    : head(word) + soften(target, 'voiced') + vowel
+  // Yönelme hâlinde yumuşama yalnızca p/ç/k'da olur: kitap → kitaba,
+  // çocuk → çocuğa. "t" yumuşamaz: saat → saate, yurt → yurta.
+  return head(word) + caseSoftening(target, vowel) + vowel
+}
+
+/**
+ * Hâl eki öncesi ünsüz yumuşaması.
+ *
+ * Türkçede çoğu ünsüz ek almadan yumuşar (kitap → kitabı). Yumuşayanlar
+ * yalnızca p/ç/k'dır. "t" yumuşamaz (saat → saati, minecraft → minecrafta)
+ * ve hiçbir ünsüz düşmez. Önceden "t" de yumuşatıldığı için
+ * "Minecrafda" gibi bozuk biçimler üretiliyordu.
+ */
+function caseSoftening(target: string, _vowel: string): string {
+  const last = target[target.length - 1] as string
+  // p/ç/k yumuşar (kitap → kitabı, çocuk → çocuğu, ağaç → ağacı);
+  // "t" yumuşamaz (saat → saati). Kalan ünsüzler olduğu gibi kalır.
+  const map: Record<string, string> = { p: 'b', ç: 'c', k: 'ğ' }
+  const replacement = map[last]
+  return replacement === undefined ? target : `${target.slice(0, -1)}${replacement}`
 }
 
 /** Çok sözcüklü ifadenin son sözcüğü ("bellek yetersizliği" → "yetersizliği"). */
@@ -167,22 +183,47 @@ function head(word: string): string {
 /** Bulunma hâli: kitap → kitapta, telefon → telefonda, hatası → hatasında. */
 export function locative(word: string): string {
   const target = lastWord(word)
-  if (isAcronym(word)) return acronymCase(word, /[A-ZÇĞİÖŞÜÇĞİÖŞÜ]$/u.test(target) ? 'da' : 'de')
-  const suffix = backness(target) === 'soft' ? 'de' : 'da'
+  if (isAcronym(word)) return acronymCase(word, /[A-ZÇĞİÖŞÜ]$/u.test(target) ? 'da' : 'de')
+  const suffix = locativeSuffix(target)
+  // Düşen "n" geri gelir: veri kaybı → veri kaybında (değil "kaybınde").
   const dropped = withDroppedN(target, suffix)
   if (dropped !== null) return head(word) + dropped
-  if (endsWithVowel(target)) return `${head(word)}${target}${suffix}`
-  return `${head(word)}${soften(target, 'devoice')}${suffix}`
+  return `${head(word)}${target}${suffix}`
+}
+
+/** Bulunma hâli eki: saat → saatte, ağaç → ağaçta, oyun → oyunda. */
+function locativeSuffix(target: string): string {
+  const soft = backness(target) === 'soft'
+  if (endsWithVowel(target)) return soft ? 'de' : 'da'
+  // "t", "ç", "ş" ve "k" ile biten kökler ek "ta/te" alır: saatte, ağaçta,
+  // arkadaşta, çocukta. Diğer ünsüzler "da/de" alır: kitapta, oyunda.
+  if (/[tçşk]$/u.test(target)) return soft ? 'te' : 'ta'
+  return soft ? 'de' : 'da'
 }
 
 /** Ayırılma hâli: kitaptan, telefondan, hatasından. */
 export function ablative(word: string): string {
   const target = lastWord(word)
-  const suffix = backness(target) === 'soft' ? 'den' : 'dan'
+  const soft = backness(target) === 'soft'
+  if (isAcronym(word)) return acronymCase(word, soft ? 'den' : 'dan')
+  const suffix = endsWithVowel(target)
+    ? soft
+      ? 'den'
+      : 'dan'
+    : target.endsWith('t')
+      ? soft
+        ? 'ten'
+        : 'tan'
+      : /[çşk]$/u.test(target)
+        ? soft
+          ? 'ten'
+          : 'tan'
+      : soft
+        ? 'den'
+        : 'dan'
   const dropped = withDroppedN(target, suffix)
   if (dropped !== null) return head(word) + dropped
-  if (endsWithVowel(target)) return `${head(word)}${target}${suffix}`
-  return `${head(word)}${soften(target, 'devoice')}${suffix}`
+  return `${head(word)}${target}${suffix}`
 }
 
 /**
@@ -299,9 +340,10 @@ export function possessive(word: string, person: 'ben' | 'sen' | 'o' = 'ben'): s
           : soft
             ? 'si'
             : 'ı'
-  const frontVowel = /[eiöü]/u.test(suffix)
-  const root = frontVowel ? word : soften(word, 'voiced')
-  return `${root}${suffix}`
+  // İyelikte de yumuşama yalnızca p/ç/k'da olur: kitap → kitabım,
+  // saat → saatım. Önceden "t" de yumuşatıldığı için "saadım", "robodum"
+  // gibi bozuk biçimler üretiliyordu.
+  return `${caseSoftening(word, suffix)}${suffix}`
 }
 
 /**

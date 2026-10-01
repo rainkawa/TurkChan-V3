@@ -147,10 +147,37 @@ function causeClause(input: FragmentInput): string | null {
 
 /** "Ben şunu düşünüyorum" çerçeveleri — sürekli aynı yapı kullanılmaz. */
 function stanceClause(input: FragmentInput, tone: 'agree' | 'disagree' | 'question' | 'build'): string {
-  const agreeFrames = ['bende aynı fikirdeyim', 'ben de aynı sonucu çıkardım', 'bu tarafta ben de varım', 'kendim de yaşadığım için katılıyorum']
-  const disagreeFrames = ['bende tam tersi bir izlenim oluştu', 'bu noktada ben farklı düşünüyorum', 'katılmadığım yer burası', 'ben olsam daha temiz çözerdim']
-  const questionFrames = ['burada kafamda bir soru kaldı', 'bir şeyi merak ettim', 'aklıma takıldı bir nokta']
-  const buildFrames = ['buraya bir şey daha eklemek isterim', 'ben olsam şu yönden ilerlerdim', 'bana göre eksik kalan taraf şu']
+  const agreeFrames = [
+    'bende aynı fikirdeyim',
+    'ben de aynı sonucu çıkardım',
+    'bu tarafta ben de varım',
+    'kendim de yaşadığım için katılıyorum',
+    'söylediğin yönde ben deyim',
+    'bu tespit bende de karşılığını buldu',
+  ]
+  const disagreeFrames = [
+    'bende tam tersi bir izlenim oluştu',
+    'bu noktada ben farklı düşünüyorum',
+    'katılmadığım yer burası',
+    'ben olsam daha temiz çözerdim',
+    'bunda biraz tereddüt ettim',
+    'bende bu kadar net değil',
+  ]
+  const questionFrames = [
+    'burada kafamda bir soru kaldı',
+    'bir şeyi merak ettim',
+    'aklıma takıldı bir nokta',
+    'biraz daha açar mısın',
+    'burayı tam anlamadım',
+  ]
+  const buildFrames = [
+    'buraya bir şey daha eklemek isterim',
+    'ben olsam şu yönden ilerlerdim',
+    'bana göre eksik kalan taraf şu',
+    'buna bir de şu açıdan bakmak gerekir',
+    'benim tarafta bir ekleme yapılır',
+    'üstüne bir cümle daha koyardım',
+  ]
   const frames =
     tone === 'agree' ? agreeFrames : tone === 'disagree' ? disagreeFrames : tone === 'question' ? questionFrames : buildFrames
   return pickFrame(input.rng, frames, frames[0] as string)
@@ -160,26 +187,33 @@ function stanceClause(input: FragmentInput, tone: 'agree' | 'disagree' | 'questi
 function reactionClause(input: FragmentInput): string {
   const subject = usableSubject(input.thought.subject) ? input.thought.subject : ''
   const claim = input.thought.claim
+  const symptom = input.thought.symptom
   const frames =
     claim === 'olumsuz değerlendirme'
-      ? ['durum ciddi görünüyor', 'bu pek iyiye gitmiyor', 'söylediğin şey can sıkıcıymış']
+      ? ['durum ciddi görünüyor', 'bu pek iyiye gitmiyor', 'söylediğin şey can sıkıcıymış', 'kafamı karıştırdı']
       : claim === 'olumlu değerlendirme'
-        ? ['sonuç güzel görünüyor', 'bu iyi bir haber', 'beğenmişsin demek']
-        : ['farklı bir bakış açısı', 'üzerinde durulacak bir şey', 'biraz daha açar mısın']
-  if (subject !== '') {
-    return pickFrame(
-      input.rng,
-      [
-        `${subject} tarafında ${pickFrame(input.rng, frames, 'durum')}`,
-        `${subject} ciddiye alınmalı`,
-        `${subject} başlığı tek başına çok şey anlatmıyor`,
-        `${subject} konusunda aynı şeyi hissediyorum`,
-        `${dative(subjectRootOf(input))} bakınca tablo netleşiyor`,
-      ],
-      `${subject} ciddiye alınmalı`,
-    )
+        ? ['sonuç güzel görünüyor', 'bu iyi bir haber', 'beğenmişsin demek', 'keyfini çıkarmışsın']
+        : ['farklı bir bakış açısı', 'üzerinde durulacak bir şey', 'biraz daha açar mısın', 'kafamda bir yere oturdu']
+  if (subject === '') {
+    if (symptom !== '') return `${capitalize(symptom)} tarafında ${pickFrame(input.rng, frames, 'durum')}`
+    return pickFrame(input.rng, frames, 'durum')
   }
-  return pickFrame(input.rng, frames, 'durum')
+  // Gönderinin kendisinden ("başlık tek başına anlatmıyor") değil, KONUdan
+  // söz eden girişler: okuyucu NPC'nin neye tepki verdiğini görsün.
+  const mine = /(?:lar|ler)$/u.test(subject) ? subject : possessive(baseOf(subject), 'ben')
+  return pickFrame(
+    input.rng,
+    [
+      `${subject} tarafında ${pickFrame(input.rng, frames, 'durum')}`,
+      `${subject} ciddiye alınmalı`,
+      `${mine} konusunda aynı şeyi hissediyorum`,
+      `${dative(subjectRootOf(input))} bakınca tablo netleşiyor`,
+      symptom === '' ? `${subject} tarafında hâlâ kafamda bir soru var` : `${symptom} tarafında işler biraz karışık`,
+      `${subject} dediğin yerden de bir şeyler anladım`,
+      `bu konuda ${mine} için de birkaç soru var`,
+    ],
+    `${subject} ciddiye alınmalı`,
+  )
 }
 
 /** Deneyim: kendi yaşadığı, kaynakla uyumlu. */
