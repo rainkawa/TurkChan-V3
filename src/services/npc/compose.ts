@@ -1,39 +1,62 @@
 /**
- * Yorum/gönderi ÜRETİM motoru — tamamen yerel, şablon + kalıp parçası.
+ * NPC ÜRETİM ORKESTRATÖRÜ.
  *
- * Üretim formülü (istenen yapı):
+ * ESKİ MİMARİ: "OPENERS/BODIES/ADVICE havuzlarından bir cümle seç, kalite
+ * kapısına sor, geçmezse başka bir kalıp seç." Bu yöntem 50 karakteri de
+ * aynı kalıpları dolduran botlara dönüştürüyordu.
  *
- *   BAĞLAM (okunan içerik)
- *   + NPC KİŞİLİĞİ (20 eksen)
- *   + NPC BİLGİSİ (hafızadan: daha önce gördüğü konu, tanıdığı kişi)
- *   + KONU (baskın kavram ailesi)
- *   + ÖNCEKİ ETKİLEŞİM (ilişki eksenleri)
- *   + YAZI STİLİ (uzunluk, emoji, argo, söz kalıbı)
- *   = YORUM
+ * YENİ MİMARİ (bu dosya yalnızca orkestrasyon yapar):
  *
- * Kritik kural: HER üretilen cümle, `analysis.topic` ile ilgili bir
- * kavram kelimesi veya `analysis.subject` kökü taşır. Rastgele kelime
- * havuzlarından bağımsız cümle kurulmaz — konu dışı yanıt üretmek bu
- * tasarımla mümkün değildir.
+ *   1. DÜŞÜNCE  (thought.ts)  — okunan içerik ne söylüyor, ne soruyor,
+ *                              hangi belirti/olay var, elimizde hangi
+ *                              doğrulanabilir bilgi var?
+ *   2. YAŞAM    (state.ts)    — bu gönderide daha önce ne dedim, bu konuda
+ *                              görüşüm ne, moodum ne, ne biliyorum?
+ *   3. PLAN     (plan.ts)     — bu konuşmada ne yapacağım (çözüm, karşı
+ *                              görüş, ayrıntı isteme, deneyim, bilgi…)
+ *   4. PARÇA    (fragments.ts + grammar.ts) — cümleler hazır seçilmez;
+ *                              köklerden, eklerden ve kaynak kelimelerden
+ *                              kurulur.
+ *   5. DENETİM  (selfcheck.ts + quality.ts) — kaynakla ilgili mi, soruya
+ *                              cevap veriyor mu, karaktere uygun mu,
+ *                              önceki mesajla çelişiyor mu, gramer doğru mu.
+ *                              Başarısızsa farklı plan/fragment ile yeniden
+ *                              üretilir.
+ *   6. YEDEK    (legacy.ts)   — ancak zincir hiçbir aday üretemezse
+ *                              eski kalıp havuzlarına DÜŞÜLÜR (fallback).
  *
- * Kalite kapısı (quality.ts) elerse, üretici farklı kalıplarla YENİ
- * aday dener; `MAX_ATTEMPTS` boyunca da geçilemezse karakter SESSİZ kalır
- * (yazmamak saçma yazmaktan iyidir).
+ * Harici servis/model/API YOKTUR.
  */
 import type { Ctx } from '../../context'
 import type { ContextAnalysis } from './analyze'
 import type { NpcPersona } from './personas'
-import { CONCEPTS, EMOJIS, SLANG_MARKERS, stem, trLower } from './lexicon'
+import { CONCEPTS, stem, trLower } from './lexicon'
 import { makeRng } from './rng'
 import { scoreText } from './quality'
 import type { QualityScore } from './quality'
-import { normalizePhrase, rememberPhrase, topConcepts } from './memory'
+import { normalizePhrase, rememberPhrase, topConcepts, recentPhrases } from './memory'
 import { behaviorOf } from './learning'
-import { findAnswer } from './knowledge'
-import type { NpcRelationshipRow } from '../../types'
+import { legacyComment } from './legacy'
+import { think, describeThought, type Thought } from './thought'
+import { planResponse, MOVE_LABELS, type ResponsePlan } from './plan'
+import { buildFragment, type FragmentInput } from './fragments'
+import { render, tooSimilar } from './render'
+import { selfCheck } from './selfcheck'
+import { similarity } from './grammar'
+import {
+  factsAbout,
+  moodOf,
+  opinionOf,
+  rememberFact,
+  threadOf,
+  touchFact,
+  type Mood,
+  type ThreadState,
+} from './state'
+import { composeTopicPost } from './topics'
 
 /** Bir üretim denemesi için en fazla aday sayısı. */
-const MAX_ATTEMPTS = 5
+const MAX_ATTEMPTS = 6
 
 /** Cevabın tutumu — ilişki ve sonuç puanlamasında kullanılır. */
 export type Stance = 'agree' | 'disagree' | 'question' | 'neutral' | 'build'
@@ -45,7 +68,7 @@ export interface ComposeInput {
   /** Okunan içerik (ham metin). */
   content: string
   /** Yazarın NPC'ye karşı ilişkisi. */
-  relationship?: NpcRelationshipRow
+  relationship?: import('../../types').NpcRelationshipRow
   /** NPC'nin bu konuyla ilgili geçmiş hatırlama gücü (0..1). */
   memoryWeight?: number
   /** Tohum (test edilebilirlik için). */
@@ -54,15 +77,34 @@ export interface ComposeInput {
   kind?: 'comment' | 'post'
   /** Gönderi başlığı için board adı. */
   boardName?: string
+  /** Konuşma devamlılığı için gönderi kimliği. */
+  postId?: string
+  /** Board kültürü (yeni konu üretimi). */
+  board?: { name: string; title: string; description: string }
+  /** Boarddaki gündemdeki gerçek başlıklar (yeni konu üretimi). */
+  agenda?: string[]
+  /** İlişki bağlamı (yeni konu üretimi). */
+  peerAffinity?: number
+}
+
+/** Denetim izi — yönetim panelinde gösterilir. */
+export interface ComposeTrace {
+  plan: string
+  thought: string
+  memory: string
+  relationship: string
+  mood: string
+  rejected: string
+  fact: string | null
 }
 
 export interface ComposedReply {
   body: string
   stance: Stance
-  /** Kullanılan kalıp ailesi — davranış öğrenmesi bunu izler. */
+  /** Kullanılan üretim biçimi (öğrenme ve metrikler bunu izler). */
   style: string
   score: QualityScore
-  research: string[]
+  trace: ComposeTrace
 }
 
 export interface ComposedPost {
@@ -79,235 +121,17 @@ function topicWords(topic: string): string[] {
   return concept ? concept.stems.slice(0, 8) : []
 }
 
-/** Metni cümle sonunda düzgün bitirir ve her cümlenin başını büyük harfe çevirir. */
-function finish(text: string): string {
-  let out = text.replace(/\s+/gu, ' ').trim()
-  if (out === '') return out
-  if (!/[.!?…]$/u.test(out)) out += '.'
-  // Ardışık noktalama temizliği.
-  out = out.replace(/([.!?…])\1{2,}/gu, '$1')
-  // Cümle başları büyük harf: kalıplar küçük harfle birleştirildiği için
-  // metin "… sıkıldım. telefonum ile …" gibi görünüyordu.
-  out = out.replace(/(^|[.!?…]\s+)([a-zçğıöşü])/gu, (_m, head: string, ch: string) =>
-    `${head}${ch.toLocaleUpperCase('tr')}`,
-  )
-  return out
-}
-
-/** Cümlenin sonunda noktalama yoksa nokta koyar (ek cümle eklerken kullanılır). */
-function ensureStop(text: string): string {
-  return /[.!?…]$/u.test(text) ? text : `${text}.`
-}
-
 /**
- * Emoji ekler (kişilik oranına göre). Basit bir eşzamanlı üreteçtir;
- * kişiliğe bağlı olması yeterlidir.
- */
-function maybeEmoji(text: string, persona: NpcPersona, rng: () => number, chance: number): string {
-  if (rng() > persona.emoji_rate * chance) return text
-  const emoji = EMOJIS[Math.floor(rng() * EMOJIS.length)] ?? '🙂'
-  return `${text} ${emoji}`
-}
-
-/** Argo ekler (yalnızca `slang_rate` yüksekse). */
-function maybeSlang(text: string, persona: NpcPersona, rng: () => number): string {
-  if (rng() > persona.slang_rate * 0.5) return text
-  const marker = SLANG_MARKERS[Math.floor(rng() * SLANG_MARKERS.length)] ?? 'la'
-  return `${ensureStop(text)} ${marker}.`
-}
-
-/** Söz kalıbını (tic) cümleye iliştirir — kişiliğin imzası. */
-function applyTic(text: string, persona: NpcPersona, rng: () => number): string {
-  if (rng() > 0.55) return text
-  const tic = persona.tic.trim()
-  if (tic === '') return text
-  return `${ensureStop(text)} ${ensureStop(tic)}`
-}
-
-// ---------------------------------------------------------------------------
-// Kalıp havuzları — HEPSİ bağlam alanı doldurur
-// ---------------------------------------------------------------------------
-
-/**
- * Yardım isteyen içeriklerde NPC'nin açılışı.
+ * Konuya uygun bir tutum seçer (ilişki + persona + ton).
  *
- * DİKKAT: gönderiyi yazan yardım İSTİYOR; NPC de “bana yardım lazım” diyerek
- * aynı cümleyi tekrarlamaz, kendisi çözüm tarafında durur.
- */
-const HELP_OPENERS: string[] = [
-  '{konu} konusunda sana birkaç şey söyleyebilirim',
-  '{özne} tarafında önce şunu denemek mantıklı',
-  '{konu} için pratik bir yol var',
-]
-
-/** Niyete göre açılış kalıpları. `{konu}` ve `{özne}` ile doldurulur. */
-const OPENERS: Record<string, string[]> = {
-  laugh: ['{özne} konusunda kahkaha attırdı ya', 'bu {konu} espirisi güzelmiş'],
-  greeting: ['{konu} için selam', 'buraya hoş geldin, {konu} güzel'],
-  thanks: ['{konu} için teşekkürler', 'sağ ol, {konu} konusunda yardımcı oldun'],
-  question: ['{konu} konusunda bir sorum var', '{özne} hakkında merak ettim'],
-  complaint: ['{konu} konusunda gerçekten sıkıldım', 'bu {konu} meselesi çok yorucu'],
-  request: ['{konu} konusunda ne önerirsiniz', '{özne} tarafında denediğin bir şey var mı'],
-  news: ['{konu} konusunda bilgi paylaşayım', '{konu} tarafında yeni gelişme var'],
-  experience: ['{konu} konusunda kendi tecrübem şu', '{özne} ile ilgili yaşadıklarım'],
-  praise: ['{konu} konusunda çok iyi olmuş', '{özne} gerçekten başarılı'],
-  mock: ['{konu} konusunda bu yaklaşım komik', '{özne} fikri biraz abartı'],
-  topic_shift: ['{konu} konusundan ayrılıp şunu söyleyeyim', 'aslında {konu} dışında da var'],
-  opinion: ['{konu} konusunda şöyle düşünüyorum', '{özne} konusunda farklı düşünüyorum'],
-}
-
-/** Niyet + tutum için gövde kalıpları. Hepsi konuya bağlı. */
-const BODIES: Record<Stance, string[]> = {
-  agree: [
-    '{konu} konusundaki bakışına katılıyorum',
-    '{özne} ile ilgili söylediğin doğru, {konu} aynen böyle',
-    '{konu} tarafında aynı şeyi düşünüyorum',
-    'evet, {konu} konusunda seninle aynı fikirdeyim',
-  ],
-  disagree: [
-    'bence {konu} konusunda biraz abartıyorsun',
-    '{özne} ile ilgili bu yaklaşım tam tersi olabilir',
-    '{konu} için bu kadar kesin konuşmak doğru olmaz',
-    'katılmıyorum, {konu} sorunu bu kadar basit değil',
-  ],
-  question: [
-    '{konu} için neden bu yolu seçtin',
-    '{özne} başka bir şey mi denedin mi',
-    '{konu} konusunda hangi kaynaktan yararlandın',
-  ],
-  neutral: [
-    '{konu} konusunda düşüncelerim biraz farklı ama saygıyla',
-    '{özne} konusunda kendi açımdan şunu düşünüyorum',
-    '{konu} için şimdilik net bir fikrim yok',
-  ],
-  build: [
-    '{konu} konusunda buna ekleyeyim',
-    '{özne} ile ilgili bir de şunu söyleyeyim',
-    '{konu} tarafında bir adım daha atılabilir',
-  ],
-}
-
-/** Şikâyet/yardım isteyen içeriğe verilen destekleyici kalıplar. */
-const EMPATHIC: string[] = [
-  '{konu} konusunda gerçekten can sıkıcı bir durum',
-  'bu {konu} meselesi çok yorucu, anlıyorum',
-  '{konu} için üzülürüm, umarım çözülür',
-]
-
-/** Soruya verilen somut yardım kalıpları (kavram ailelerine göre). */
-const ADVICE: Record<string, string[]> = {
-  oyun: [
-    '{konu} için ayarları sıfırlayıp tekrar dene',
-    '{konu} tarafında güncelleme yapıldı mı kontrol et',
-  ],
-  yazilim: [
-    '{konu} için önce küçük bir örnekle başla',
-    '{konu} sorununda hata mesajının en alt satırına bak',
-  ],
-  teknoloji: [
-    '{konu} için önce yeniden başlatmayı dene',
-    '{konu} meselesinde güncelleme kontrol edilmeli',
-  ],
-  siber: [
-    '{konu} için şifreni değiştir, aynı şifreyi kullanma',
-    '{konu} konusunda iki faktörlü doğrulama aç',
-  ],
-  genel: [
-    '{konu} için basit bir çözüm var sanırım',
-    '{konu} konusunda adım adım bakmak gerekir',
-  ],
-}
-
-/** Uzun yazan karakterler için ek cümle kalıpları. */
-const ELABORATIONS: string[] = [
-  'Aslında burada birkaç şeyi ayırmak lazım.',
-  'Ben olsam önce küçük bir adımla başlardım.',
-  'Konu biraz daha geniş, tek cevapla bitmiyor.',
-]
-
-/** Konu yokken kullanılan empati cümleleri (kavram adı geçmez). */
-const EMPATHIC_NOPIC: string[] = [
-  'sorunun çözüldüğünü umarım',
-  'merak ettim, sonucu yazarsan sevinirim',
-  'umuyorum ki çabuk çözülür',
-]
-
-/**
- * Kavram ailesi tanınmayan ama gerçek bir soru/yardım isteği olan içerikler
- * için kalıplar.
- *
- * Bunlar KONU UYDURMAZ: yalnızca okunan gönderinin kendi kelimelerine
- * (`{özne}`) atıf yapar ve konuyu netleştirmeyi ister. “Yardım İstiyorum”
- * gibi bir gönderiye oyun cümlesi kurmanın tek dürüst karşılığı budur.
- */
-const CLARIFY: string[] = [
-  '{özne} kısmını biraz açar mısın, tam anlamadım',
-  'hangi konuda yardım istediğini biraz daha somut yazar mısın',
-  '{özne} için ne denediğini paylaşırsan daha iyi yardımcı olabilirim',
-  'biraz daha detay verirsen {özne} tarafında fikrim olur',
-]
-
-/** Şüpheci karakterler için sorgulayan kalıplar. */
-const SKEPTICAL: string[] = [
-  'Bu iddianın kaynağı ne, emin misin?',
-  'Somut bir örnek var mı bu söylediğinde?',
-]
-
-/** Meraklı karakterler için öğrenme kalıpları. */
-const CURIOUS: string[] = [
-  'Bu konuda öğrenmek istiyorum, anlatır mısın?',
-  'Bunu hiç bilmiyordum, nasıl öğrenebilirim?',
-]
-
-/** Haber/deneyim kalıpları. */
-const NEWS: string[] = [
-  '{konu} tarafında yeni bir şey duydum, paylaşayım.',
-  '{konu} konusunda bilgi aktarmak istedim.',
-]
-
-const EXPERIENCE: string[] = [
-  '{konu} konusunda kendim de yaşadım, şöyle oldu.',
-  '{konu} ile ilgili tecrübem var, anlatayım.',
-]
-
-/**
- * Kalıplardan doldurulmuş cümle üretir.
- * `{konu}` → kavram etiketi, `{özne}` → içerikten çıkarılmış kök.
- */
-function fill(template: string, analysis: ContextAnalysis, words: string[]): string {
-  const raw = analysis.subject !== '' ? analysis.subject : (words[0] ?? 'konu')
-  // “konu”, “soru”, “gönderi” gibi kelimeler gerçek bir özne değildir:
-  // kalıba konduğunda “konuda konusunda farklı düşünüyorum” gibi
-  // anlamsız tekrarlar çıkıyordu. Bu durumda gönderinin odağı kullanılır,
-  // o da metada ise nötr bir zamir (“bu”) seçilir.
-  const isMeta = (w: string): boolean => /^(konu|soru|mesaj|yorum|g[öo]nderi)/u.test(trLower(w))
-  const subject = isMeta(raw)
-    ? analysis.focus !== '' && !isMeta(analysis.focus)
-      ? analysis.focus
-      : 'bu'
-    : raw
-  // "gündelik" bir etiket değil, kavram yokluğudur: "bu" ile birleşince
-  // cümle doğal okunur ("bu konusunda…").
-  const topic = analysis.topic === 'gündelik' ? 'bu' : analysis.topicLabel.toLocaleLowerCase('tr')
-  return template.replace(/\{konu\}/gu, topic).replace(/\{özne\}/gu, subject)
-}
-
-/** Rastgele seçim (deterministik tohumlu). */
-function pick<T>(rng: () => number, items: T[]): T {
-  return items[Math.floor(rng() * items.length) % items.length] as T
-}
-
-/**
- * Konuya uygun bir tutum seçer. Karakterin kişiliği + ilişki + içerik
- * tonu birlikte belirler; rastgele değil.
+ * Dışa açık tutulur: motorun karar mantığı testlerde doğrudan sınanır.
  */
 export function chooseStance(
   analysis: ContextAnalysis,
   persona: NpcPersona,
-  relationship: NpcRelationshipRow | undefined,
+  relationship: import('../../types').NpcRelationshipRow | undefined,
   rng: () => number,
 ): Stance {
-  // Temel ağırlıklar: tutum → göreli olasılık.
   const w: Record<Stance, number> = {
     agree: 0.8 + persona.politeness * 0.5 + persona.empathy * 0.4,
     disagree: persona.assertiveness * 1.2 + persona.skepticism * 0.5,
@@ -315,25 +139,19 @@ export function chooseStance(
     neutral: 0.6,
     build: persona.verbosity * 0.6 + persona.confidence * 0.4,
   }
-
-  // Bağlama göre ayarla.
   if (analysis.sentiment === 'negative') {
-    w.agree *= 1.3 // olumsuz içeriğe katılı daha zor
+    w.agree *= 1.3
     w.disagree *= 0.7
   }
-  if (analysis.isQuestion) {
-    w.question *= 1.5 // soruya soru/normal cevap uygun
-  }
+  if (analysis.isQuestion) w.question *= 1.5
   if (analysis.isArgument) {
-    w.disagree *= 1.8 // tartışmaya karşı görüş uygun
+    w.disagree *= 1.8
     w.agree *= 0.5
   }
-  // İlişki etkisi: yakın dost → katılı; rakip → karşı görüş.
   if (relationship) {
     if (relationship.friendship > 0.2) w.agree += 0.8
     if (relationship.rivalry > 0.2 || relationship.dislike > 0.2) w.disagree += 0.8
   }
-
   const entries: Array<[Stance, number]> = [
     ['agree', w.agree],
     ['disagree', w.disagree],
@@ -350,239 +168,290 @@ export function chooseStance(
   return 'neutral'
 }
 
-/**
- * Tek bir yorum adayı üretir (kalite kapısı YOK).
- *
- * @returns Gövde metni ve tutum.
- */
-function draftComment(input: ComposeInput, rng: () => number): { body: string; stance: Stance } {
-  const { persona, analysis, relationship } = input
-  const words = topicWords(analysis.topic)
-  const stance = chooseStance(analysis, persona, relationship, rng)
-  const intent = analysis.intent
+/** Kaynak metnin kökleri (denetimde kullanılır). */
+function sourceRoots(input: ComposeInput): string[] {
+  return [
+    ...new Set(
+      [...input.analysis.words, ...input.analysis.keywords, input.analysis.subject, input.analysis.focus]
+        .map((w) => stem(w))
+        .filter((w) => w.length >= 4),
+    ),
+  ]
+}
 
-  const fillOne = (list: string[]): string => fill(pick(rng, list), analysis, words)
-
-  /** Stil eklerini (argo, söz kalıbı, bitiş, emoji) toplu uygular. */
-  const style = (text: string): string =>
-    maybeEmoji(finish(applyTic(maybeSlang(ensureStop(text), persona, rng), persona, rng)), persona, rng, 1)
-
-  // 0) SORU CEVABI — bilgi tabanında karşılığı varsa CEVAP yazılır.
-  //
-  // Bu adım önce gelir: “HTML ana şablonunu atar mısınız?” sorusuna
-  // kalıp cümleleri değil, sorunun cevabı üretilir. Cevap yoksa üretici
-  // bir sonraki adıma (konuşma kalıplarına) düşer.
-  const answer = findAnswer(input.content, analysis)
-  if (answer && !analysis.isTrivial) {
-    // On NPC aynı soruya cevap verdiğinde kelimesi kelimesine aynı metni
-    // yapmamaları için kaydın iki anlatımı arasında seçim yapılır.
-    const phrasing = answer.alt && rng() < 0.5 ? answer.alt : answer.answer
-    let body = fill(phrasing, analysis, words)
-    // Yalnızca bilgi tabanındaki GERÇEK ek bilgi eklenir. Genel “birkaç şeyi
-    // ayırmak lazım” türü dolgu cümleleri cevabı sulandırıyordu.
-    if (answer.followUp && rng() < 0.45 + persona.verbosity * 0.4) {
-      body += ` ${fill(answer.followUp, analysis, words)}`
-    }
-    return { body: style(body), stance: 'build' }
-  }
-
-  // 0b) KONUSUZ YARDIM İSTEĞİ — konu uydurmak yerine netleştir.
-  if (
-    analysis.concepts.length === 0 &&
-    analysis.mediaKind === 'none' &&
-    !analysis.isTrivial &&
-    (analysis.isQuestion || analysis.isHelpRequest)
-  ) {
-    let body = fill(pick(rng, CLARIFY), analysis, words)
-    body = ensureStop(body)
-    if (persona.empathy > 0.5) body += ` ${pick(rng, EMPATHIC_NOPIC)}`
-    if (persona.curiosity > 0.6 && rng() < persona.curiosity * 0.5) {
-      body += ` ${ensureStop(fill(pick(rng, CURIOUS), analysis, words))}`
-    }
-    return { body: style(body), stance: 'question' }
-  }
-
-  // 1) AÇILIŞ — niyete göre. Yardım isteyen gönderide NPC çözüm tarafında
-  // durur (gönderiyi yankılayan “yardım lazım” cümlesi tekrarlanmaz).
-  const openers = analysis.isHelpRequest ? HELP_OPENERS : (OPENERS[intent] ?? OPENERS['opinion'] ?? [])
-  let body = fillOne(openers)
-
-  // 2) GÖVDE — tutuma göre.
-  body += `. ${fillOne(BODIES[stance])}`
-
-  // 3) EK CÜMLE — bağlama ve kişiliğe göre.
-  let concreteAdded = false
-  if (analysis.sentiment === 'negative' && persona.empathy > 0.5) {
-    body += `. ${fillOne(EMPATHIC)}`
-  } else if (analysis.isHelpRequest && persona.curiosity > 0.4) {
-    body += `. ${fillOne(ADVICE[analysis.topic] ?? ADVICE['genel'] ?? [])}`
-    concreteAdded = true
-  } else if (analysis.isNews && persona.seriousness > 0.4) {
-    body += `. ${fillOne(NEWS)}`
-    concreteAdded = true
-  } else if (analysis.isExperience && persona.empathy > 0.4) {
-    body += `. ${fillOne(EXPERIENCE)}`
-    concreteAdded = true
-  }
-
-  // 4) UZUN YAZAN — ek detay. Somut bir cümle zaten varsa tekrarı önle:
-  //    ardışık “dolgu” cümleleri yorumu anlamsızlaştırıyordu.
-  if (!concreteAdded && persona.verbosity > 0.6 && rng() < persona.verbosity) {
-    body += `. ${pick(rng, ELABORATIONS)}`
-  }
-
-  // 5) ŞÜPHECİ — sorgulama.
-  if (persona.skepticism > 0.5 && analysis.isArgument && rng() < persona.skepticism) {
-    body += ` ${ensureStop(pick(rng, SKEPTICAL))}`
-  }
-
-  // 6) MERAKLI — öğrenme isteği.
-  if (persona.curiosity > 0.6 && analysis.isQuestion && rng() < persona.curiosity * 0.6) {
-    body += ` ${ensureStop(fill(pick(rng, CURIOUS), analysis, words))}`
-  }
-
-  // 7) HAIZA — daha önce bu konuyu gördüyse atıf yap.
-  const recalled = input.memoryWeight ?? 0
-  if (recalled > 0.3 && rng() < recalled * 0.5) {
-    body = ensureStop(body)
-    body += ' Bu konuda daha önce de konuşmuştuk.'
-  }
-
-  // 8) İLİŞKİ — yakın dostsa selamlaşma.
-  if (relationship && relationship.friendship > 0.35 && rng() < relationship.friendship) {
-    body = ensureStop(body)
-    body += ' Sana iyi gelsin.'
-  }
-
-  // 9) STİL — argo, söz kalıbı, bitiş, en son emoji.
-  body = maybeSlang(body, persona, rng)
-  body = applyTic(body, persona, rng)
-  body = finish(body)
-  body = maybeEmoji(body, persona, rng, 1)
-
-  return { body, stance }
+/** Geçmiş ifadelerden çok benzeyen adayları eler (özgünlük). */
+function avoidRecent(ctx: Ctx, agentId: string, body: string): boolean {
+  const recent = recentPhrases(ctx, agentId, 12)
+  return recent.every((phrase) => similarity(body, phrase) < 0.6)
 }
 
 /**
- * Yorum üretir: en fazla `MAX_ATTEMPTS` aday dener, kalite kapısından
- * geçen İLK adayı döndürür.
+ * AYNI GÖNDERİYE YAZAN DİĞER NPC'LERDEN FARKLILIK.
+ *
+ * 10 NPC aynı kaynağa cevap yazdığında kalıplar birbirine dönmemesi için
+ * son üretilen metinler süreç içi bir önbellekte tutulur ve yeni aday
+ * bunlara fazla benzerse elenir (madde 19: pairwise similarity).
+ */
+const POST_DUP_CACHE = new Map<string, string[]>()
+const DUP_CACHE_LIMIT = 40
+const DUP_CACHE_KEYS = 200
+
+function tooSimilarOnPost(postKey: string, body: string, limit = 0.62): boolean {
+  const list = POST_DUP_CACHE.get(postKey) ?? []
+  if (list.some((other) => similarity(body, other) >= limit)) return true
+  // Tam metin benzerliği eşiğin altında kalsa bile aynı açılış cümlesi
+  // tekrarlanıyorsa okuyucu "hepsi aynı bot" izlenimi alır. İlk cümle
+  // ayrıca karşılaştırılır.
+  const opener = openingOf(body)
+  return opener !== '' && list.some((other) => openingOf(other) === opener)
+}
+
+function rememberOnPost(postKey: string, body: string): void {
+  const list = POST_DUP_CACHE.get(postKey) ?? []
+  list.push(body)
+  if (list.length > DUP_CACHE_LIMIT) list.shift()
+  POST_DUP_CACHE.set(postKey, list)
+  // Anahtar sayisi sinirsiz buyumesin (uzun sureli surecde bellek sizintisi).
+  if (POST_DUP_CACHE.size > DUP_CACHE_KEYS) {
+    const oldest = POST_DUP_CACHE.keys().next()
+    if (!oldest.done) POST_DUP_CACHE.delete(oldest.value)
+  }
+}
+
+/**
+ * YORUM ÜRETİR — yeni mimari.
  *
  * @returns null → hiçbir aday geçemedi, karakter sessiz kalır.
  */
 export function composeComment(ctx: Ctx, input: ComposeInput): ComposedReply | null {
-  const policy = behaviorOf(ctx, input.agentId, input.analysis.topic)
+  const { persona, analysis, content, seed } = input
 
-  // BAĞLAM YOKSA KONU UYDURMA. Okunan içerikte hiçbir kavram ailesi
-  // tanınmadıysa üretilecek cümlenin konu dışı olması kaçınılmazdır.
-  // "HAHAHA bu çok komik" için üretilen futbol cümlesi tam olarak bu
-  // boşluktan geliyordu.
+  // KONUSUZ ANLAMSIZ İÇERİK: cevap uydurulmaz.
   //
-  // Tek istisna: gerçek bir soru/yardım isteği ("Yardım İstiyorum") için
-  // konuyu uydurmak yerine gönderinin KENDİ kelimelerine atıf yapıp
-  // netleştirme istenir — bu da bağlamlı bir cevaptır.
-  const topicless =
-    input.analysis.mediaKind === 'none' && input.analysis.concepts.length === 0
-  const canClarify =
-    topicless &&
-    (input.analysis.isQuestion || input.analysis.isHelpRequest) &&
-    input.analysis.wordCount >= 2 &&
-    !input.analysis.isTrivial
-  if (topicless && !canClarify) return null
+  // “Konu” kelimesi tanınmayan ama gerçek bir ifade varsa (“Bugün moralim çok
+  // bozuk”, “Bu oyunun yeni sezonu sizce nasıl?”) NPC konuyu UYDURMAZ:
+  // düşünce motoru kaynaktaki özneyi kullanır, plan katmanı netleştirme ya da
+  // tepki seçer. Ancak içerik gerçekten anlamsızsa (kahkaha, tek kelime) hiçbir
+  // şey yazılmaz.
+  const topicless = analysis.mediaKind === 'none' && analysis.concepts.length === 0
+  if (analysis.isTrivial || analysis.wordCount < 2) return null
+  if (topicless && analysis.mediaKind !== 'none' && !analysis.isQuestion) return null
+
+  const policy = behaviorOf(ctx, input.agentId, analysis.topic)
+  const thought: Thought = think(content, analysis)
+  const thread: ThreadState = input.postId !== undefined ? threadOf(ctx, input.agentId, input.postId) : emptyThread()
+  const opinion = opinionOf(ctx, input.agentId, analysis.topic)
+  const mood: Mood = moodOf(ctx, input.agentId, ctx.now(), persona.patience)
+  const known = factsAbout(ctx, input.agentId, thought.subjectRoot !== '' ? thought.subjectRoot : analysis.topic)
+  const familiarity = Math.min(1, (input.memoryWeight ?? 0) + opinion.samples * 0.2)
+  const roots = sourceRoots(input)
+  const recent = recentPhrases(ctx, input.agentId, 10)
+  const humorRecently = recent.some((p) => /😂|🤣/u.test(p))
 
   let best: ComposedReply | null = null
+  const rejected: string[] = []
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const rng = makeRng(input.seed + attempt * 7919)
-    const { body, stance } = draftComment(input, rng)
-    const score = scoreText(ctx, input.agentId, body, input.analysis, input.persona)
+    const rng = makeRng(seed + attempt * 7919)
+    const plan = planResponse({
+      thought,
+      persona,
+      mood,
+      opinion,
+      relationship: input.relationship,
+      thread,
+      familiarity,
+      hasContext: roots.length > 0,
+      rng,
+    })
 
-    if (score.ok) {
-      rememberPhrase(ctx, input.agentId, body, ctx.now())
-      return { body, stance, style: stance, score, research: [] }
+    const fragmentInput: FragmentInput = { thought, persona, opinion, thread, rng }
+    const result = render(
+      plan,
+      fragmentInput,
+      { persona, rng, humorRecently, lengthWeight: policy.length_w, humorWeight: policy.humor_w },
+      attempt,
+    )
+    if (result.text === '') {
+      rejected.push('parça yok')
+      continue
     }
-    // En iyi adayı sakla (bütün denemeler başarısız olursa döndürmek için).
-    if (!best || score.total > best.score.total) {
-      best = { body, stance, style: stance, score, research: [] }
+
+    // 5) DENETİM: dilbilgisi + kaynak + tutarlılık.
+    const asksBack = result.usedParts.includes('question') || result.text.includes('?')
+    // Bilgi cevabında `plan.fact` null olabilir (parça katmanı kayıt arasından
+    // seçer); denetime ve hafızaya yazılacak olgu yine ilk kayıttır.
+    const factUsed = plan.fact ?? (plan.move === 'add_info' ? (thought.facts[0] ?? null) : null)
+    const check = selfCheck({
+      text: result.text,
+      thought,
+      persona,
+      sourceRoots: roots,
+      lastStatement: thread.last_statement,
+      askedQuestion: analysis.isQuestion || analysis.isHelpRequest,
+      fact: factUsed,
+      asksBack,
+    })
+    const score = scoreText(ctx, input.agentId, result.text, analysis, persona)
+
+    const candidate: ComposedReply = {
+      body: result.text,
+      stance: plan.stance,
+      style: plan.move,
+      score,
+      trace: {
+        plan: `${MOVE_LABELS[plan.move]} · ${plan.why} · parçalar=${result.usedParts.join('>')}${
+          result.styleActions.length > 0 ? ` · stil=${result.styleActions.join('+')}` : ''
+        }`,
+        thought: describeThought(thought),
+        memory: `görüş=${opinion.value.toFixed(2)}/emniyet=${opinion.confidence.toFixed(2)} · geçmiş=${familiarity.toFixed(2)} · bilgi=${known.length} · thread=${thread.replies}`,
+        relationship: input.relationship
+          ? `dostluk=${input.relationship.friendship.toFixed(2)} saygı=${input.relationship.respect.toFixed(2)} rakip=${input.relationship.rivalry.toFixed(2)}`
+          : 'ilk temas',
+        mood: `${mood.label} (${mood.value.toFixed(2)})`,
+        rejected: check.reasons.length === 0 ? '' : check.reasons.join(', '),
+        fact: factUsed,
+      },
     }
-    void policy
+
+    // Ayni gonderiye yazan DIGER karakterlerden ayrilma filtresi yalnizca
+    // gercek bir gonderi kimligi varken calisir. Kimlik yoksa ayni karakter
+    // farkli tohumlarla yeniden uretir ve filtre onun seceneklerini elerdi.
+    const postKey = input.postId
+    const usable =
+      check.ok &&
+      result.ok &&
+      score.ok &&
+      avoidRecent(ctx, input.agentId, result.text) &&
+      (thread.last_statement === '' || !tooSimilar(result.text, thread.last_statement, 0.7)) &&
+      (postKey === undefined || !tooSimilarOnPost(postKey, result.text))
+
+    if (usable) {
+      if (postKey !== undefined) rememberOnPost(postKey, result.text)
+      rememberPhrase(ctx, input.agentId, result.text, ctx.now())
+      if (factUsed !== null) {
+        rememberFact(ctx, input.agentId, thought.subjectRoot, factUsed, 'bilgi', 0.6, ctx.now())
+        touchFact(ctx, input.agentId, thought.subjectRoot, factUsed, score.total > 0.6, ctx.now())
+      }
+      return candidate
+    }
+
+    if (check.reasons.length > 0) rejected.push(check.reasons.join('/'))
+    if (!score.ok) rejected.push(`kalite ${score.reasons.join('/')}`)
+    if (!result.ok) rejected.push(result.lintReasons.join('/'))
+    if (check.ok && score.ok && result.ok) {
+      if (!avoidRecent(ctx, input.agentId, result.text)) rejected.push('kendi ifadesini tekrar ediyor')
+      if (thread.last_statement !== '' && tooSimilar(result.text, thread.last_statement, 0.7)) {
+        rejected.push('onceki mesaja benzer')
+      }
+      if (postKey !== undefined && tooSimilarOnPost(postKey, result.text)) {
+        rejected.push('ayni gonderide baska biri yazdi')
+      }
+    }
+    if (!best || candidate.score.total > best.score.total) best = candidate
   }
 
-  // Yedek aday da bağlam taşımak zorunda: kaynak metnin köklerine hiç
-  // değinmeyen bir cümle "kısmen iyi" olsa da yayınlanmaz.
-  return best && best.score.total >= 0.4 && best.score.context > 0 ? best : null
+  // 6) SON DEĞERLENDİRME: denetimden geçen en iyi yeni-mimari aday.
+  //    Eski kalıp havuzuna düşmek, yeni zincirin ürettiği bir metinden
+  //    daha kötüdür: aday kaynakla ilgiliyse önce o tercih edilir.
+  if (best && best.score.total >= 0.45 && best.score.context > 0) {
+    best.trace.rejected = rejected.slice(0, 4).join(' | ')
+    best.trace.plan += ' · (son değerlendirme)'
+    return best
+  }
+
+  // 7) YEDEK: yalnızca yeni zincir hiçbir aday üretemezse eski kalıp havuzu.
+  const fallback = fallbackReply(ctx, input, thought, policy.engage_w)
+  if (fallback) {
+    fallback.trace.rejected = rejected.slice(0, 4).join(' | ')
+    return fallback
+  }
+  return null
+}
+
+/** Bir metnin ilk cümlesi, karşılaştırma anahtarı olarak küçük harfe iner. */
+function openingOf(body: string): string {
+  const first = body.split(/(?<=[.!?…])\s/u)[0] ?? ''
+  return first.trim().toLocaleLowerCase('tr')
+}
+
+/** Boş thread durumu (post kimliği bilinmiyorsa). */
+function emptyThread(): ThreadState {
+  return {
+    agent_id: '',
+    post_id: '',
+    subject: '',
+    last_stance: '',
+    last_statement: '',
+    open_question: '',
+    disagreement: 0,
+    replies: 0,
+    updated_at: 0,
+  }
+}
+
+/** Son çare: eski kalıp havuzları. */
+function fallbackReply(
+  ctx: Ctx,
+  input: ComposeInput,
+  thought: Thought,
+  engageWeight: number,
+): ComposedReply | null {
+  const rng = makeRng(input.seed + 104729)
+  const words = topicWords(input.analysis.topic)
+  const stance = chooseStance(input.analysis, input.persona, input.relationship, rng)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const body = legacyComment({
+      analysis: input.analysis,
+      persona: input.persona,
+      words,
+      stance,
+      rng: makeRng(input.seed + attempt * 31 + 5),
+    })
+    const score = scoreText(ctx, input.agentId, body, input.analysis, input.persona)
+    if (score.ok) {
+      rememberPhrase(ctx, input.agentId, body, ctx.now())
+      void engageWeight
+      return {
+        body,
+        stance,
+        style: 'fallback-template',
+        score,
+        trace: {
+          plan: 'yedek şablon (yeni zincirden aday çıkmadı)',
+          thought: describeThought(thought),
+          memory: '',
+          relationship: '',
+          mood: '',
+          rejected: '',
+          fact: null,
+        },
+      }
+    }
+  }
+  return null
 }
 
 /**
- * Gönderi başlığı + gövdesi üretir.
+ * GÖNDERİ ÜRETİR — yorum üretiminden tamamen ayrı bir yol.
  *
- * Konu, NPC'nin ilgi alanlarından VE board içeriğinden türetilir — rastgele
- * değil. Bağlam filtresi: başlık en az bir konu kelimesi içermeli.
+ * Konu: NPC'nin ilgi alanı + hafızası + board kültürü + boarddaki gündemdeki
+ * gerçek içerik. Hazır "şu konuda bir sorum var" havuzu yoktur.
  */
 export function composePost(ctx: Ctx, input: ComposeInput): ComposedPost | null {
-  // Konu ailesi tanınmadan gönderi açılmaz: "gündelik" etiketiyle
-  // başlık üretmek, bağlamı olmayan bir cümle kurmaktır.
   if (input.analysis.topic === 'gündelik' || input.analysis.concepts.length === 0) return null
-
-  const policy = behaviorOf(ctx, input.agentId, input.analysis.topic)
-  const words = topicWords(input.analysis.topic)
-  const base = words[0] ?? input.analysis.topicLabel.toLocaleLowerCase('tr')
-
-  // Başlık havuzları — hepsi bağlam kelimesi içerir.
-  const titles = [
-    `${base} konusunda bir sorum var`,
-    `${base} tarafında durum nasıl`,
-    `${base} ile ilgili deneyim paylaşayım`,
-    `${base} hakkında düşüncelerim`,
-    `${base} konusunda yardım lazım`,
-    `${base} tarafında yeni bir şey mi var`,
-  ]
-
-  const bodies = [
-    `${base} konusunda kafamda birkaç soru var. Siz ne düşünüyorsunuz?`,
-    `${base} ile uğraşırken bazı şeyler kafama takıldı, yardımınızı bekliyorum.`,
-    `${base} konusunda kendi tecrübemi paylaşmak istedim. Belki sizin de işinize yarar.`,
-    `${base} tarafında son dönemde büyük bir değişim var gibi, siz ne dersiniz?`,
-    `${base} için doğru yaklaşım nedir bilmiyorum, deneyimi olan varsa yazsın.`,
-  ]
-
-  let best: ComposedPost | null = null
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const rng = makeRng(input.seed + attempt * 104729)
-    const title = pick(rng, titles)
-    let body = pick(rng, bodies)
-    if (input.persona.verbosity > 0.6) body += ` ${pick(rng, ELABORATIONS)}`
-    body = maybeSlang(body, input.persona, rng)
-    body = applyTic(body, input.persona, rng)
-    body = finish(body)
-    body = maybeEmoji(body, input.persona, rng, 0.5)
-
-    // Gönderi kalite kapısı: başlık + gövde birlikte değerlendirilir.
-    const titleAnalysis = { ...input.analysis, subject: base }
-    const score = scoreText(ctx, input.agentId, `${title} ${body}`, titleAnalysis, input.persona)
-    // Gönderi için başlık ayrıca kontrol edilir.
-    const titleOk = title.length >= 10 && title.length <= 120
-    if (score.ok && titleOk) {
-      rememberPhrase(ctx, input.agentId, title, ctx.now())
-      return { title, body, style: 'post', score, topic: input.analysis.topic }
-    }
-    if (!best || score.total > best.score.total) {
-      best = { title, body, style: 'post', score, topic: input.analysis.topic }
-    }
-  }
-
-  return best && best.score.total >= 0.5 && best.score.context > 0 ? best : null
+  return composeTopicPost(ctx, input)
 }
 
 /**
  * Bir NPC'nin en çok ilgilendiği konular (hafıza + ilgi alanları).
- * Konu üretiminde "ne konuşayım" kararını besler.
  */
 export function suggestTopics(ctx: Ctx, agentId: string, persona: NpcPersona): string[] {
   const remembered = topConcepts(ctx, agentId, 5).map((c) => c.id)
   const interests = persona.interests.map((i) => trLower(i))
-  // Hafızasındaki konular önce gelir (öğrenilmiş ilgi), sonra temel ilgi alanları.
   return [...new Set([...remembered, ...interests])].slice(0, 6)
 }
 
 /** Kelime kökü yardımcısı (dışarıdan test edilebilir olsun diye dışa açık). */
-export { stem, normalizePhrase }
+export { stem, normalizePhrase, buildFragment }
+export type { ResponsePlan, Thought }

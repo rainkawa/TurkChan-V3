@@ -34,6 +34,7 @@ import { makeRng, weightedPick } from './rng'
 import { analyzeContext, type ContextAnalysis } from './analyze'
 import { composeComment, composePost } from './compose'
 import { findAnswer } from './knowledge'
+import { rememberThread, resolveOpenQuestion, shiftOpinion, saveTrace } from './state'
 import {
   adjustReputation,
   bumpNpcCounters,
@@ -558,6 +559,9 @@ function actComment(
   // Cevaplanan içeriğin bağlamı (gönderi ya da yorum).
   const replyAnalysis = analyzeContext(content, { postType: post.type, mediaKind: post.media_kind })
 
+  // Thread awareness: bir kullanıcı bize cevap verdiyse açık sorumuz kapanır.
+  if (parentId !== null) resolveOpenQuestion(ctx, agent.user_id, post.id, now)
+
   const relation = relationshipOf(ctx, agent.user_id, post.author_id)
   const composed = composeComment(ctx, {
     agentId: agent.user_id,
@@ -566,6 +570,7 @@ function actComment(
     content,
     relationship: relation,
     memoryWeight: memoryWeight(ctx, agent.user_id, replyAnalysis.topic),
+    postId: post.id,
     seed: Math.floor(rng() * 2 ** 31),
   })
 
@@ -625,6 +630,47 @@ function actComment(
       now,
     )
     logNpc(ctx, agent.user_id, 'comment', 'comment', comment.id, post.community_id, composed.stance, now)
+
+    // --- YAŞAM KATMANLARI: konuşma devamlılığı, görüş, iz ---
+    // Cevabı yazdıktan SONRA güncellenir: bir sonraki cevap bunlardan türer.
+    const openQuestion = /\?/u.test(composed.body)
+      ? (composed.body.match(/[^.!?…]*\?/u)?.[0] ?? '').trim().slice(0, 120)
+      : ''
+    rememberThread(
+      ctx,
+      agent.user_id,
+      post.id,
+      {
+        subject: replyAnalysis.focus !== '' ? replyAnalysis.focus : replyAnalysis.topic,
+        stance: composed.stance,
+        statement: composed.body,
+        openQuestion,
+        disagreementDelta: composed.stance === 'disagree' ? 0.15 : composed.stance === 'agree' ? -0.1 : 0,
+      },
+      now,
+    )
+    // Görüş: yazdığı cevabın yönü küçük bir adım kaydırır.
+    const evidence =
+      composed.stance === 'agree' ? 0.5 : composed.stance === 'disagree' ? -0.5 : replyAnalysis.sentiment === 'negative' ? -0.2 : 0.15
+    shiftOpinion(ctx, agent.user_id, replyAnalysis.topic, evidence, composed.score.total, now)
+    // Denetim izi: "neden bu cevabı verdi?"
+    saveTrace(
+      ctx,
+      agent.user_id,
+      'comment',
+      comment.id,
+      {
+        plan: composed.trace.plan,
+        thought: composed.trace.thought,
+        memory: composed.trace.memory,
+        relationship: composed.trace.relationship,
+        mood: composed.trace.mood,
+        score: composed.score.total,
+        rejected: composed.trace.rejected,
+        body: composed.body,
+      },
+      now,
+    )
     return true
   } catch (err) {
     if (err instanceof AppError) return false
@@ -751,6 +797,8 @@ function actPost(
     seed: Math.floor(rng() * 2 ** 31),
     kind: 'post',
     boardName: community.name,
+    board: { name: community.name, title: community.title, description: community.description ?? '' },
+    agenda: recentRows.map((r) => r.title),
   })
 
   if (!composed) {

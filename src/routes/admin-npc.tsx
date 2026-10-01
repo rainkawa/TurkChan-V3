@@ -25,6 +25,8 @@ import { archetypeLabel } from '../services/npc/personas'
 import { memorySize, recentEpisodes, listMemory } from '../services/npc/memory'
 import { relationshipCount, relationshipsOf } from '../services/npc/relationships'
 import { behaviorChanges, trialCount } from '../services/npc/learning'
+import { recentTraces, stateSummary } from '../services/npc/state'
+import { siteMetrics } from '../services/npc/metrics'
 
 /** Board erişimi seçenekleri (etiket + değer). */
 const ACCESS_OPTIONS: Array<{ value: NpcBoardAccess; label: string }> = [
@@ -221,6 +223,8 @@ export const NpcTab: FC<{
         </div>
       </div>
 
+      <NpcQualityCard ctx={ctx} />
+      <NpcTraceCard ctx={ctx} agents={agents} />
       <NpcActivityCard ctx={ctx} />
     </div>
   )
@@ -491,6 +495,103 @@ const NpcContentView: FC<{ ctx: Ctx; agent: AiAgentWithUser }> = ({ ctx, agent }
           ))}
         </ul>
       )}
+    </div>
+  )
+}
+
+/**
+ * ÜRETİM KALİTESİ METRİKLERİ.
+ *
+ * Template-merkezli üretimden yerel üretime geçişin ölçülebilir kanıtı:
+ * şablon bağımlılığı düşük, ifade tekrarı ve çeşitlilik yüksek olduğunda
+ * karakterler birbirinin kopyası değildir.
+ */
+const NpcQualityCard: FC<{ ctx: Ctx }> = ({ ctx }) => {
+  const m = siteMetrics(ctx)
+  const rows: Array<[string, number, string]> = [
+    ['Şablon bağımlılığı', 1 - m.template_dependency, 'düşük olmalı — hazır kalıp kullanımı'],
+    ['Bağlam uyumu', m.context_alignment, 'yüksek olmalı — cevap kaynakla ilgili mi'],
+    ['Anlam çeşitliliği', m.semantic_diversity, 'yüksek olmalı — cümleler birbirinden farklı mı'],
+    ['Stil çeşitliliği', m.style_diversity, 'yüksek olmalı — farklı üretim biçimleri'],
+    ['Konuşma sürekliliği', m.thread_continuity, 'yüksek olmalı — aynı gönderide bağ kuruluyor mu'],
+    ['Yararlı cevap oranı', m.useful_response_rate, 'yüksek olmalı — sorular gerçekten yanıtlanıyor mu'],
+  ]
+  return (
+    <div class="card">
+      <h2>Üretim kalitesi</h2>
+      <p class="hint">
+        Metinler hazır kalıplardan seçilmez; düşünce → plan → parça → dilbilgisi → denetim zincirinden
+        kurulur. Aşağıdaki ölçütler son {m.samples} yorum üzerinden hesaplanır. Metrikler
+        <code>metrics.ts</code> içinde yerel olarak hesaplanır.
+      </p>
+      {m.samples === 0 && <p class="hint">Ölçüm için henüz yeterli yorum yok.</p>}
+      {m.samples > 0 && (
+        <div class="table-wrap">
+          <table class="data">
+            <thead>
+              <tr><th>Ölçüt</th><th>Değer</th><th>Beklenen</th></tr>
+            </thead>
+            <tbody>
+              {rows.map(([label, value, hint]) => (
+                <tr>
+                  <td>{label}</td>
+                  <td>{pct(Math.max(0, Math.min(1, value)))}</td>
+                  <td class="hint">{hint}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * ÜRETİM DENETİM İZİ.
+ *
+ * Her yorum için “ne düşündü → hangi planı seçti → hangi parçaları kurdu →
+ * hangi denetimden geçti” zinciri kaydedilir. Reddedilen adayların
+ * sebepleri de burada görünür: sistem neden o metni yazmadığını açıklar.
+ */
+const NpcTraceCard: FC<{ ctx: Ctx; agents: AiAgentWithUser[] }> = ({ ctx, agents }) => {
+  const active = agents.filter((a) => a.enabled === 1).slice(0, 6)
+  return (
+    <div class="card">
+      <h2>Üretim denetim izi</h2>
+      <p class="hint">
+        Son üretimlerdeki düşünce, plan, hafıza, ilişki, mood ve ret sebepleri. Karakter başına son
+        40 iz tutulur (<code>npc_traces</code>).
+      </p>
+      {active.length === 0 && <p class="hint">Aktif NPC yok.</p>}
+      {active.map((agent) => {
+        const traces = recentTraces(ctx, agent.user_id, 5)
+        if (traces.length === 0) return null
+        return (
+          <div key={agent.user_id}>
+            <h4>@{agent.username} — durum: {stateSummary(ctx, agent.user_id)}</h4>
+            <div class="table-wrap">
+              <table class="data">
+                <thead>
+                  <tr><th>Zaman</th><th>Metin</th><th>Plan</th><th>Düşünce</th><th>Hafıza / İlişki</th><th>Ret</th></tr>
+                </thead>
+                <tbody>
+                  {traces.map((t, i) => (
+                    <tr key={i}>
+                      <td>{shortTime(t.created_at)}</td>
+                      <td>{t.body}</td>
+                      <td class="hint">{t.plan}</td>
+                      <td class="hint">{t.thought} · mood: {t.mood}</td>
+                      <td class="hint">{t.memory} · {t.relationship}</td>
+                      <td class="hint">{t.rejected === '' ? '—' : t.rejected}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }

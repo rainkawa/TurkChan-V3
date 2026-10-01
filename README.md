@@ -22,6 +22,19 @@ TypeScript · Hono (SSR JSX) · SQLite (node:sqlite, FTS5) · Argon2id · 520 te
 - **Karma**, full-text **search** (FTS5, visibility-aware), in-app **notifications** (replies + mod actions, withdrawn if the reply is removed before you see it)
 - **Karma ranks and staff roles** — six karma ranks (New User → God) derived from total karma, four staff roles (Moderator → Admin) assigned by the site admin, and a single badge next to every username. A staff role replaces the karma badge (never both), a restriction shows a dark "BANNED" badge, and lifting the restriction restores the previous badge automatically. Badges are animated GIF forum rank banners in `public/assets/ranks/`, regenerated with `npm run rank:assets`: a chevron-cut metal plate (100–180 × 30 px at 2× resolution) built from seven layers — base gradient, brushed-metal and diagonal texture, inlay with a separate icon plate, metallic icon emblem, embossed typography, double frame and an animated light sweep that crosses icon, then text, then exits. Higher ranks add corner studs, ribbons and a second frame, so the set reads as a progression
 
+**NPC üretim mimarisi — “düşünce → plan → parça → dilbilgisi → denetim”**
+- **Template-merkezli üretim kaldırıldı.** Önceden yazılmış cümle havuzları (openers/bodies/advice) üretimin merkezindeydi; 50 karakter de aynı kalıpları dolduruyordu. Artık hazır TAM cümle seçilmez. Yeni zincir şudur:
+  1. **Düşünce** (`thought.ts`) — okunan içerik ne söylüyor, ne soruyor, hangi belirti/olay var, elimizde hangi doğrulanabilir bilgi var? Tüm alanlar kaynak metinden türetilir.
+  2. **Yaşam** (`state.ts`) — bu gönderide daha önce ne dedim, bu konuda görüşüm ne, moodum ne, ne biliyorum? Kalıcı: `npc_threads`, `npc_opinions`, `npc_facts`, `npc_traces`.
+  3. **Plan** (`plan.ts`) — dokuz hamleden biri (çözüm öner, karşı görüş, ayrıntı iste, deneyim paylaş, bilgi ekle, kısa tepki, tartışmayı sürdür, bilmiyorum de, katıl) ve hangi parçaların hangi sırayla kurulacağı. Hamle kişilik + mood + hafıza + ilişki + konuşma geçmişiyle ağırlıklanır.
+  4. **Parça** (`fragments.ts` + `grammar.ts`) — cümleler çerçeve + zaman + özne + ek + belirti + neden parçalarından kurulur. Türkçe ekler (iyelik, hâl, yönelme, çoğul) kökten üretilir: “sunucum” → “sunucuya”, “veri kaybı” → “kaybına”, “boş RAM” → “boş RAM'e”.
+  5. **Denetim** (`selfcheck.ts` + `quality.ts`) — dokuz soru: kaynakla ilgili mi, soruya gerçekten cevap veriyor mu, karaktere uygun mu, önceki mesajla çelişiyor mu, kendini tekrar ediyor mu, dilbilgisi doğru mu, uydurma bilgi var mı, thread bağlamı dağılıyor mu, gereksiz konu değiştiriyor mu. Başarısızsa farklı plan/parça ile yeniden üretilir (en fazla 6 deneme).
+  6. **Yedek** (`legacy.ts`) — eski kalıp havuzları **yalnızca** zincirin hiçbir aday üretemediği son durumda kullanılır; üretim buraya düşmezse `style: fallback-template` izinde görünür.
+- **Soruya somut cevap**: bir sorunun hazır cevabı varsa (`knowledge.ts`, 14 konu ailesi) plan katmanı kalıp kurmaz, doğrudan cevabı yazar ve tutum `build` olur. On NPC aynı gönderiye cevap verdiğinde kayıtlar arasından seçim yapılır, giriş cümlesi karaktere göre değişir; iki kayıt ancak birbirinin anlatımı değilse birleştirilir.
+- **Aynı gönderiye yazanlar birbirinden ayrılır**: süreç içi önbellek, aynı gönderiye yazılan metinlerle çiftler arası benzerliği ve *açılış cümlesinin* aynılığını denetler; iki NPC aynı cümleyle açmaz.
+- **Konuşma sürekliliği**: NPC aynı gönderiye tekrar yazarken son cümlesini ve açık sorusunu hatırlar (`npc_threads`), önceki mesajını kelimesi kelimesine tekrarlamaz.
+- **Yönetim paneli** (`/admin?tab=npc`): *Üretim kalitesi* kartı (şablon bağımlılığı, bağlam uyumu, anlam/stil çeşitliliği, konuşma sürekliliği, yararlı cevap oranı) ve *Üretim denetim izi* kartı (düşünce, plan, parçalar, hafıza, ilişki, mood ve ret sebepleri).
+
 **NPC karakterler (2.2.0)**
 - **API'SİZ, tamamen yerel çalışır.** Önceki Groq/LLM entegrasyonu, tüm API istemcileri, anahtar değişkenleri, model listeleme komutları ve araştırma modülü **tamamen kaldırıldı**. Sistem artık hiçbir LLM, ücretli API veya internet bağımlılığı taşımaz; bütün davranış TypeScript + SQLite içinde hesaplanır.
 - **50 benzersiz NPC karakteri** (`src/services/npc/personas.ts`): her biri kalıcı profille gelir — kullanıcı adı, görünen ad, avatar, arketip, profil metni, kendine özgü söz kalıbı (tic), ilgi alanları, sevdiği/sevmediği konu türleri, tercih ettiği boardlar ve **20 davranış ekseni** (aktivite, yazı uzunluğu, mizah, tartışmacılık, nezaket, merak, ciddiyet, konuşkanlık, sabır, empati, şüphecilik, özgüven, argo, küfür, emoji, yorum/konu/vote eğilimi, yukarı-aşağı oy eğilimi). Bu sayılar açıklama metni değil, **doğrudan karar girdisidir**.
@@ -41,7 +54,7 @@ TypeScript · Hono (SSR JSX) · SQLite (node:sqlite, FTS5) · Argon2id · 520 te
 - **Konusuz yardım isteği**: “Yardım İstiyorum” gibi kavram ailesine oturmayan ama gerçek bir soru olan gönderilerde NPC konuyu **uydurmaz**; gönderinin kendi kelimesine atıf yapıp konuyu netleştirmeyi ister. Gönderinin konu sözcüğü taşımıyorsa gönderinin **boardu** (adı, başlığı, açıklaması) konuyu verir.
 - **NPC birbirine cevap vermez**: yorum zincirine verilen cevaplar yalnızca gerçek kullanıcıların yorumlarına olur. Böylece kalıp bir cümlenin kalıp bir cümleyle yanıtlanması ve zincirleme anlamsız metin üretilmesi engellenir; bir soru cevaplanabiliyorsa cevap doğrudan gönderiye yazılır.
 - **Sessizliğin gerekçesi görünür**: NPC bir şey yapmadığında nedeni `ai_activity_log` içine `skip` kaydı olarak yazılır (NPC başına saatte bir kez) ve yönetim panelinde listelenir — “bir şey olmuyor” ile “bilerek yazmıyor” ayırt edilir.
-- **Denetim betiği**: `npm run npc:sim` sıfırdan bir dünya kurar ve 20 gönderi analizi, 30 yorum denemesi, 20 vote kararı ve 10 konu üretimini ekrana basarak çıktıları insan gözüyle denetlemeye açar.
+- **Denetim betiği**: `npm run npc:sim` sıfırdan bir dünya kurar ve **20 gönderi analizi, 100 yorum üretimi, 100 konuşma devamı, 100 vote kararı, 50 konu üretimi, 100 hafıza + 100 öğrenme kaydı** ile uçtan uca motor turunu ekrana basar; çıktı ayrıca `reports/npc-sim-latest.md` dosyasına yazılır. Çeşitlilik ölçütleri (ortalama çiftler arası benzerlik, stil çeşitliliği, neredeyse-aynı çift sayısı) ve saha metrikleri raporun sonunda özetlenir.
 
 **Güvenlik ve yönetim**
 - Reporting with community rules in the dialog, silent duplicate absorption, anonymous reporters, and an optional auto-hide-after-N-reports threshold
@@ -58,7 +71,7 @@ Requires **Node.js ≥ 22.5** (uses the built-in `node:sqlite`).
 npm install
 npm run seed     # demo communities + accounts (see below)
 npm run seed:npc # 50 NPC karakter (idempotent, tekrar çalıştırmak güvenli)
-npm run npc:sim   # canlı NPC simülasyon denetimi (20 post / 30 yorum / 20 vote / 10 konu)
+npm run npc:sim   # canlı NPC simülasyon denetimi (20 post / 100 yorum / 100 konuşma / 100 vote / 50 konu)
 npm run dev      # → http://localhost:3000
 ```
 
@@ -97,7 +110,10 @@ src/
 │   └── npc/           # NPC simülasyonu: lexicon + analyze (bağlam),
 │                      #   knowledge (sorulara cevap), personas (50 karakter),
 │                      #   memory, relationships, learning (davranış
-│                      #   ağırlıkları), quality (kapı), compose (metin),
+│                      #   ağırlıkları), quality (kapı),
+│                      #   thought → state → plan → fragments → grammar →
+│                      #   render → selfcheck → compose (orkestratör),
+│                      #   metrics, topics (gönderi üretimi), legacy (yedek),
 │                      #   engine (tek scheduler)
 ├── routes/            # thin HTTP handlers per area (+ JSON API)
 ├── views/             # JSX layout + components (mobile-first)
@@ -120,7 +136,7 @@ Design decisions worth knowing:
 - **Unit** — hot/Wilson ranking math, Markdown XSS safety, sliding-window rate limiter, cursor codec, JPEG/PNG/WebP metadata stripping, SSRF address classification
 - **Integration (through the real HTTP app)** — registration/login/lockout/reset/deletion, membership approval flows, all three post types (including multipart image upload with EXIF verification), comment nesting and depth-cap flattening, vote idempotency and flips, feed ordering and cursor stability, reporting/auto-hide/removal/bans/pins/mod-log, admin suspension/archival/purge/exports/invites, search visibility, notifications and withdrawal
 - **Hardening** — CSRF origin rejection, open-redirect guard, malformed cursor/sort resilience, archived-community lockdown, private-community zero-leakage checks
-- **NPC karakterler** (75 test) — 50 benzersiz hesap, persona ayrışması, Türkçe kök/ek soyutlaması, konu ve bağlam analizi, uygun konu/yorum seçimi, **soğuk gönderi önceliği** (yeni açılan gönderi saatler değil dakikalar içinde yorum/oy alır), **anlamsız yorum engelleme** (“HAHAHA bu çok komik” → futbol cevabı üretilmez), **konu dışı cevap engelleme** (“Telefonum çok yavaşladı” → oyun cevabı üretilmez), **soruya cevap verme** (HTML sorusu → HTML cevabı, “ne yapmalıyım” → konu uydurulmaz, kısa köklerle yanlış eşleşme yapılmaz), tekrar engelleme, hafıza + hafıza güncellemesi, ilişki güncellemesi, davranış adaptasyonu, vote davranışı, tek scheduler, aktivite seviyeleri, yetki izolasyonu ve **API'siz çalışma**
+- **NPC karakterler** (75 test) — 50 benzersiz hesap, persona ayrışması, Türkçe kök/ek soyutlaması, konu ve bağlam analizi, uygun konu/yorum seçimi, **soğuk gönderi önceliği** (yeni açılan gönderi saatler değil dakikalar içinde yorum/oy alır), **anlamsız yorum engelleme** (“HAHAHA bu çok komik” → futbol cevabı üretilmez), **konu dışı cevap engelleme** (“Telefonum çok yavaşladı” → oyun cevabı üretilmez), **soruya cevap verme** (HTML sorusu → HTML cevabı, “ne yapmalıyım” → konu uydurulmaz, kısa köklerle yanlış eşleşme yapılmaz), **kişilik ayrışması** (komik karakter emoji/espri kullanır, ciddi karakter kullanmaz), tekrar engelleme, hafıza + hafıza güncellemesi, ilişki güncellemesi, davranış adaptasyonu, vote davranışı, tek scheduler, aktivite seviyeleri, yetki izolasyonu ve **API'siz çalışma**
 
 ## Yapılandırma
 

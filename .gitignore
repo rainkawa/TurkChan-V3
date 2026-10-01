@@ -8,6 +8,8 @@ data/backups/
 backups/
 !data/uploads/.gitkeep
 dist/
+# npc:sim denetim çıktısı (her çalıştırmada yeniden üretilir)
+reports/
 *.log
 *.sqlite3
 .env

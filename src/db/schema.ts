@@ -552,6 +552,69 @@ CREATE TABLE IF NOT EXISTS npc_relationships (
   PRIMARY KEY (agent_id, peer_id)
 );
 
+-- Konuşma devamlılığı: NPC'nin bir gönderi üzerindeki son durumu.
+-- Her turda sıfırdan cevap üretilmez; son tutum, son ifade, açık kalan soru
+-- ve çözülmemiş tartışma burada birikir.
+CREATE TABLE IF NOT EXISTS npc_threads (
+  agent_id TEXT NOT NULL REFERENCES users(id),
+  post_id TEXT NOT NULL,
+  subject TEXT NOT NULL DEFAULT '',
+  last_stance TEXT NOT NULL DEFAULT '',
+  last_statement TEXT NOT NULL DEFAULT '',   -- NPC'nin son cümlesi (kısaltılmış)
+  open_question TEXT NOT NULL DEFAULT '',    -- cevapsız kalan soru
+  disagreement REAL NOT NULL DEFAULT 0,       -- çözülmemiş tartışma (-1..1)
+  replies INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (agent_id, post_id)
+);
+
+-- Konu bazlı görüş: NPC bir konuda ne düşünüyor (-1..1) ve ne kadar emin.
+-- Yeni deneyimler görüşü KÜÇÜK ADIMLARLA kaydırır; tek yorum karakteri
+-- değiştiremez.
+CREATE TABLE IF NOT EXISTS npc_opinions (
+  agent_id TEXT NOT NULL REFERENCES users(id),
+  topic TEXT NOT NULL,
+  value REAL NOT NULL DEFAULT 0,
+  confidence REAL NOT NULL DEFAULT 0.2,
+  samples INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (agent_id, topic)
+);
+
+-- Bilgi deposu: NPC'nin bildiği (veya yaşadığı) doğrulanabilir olgular.
+-- source: 'bilgi' (knowledge.ts) | 'deneyim' (kendi yorumu) | 'tanıdık'
+CREATE TABLE IF NOT EXISTS npc_facts (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL REFERENCES users(id),
+  subject TEXT NOT NULL,
+  fact TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'bilgi',
+  confidence REAL NOT NULL DEFAULT 0.5,
+  success_count INTEGER NOT NULL DEFAULT 0,
+  last_used INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  UNIQUE (agent_id, subject, fact)
+);
+
+-- Üretim denetim izi: bir etkileşim neden bu cevabı verdi?
+-- INPUT → ANALYSIS → THOUGHTS → MEMORY → RELATIONSHIP → MOOD → GOAL →
+-- PLAN → CANDIDATE → SCORE → FINAL. Yönetim panelinde tek tek okunur.
+CREATE TABLE IF NOT EXISTS npc_traces (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL REFERENCES users(id),
+  kind TEXT NOT NULL DEFAULT 'comment',
+  target_id TEXT,
+  plan TEXT NOT NULL DEFAULT '',
+  thought TEXT NOT NULL DEFAULT '',
+  memory TEXT NOT NULL DEFAULT '',
+  relationship TEXT NOT NULL DEFAULT '',
+  mood TEXT NOT NULL DEFAULT '',
+  score REAL NOT NULL DEFAULT 0,
+  rejected TEXT NOT NULL DEFAULT '',
+  body TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts USING fts5(
   title, body, post_id UNINDEXED
 );
@@ -614,4 +677,8 @@ CREATE INDEX IF NOT EXISTS idx_npc_phrases_agent ON npc_phrases(agent_id, last_u
 CREATE INDEX IF NOT EXISTS idx_npc_outcomes_agent ON npc_outcomes(agent_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_npc_outcomes_unsettled ON npc_outcomes(agent_id) WHERE settled_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_npc_rel_peer ON npc_relationships(peer_id);
+CREATE INDEX IF NOT EXISTS idx_npc_threads_agent ON npc_threads(agent_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_npc_opinions_topic ON npc_opinions(agent_id, topic);
+CREATE INDEX IF NOT EXISTS idx_npc_facts_subject ON npc_facts(agent_id, subject);
+CREATE INDEX IF NOT EXISTS idx_npc_traces_agent ON npc_traces(agent_id, created_at DESC);
 `
