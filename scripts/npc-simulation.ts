@@ -393,17 +393,22 @@ async function main(): Promise<void> {
   out('\n' + line())
   out('7) UÇTAN UCA MOTOR — gerçek servislerle 5 tur')
   out(line())
+  // Tur aralığı bekleme süresinden (en fazla 30 dk) uzun olmalıdır; daha
+  // kısa adımlarda motor kasıtlı olarak bekler ve denetim “motor çalışmıyor”
+  // izlenimi verir.
   const user = await registerUser(world, 'denetleyici')
-  for (let i = 0; i < 4; i++) {
+  for (let t = 1; t <= 5; t++) {
+    // Gerçekçi olması için her turda kullanıcı YENİ ve cevapsız konu açıyor.
+    // Sabit bir gönderi havuzu motoru tüketir: tüm konular bir kez
+    // yorumlandığında “cevapsız gönderi” önceliği devreye girmez ve denetim,
+    // üründeki davranıştan çok sığ bir dünyayı ölçer.
     await createPostVia(
       user.agent,
-      boards[i % boards.length]!,
-      POSTS[i]!,
+      boards[(t - 1) % boards.length]!,
+      POSTS[(t - 1) % POSTS.length]!,
       'Bu konuda düşüncelerinizi paylaşır mısınız?',
     )
-  }
-  for (let t = 1; t <= 5; t++) {
-    world.setNow(T0 + t * 300_000)
+    world.setNow(T0 + t * 30 * 60_000)
     const result = runNpcTick(world.ctx, world.ctx.now())
     out(
       `  tur ${t}: ${result.actions} işlem · ${result.boards} board · ` +

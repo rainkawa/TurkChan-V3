@@ -62,6 +62,22 @@ import type { NpcRelationshipRow } from '../../types'
 /** Bir turda tek NPC'nin en fazla açabileceği gönderi sayısı. */
 const MAX_POSTS_PER_TICK = 2
 
+/**
+ * Bir turda NPC başına sayılan eylemler.
+ *
+ * `ai_agents.posts_created` ÖMÜRLÜK sayacıdır; onu tur limitiyle
+ * karşılaştırmak kalıcı kilit yaratıyordu: karakter 2 gönderi açtıktan
+ * sonra bir daha asla gönderi açamıyordu. Bu yüzden tur sayacı ayrı
+ * tutulur.
+ */
+interface TickCounters {
+  postsByAgent: Map<string, number>
+}
+
+function newTickCounters(): TickCounters {
+  return { postsByAgent: new Map() }
+}
+
 export interface TickResult {
   actions: number
   posts: number
@@ -85,6 +101,16 @@ interface ReadItem {
 interface Decision {
   action: 'post' | 'comment' | 'vote' | 'skip'
   reason: string
+  /**
+   * Kararın verildiği gönderi.
+   *
+   * ÖNEMLİ: karar aşamasında seçilen gönderi ile eylemin hedefi AYNI olmak
+   * zorundadır. `decide()` cevapsız yeni konuları (coldStart) öne çıkararak
+   * seçiyor; eylem katmanı bunun yerine `read` listesinden RASTGELE bir
+   * gönderi alırsa bu öncelik tamamen kaybolur ve NPC kullanıcının açtığı
+   * konulara yanıt vermeyi bırakır.
+   */
+  target: ReadItem | null
 }
 
 /**
@@ -92,7 +118,7 @@ interface Decision {
  *
  * @param now Zaman (testlerde sahte saat verilebilir).
  */
-export function runNpcTick(ctx: Ctx, now: number = ctx.now()): TickResult {
+export function runNpcTick(ctx: Ctx, now: number = ctx.now(), options: { force?: boolean } = {}): TickResult {
   const result: TickResult = { actions: 0, posts: 0, comments: 0, votes: 0, boards: 0 }
   const npcs = listEnabled(ctx)
   if (npcs.length === 0) return result
@@ -106,16 +132,24 @@ export function runNpcTick(ctx: Ctx, now: number = ctx.now()): TickResult {
   // tur kapasitesi (varsayılan 12 işlem) bekleme süresinde olan NPC'lere
   // harcanır ve o turda gerçekte hiçbir işlem yapılmaz — yeni açılan
   // konuların etkileşim almamasının başlıca nedeni buydu.
-  const ready = npcs.filter((n) => n.last_active_at === null || now - n.last_active_at >= cooldownMs(n.activity))
+  //
+  // `force` yalnızca yönetim panelindeki "Şimdi bir tur çalıştır" düğmesi
+  // için vardır: yönetici bekleme süresini bilmez ve düğmeye bastığında
+  // beklenen şey motorun HİÇ ÇALIŞMAMASI değil, çalıştığını görmektir.
+  // Zamanlayıcı bu bayrağı kullanmaz — bekleme süresi orada korunur.
+  const ready = options.force
+    ? npcs
+    : npcs.filter((n) => n.last_active_at === null || now - n.last_active_at >= cooldownMs(n.activity))
   if (ready.length === 0) return result
 
   // Ağırlıklı seçim: aktivite seviyesi yüksek NPC daha sık döngüye girer,
   // "çok seyrek" NPC neredeyse hiç seçilmez.
   const chosen = pickWeightedNpcs(rng, ready, ctx.config.npcMaxActionsPerTick)
+  const tick = newTickCounters()
 
   for (const npc of chosen) {
     try {
-      if (runOneNpc(ctx, npc, rng, now)) result.actions += 1
+      if (runOneNpc(ctx, npc, rng, now, options.force === true, tick)) result.actions += 1
     } catch (err) {
       // Rate limit / yetki hatası bu NPC'yi durdurur, diğerlerini etkilemez.
       // Korumalar kasıtlı olarak bypass EDİLMEZ.
@@ -200,11 +234,20 @@ export function listActiveNpcs(ctx: Ctx): AiAgentWithUser[] {
 // Tek NPC döngüsü
 // ---------------------------------------------------------------------------
 
-function runOneNpc(ctx: Ctx, row: AiAgentWithUser, rng: () => number, now: number): boolean {
+function runOneNpc(
+  ctx: Ctx,
+  row: AiAgentWithUser,
+  rng: () => number,
+  now: number,
+  force = false,
+  tick: TickCounters = newTickCounters(),
+): boolean {
   // Aynı NPC kısa sürede tekrar tetiklenmez (aktivite seviyesi düşükse
-  // bekleme süresi daha uzundur).
+  // bekleme süresi daha uzundur). Yönetici panelinden elle tetiklenen tur
+  // bu kurala uymaz — aksi halde düğmeye ikinci kez basmak hiçbir şey
+  // yapmaz ve motor çalışmıyor sanılır.
   const cooldown = cooldownMs(row.activity)
-  if (row.last_active_at !== null && now - row.last_active_at < cooldown) {
+  if (!force && row.last_active_at !== null && now - row.last_active_at < cooldown) {
     logSkip(ctx, row.user_id, 'bekleme süresi', now)
     return false
   }
@@ -227,7 +270,7 @@ function runOneNpc(ctx: Ctx, row: AiAgentWithUser, rng: () => number, now: numbe
   const read = readPosts(ctx, agent, persona)
 
   // --- DECIDE ---
-  const decision = decide(ctx, agent, persona, read, rng)
+  const decision = decide(ctx, agent, persona, read, rng, tick)
   if (decision.action === 'skip') {
     logSkip(ctx, agent.user_id, decision.reason, now)
     touch(ctx, agent.user_id, now)
@@ -235,10 +278,15 @@ function runOneNpc(ctx: Ctx, row: AiAgentWithUser, rng: () => number, now: numbe
   }
 
   // --- ACT ---
+  // Eylem, kararın verildiği gönderiye uygulanır (`decision.target`).
+  // Yorum/oy katmanı eskiden `read` listesinden rastgele bir gönderi seçiyordu;
+  // bu, karar aşamasındaki "cevapsız yeni konuya öncelik" kuralını işe
+  // yaramaz hale getiriyordu.
+  const target = decision.target
   let acted = false
-  if (decision.action === 'comment') acted = actComment(ctx, agent, persona, user, read, rng, now)
-  else if (decision.action === 'vote') acted = actVote(ctx, agent, persona, user, read, rng)
-  else if (decision.action === 'post') acted = actPost(ctx, agent, persona, user, rng, now)
+  if (decision.action === 'comment') acted = actComment(ctx, agent, persona, user, target, rng, now)
+  else if (decision.action === 'vote') acted = actVote(ctx, agent, persona, user, target, rng)
+  else if (decision.action === 'post') acted = actPost(ctx, agent, persona, user, rng, now, tick)
 
   // --- UPDATE MEMORY ---
   rememberBoard(ctx, agent.user_id, decision.action, 0.02, now)
@@ -400,8 +448,9 @@ function decide(
   persona: NpcPersona,
   read: ReadItem[],
   rng: () => number,
+  tick: TickCounters,
 ): Decision {
-  if (read.length === 0) return { action: 'skip', reason: 'okunacak gönderi yok' }
+  if (read.length === 0) return { action: 'skip', reason: 'okunacak gönderi yok', target: null }
 
   const interests = new Set(parseList(agent.interests).map((i) => i.toLowerCase()))
   const dislikes = parseList(agent.dislikes).map((d) => d.toLowerCase())
@@ -432,10 +481,22 @@ function decide(
   // yorumalmamış, gerçek bir kullanıcının açtığı gönderiler bu yüzden
   // havuzdan öne çıkar (yine de herkes her gönderiye cevap vermez:
   // sonraki kilitler aynen geçerlidir).
+  // Cevapsız gönderi havuzu. Kısa/kahkaha içerikler (“hhh”, “HAHAHA”)
+  // cevaplanmaya değmez; havuzda dursalardı NPC'nin turunu tek başına
+  // harcamalarına yol açarlardı. Önce anlamlı olanlar denenir.
   const cold = pool.filter((i) => !i.author_is_ai && i.post.comment_count === 0)
-  const candidates = cold.length > 0 && rng() < 0.85 ? cold : pool
+  const coldSolid = cold.filter((i) => !i.analysis.isTrivial)
+  const solid = pool.filter((i) => !i.analysis.isTrivial)
+  const candidates =
+    coldSolid.length > 0 && rng() < 0.85
+      ? coldSolid
+      : cold.length > 0 && rng() < 0.85
+        ? cold
+        : solid.length > 0
+          ? solid
+          : pool
   const chosen = candidates[Math.floor(rng() * candidates.length) % candidates.length]
-  if (!chosen) return { action: 'skip', reason: 'uygun gönderi yok' }
+  if (!chosen) return { action: 'skip', reason: 'uygun gönderi yok', target: null }
 
   const { post, analysis } = chosen
   const seenBefore = hasSeenConcept(ctx, agent.user_id, analysis.topic)
@@ -448,19 +509,19 @@ function decide(
 
   // Soru 6: Anlamsız içerik (kahkaha, boş) çoğu zaman yanıtlanmaz.
   if (analysis.isTrivial && !friend && rng() < 0.9) {
-    return { action: 'skip', reason: 'anlamsız içerik' }
+    return { action: 'skip', reason: 'anlamsız içerik', target: chosen }
   }
 
   // Zaten yorum yaptıysa tekrar yorum yapmaz.
   if (alreadyCommented && rng() < 0.8) {
-    return { action: 'skip', reason: 'zaten yorum yapmış' }
+    return { action: 'skip', reason: 'zaten yorum yapmış', target: chosen }
   }
 
   // Görüşü yeniden söylemeyi önle (daha önce aynı konuda olumsuz sonuç).
   if (seenBefore && memory > 0.4 && rng() < 0.5) {
     // Konu ilgi çekiyor ama tekrarı riskli → oy ver ya da geç.
-    if (rng() < agent.vote_rate) return { action: 'vote', reason: 'konu hatırlı, oy tercih edildi' }
-    return { action: 'skip', reason: 'konu tekrarı riski' }
+    if (rng() < agent.vote_rate) return { action: 'vote', reason: 'konu hatırlı, oy tercih edildi', target: chosen }
+    return { action: 'skip', reason: 'konu tekrarı riski', target: chosen }
   }
 
   // Eylem ağırlıkları — öğrenilmiş politika ile çarpılır.
@@ -481,9 +542,10 @@ function decide(
     : 0
   const voteWeight =
     agent.vote_rate * (analysis.isTrivial ? 0.2 : 1) * 0.7 * (coldStart ? 1.6 : 1)
+  const postsThisTick = tick.postsByAgent.get(agent.user_id) ?? 0
   const postWeight = onTopic
     ? agent.post_rate * policy.post_w *
-      (agent.posts_created >= MAX_POSTS_PER_TICK ? 0 : 1) *
+      (postsThisTick >= MAX_POSTS_PER_TICK ? 0 : 1) *
       (coldStart ? 0.2 : 1)
     : 0
   // Sessizlik ağırlığı: yeni konu varsa düşer, yoksa yüksektir.
@@ -502,7 +564,7 @@ function decide(
   const usable = options.filter(([, w]) => w > 0)
   const action = weightedPick(rng, usable.length > 0 ? usable : ([['skip', 1]] as Array<[Decision['action'], number]>))
 
-  return { action, reason: `konu=${analysis.topic} ilgi=${relevant.length}` }
+  return { action, reason: `konu=${analysis.topic} ilgi=${relevant.length}`, target: chosen }
 }
 
 // ---------------------------------------------------------------------------
@@ -515,14 +577,12 @@ function actComment(
   agent: AiAgentRow,
   persona: NpcPersona,
   user: UserRow,
-  read: ReadItem[],
+  target: ReadItem | null,
   rng: () => number,
   now: number,
 ): boolean {
-  if (read.length === 0) return false
-  const item = read[Math.floor(rng() * read.length) % read.length]
-  if (!item) return false
-  const { post, analysis } = item
+  if (!target) return false
+  const { post } = target
 
   // Bazen mevcut bir yoruma cevap verir (tartışma zinciri) — ama yalnızca
   // gönderiyi GERÇEK bir kullanıcı açmışsa. NPC'lerin birbirine cevap
@@ -684,13 +744,11 @@ function actVote(
   agent: AiAgentRow,
   persona: NpcPersona,
   user: UserRow,
-  read: ReadItem[],
+  target: ReadItem | null,
   rng: () => number,
 ): boolean {
-  if (read.length === 0) return false
-  const item = read[Math.floor(rng() * read.length) % read.length]
-  if (!item) return false
-  const { post, analysis } = item
+  if (!target) return false
+  const { post, analysis } = target
 
   // İlgi uyumu: NPC'nin ilgi alanı bu gönderiyle örtüşüyor mu?
   const interests = parseList(agent.interests).map((i) => i.toLowerCase())
@@ -715,6 +773,15 @@ function actVote(
   const value = roll < upProb ? 1 : roll < upProb + downProb ? -1 : 0
   if (value === 0) return false // oy vermemek de bir davranıştır
 
+  // Zaten aynı değeri oyladıysa `castVote` sessizce hiçbir şey yapmaz ama
+  // motor bunu "işlem" sayar: kullanıcı panelde oyun değişmediğini görür.
+  // Aynı oyun tekrarı işlem sayılmaz; gerekirse karar değişecekse yeni
+  // gönderi beklenir.
+  const existing = ctx.db
+    .prepare("SELECT value FROM votes WHERE user_id = ? AND target_type = 'post' AND target_id = ?")
+    .get(user.id, post.id) as { value: number } | undefined
+  if (existing && existing.value === value) return false
+
   try {
     castVote(ctx, user, 'post', post.id, value)
     bumpNpcCounters(ctx, agent.user_id, 'vote')
@@ -735,8 +802,11 @@ function actPost(
   user: UserRow,
   rng: () => number,
   now: number,
+  tick: TickCounters,
 ): boolean {
-  if (agent.posts_created >= MAX_POSTS_PER_TICK) return false
+  // Tur başına limit (ömürlük sayaç DEĞİL): aksi halde karakter 2 gönderi
+  // açtıktan sonra kalıcı olarak konu açamaz hale geliyordu.
+  if ((tick.postsByAgent.get(agent.user_id) ?? 0) >= MAX_POSTS_PER_TICK) return false
   const communities = npcBoardList(ctx, agent.user_id)
   if (communities.length === 0) return false
 
@@ -808,6 +878,7 @@ function actPost(
 
   try {
     const post = createTextPost(ctx, user, community, { title: composed.title, body: composed.body })
+    tick.postsByAgent.set(agent.user_id, (tick.postsByAgent.get(agent.user_id) ?? 0) + 1)
     bumpNpcCounters(ctx, agent.user_id, 'post')
     bumpPresence(ctx, agent.user_id, community.id, 'post')
     adjustReputation(ctx, agent.user_id, 1)

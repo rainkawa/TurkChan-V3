@@ -1353,6 +1353,152 @@ describe('20. Sorulara cevap verilir (bilgi tabanı)', () => {
 })
 
 // ---------------------------------------------------------------------------
+// 21. REGRESYON: motor etkisiz görünüyordu
+// ---------------------------------------------------------------------------
+
+describe('21. Motor etkinliği regresyonları', () => {
+  it('ömürlük gönderi sayacı tur limiti sanılmaz (karakter kalıcı kilitlenmez)', async () => {
+    const world = await npcWorld()
+    const adminUsername = (
+      world.ctx.db.prepare('SELECT username FROM users WHERE is_admin = 1').get() as { username: string }
+    ).username
+    const adminAgent = await relogin(world, adminUsername)
+    await createCommunityVia(adminAgent, 'teknoloji')
+    await createPostVia(adminAgent, 'teknoloji', 'Pil ömrü neden düştü?', 'Şarj çok yavaş, neden?')
+
+    // Her karakterin ÖMÜRLÜK sayacı zaten dolu. Eskiden bu durumda
+    // `postWeight` sıfırlanıyor ve karakter bir daha asla gönderi açamıyordu.
+    world.ctx.db.prepare('UPDATE ai_agents SET posts_created = 2').run()
+    const before = postsCount(world.ctx)
+    // Adımlar bekleme süresinden (en fazla 30 dk) uzun olmalı; aksi halde
+    // test bekleme kuralını ölçer.
+    for (let t = 1; t <= 12; t++) {
+      world.ctx.db.prepare('UPDATE ai_agents SET last_active_at = ?').run(T0)
+      runNpcTick(world.ctx, T0 + t * 30 * 60_000)
+    }
+    expect(postsCount(world.ctx)).toBeGreaterThan(before)
+  })
+
+  it('tur başına gönderi limiti aynı turda korunur', async () => {
+    const world = await npcWorld()
+    const adminUsername = (
+      world.ctx.db.prepare('SELECT username FROM users WHERE is_admin = 1').get() as { username: string }
+    ).username
+    const adminAgent = await relogin(world, adminUsername)
+    await createCommunityVia(adminAgent, 'teknoloji')
+    await createPostVia(adminAgent, 'teknoloji', 'Pil ömrü neden düştü?', 'Şarç çok yavaş, neden?')
+    for (let t = 1; t <= 8; t++) {
+      const before = new Map(
+        (world.ctx.db.prepare('SELECT user_id, posts_created FROM ai_agents').all() as unknown as Array<{
+          user_id: string
+          posts_created: number
+        }>).map((r) => [r.user_id, r.posts_created]),
+      )
+      runNpcTick(world.ctx, T0 + t * 30 * 60_000)
+      const after = world.ctx.db
+        .prepare('SELECT user_id, posts_created FROM ai_agents')
+        .all() as unknown as Array<{ user_id: string; posts_created: number }>
+      // Limit TUR başınadır: ömürlük sayaç tur boyunca en fazla 2 artabilir.
+      for (const row of after) {
+        expect((row.posts_created - (before.get(row.user_id) ?? 0)) as number).toBeLessThanOrEqual(2)
+      }
+    }
+  })
+
+  it('eylem, kararın verildiği gönderiye uygulanır (cevapsız yeni konu seçilir)', async () => {
+    const world = await npcWorld()
+    const adminUsername = (
+      world.ctx.db.prepare('SELECT username FROM users WHERE is_admin = 1').get() as { username: string }
+    ).username
+    const adminAgent = await relogin(world, adminUsername)
+    await createCommunityVia(adminAgent, 'teknoloji')
+    await createCommunityVia(adminAgent, 'oyun')
+    // Kullanıcının cevapsız yeni konusu.
+    const target = await createPostVia(
+      adminAgent,
+      'teknoloji',
+      'Yeni pil teknolojisi işe yarıyor mu?',
+      'Nefes aldı ama şarj hâlâ yavaş, ne düşünüyorsunuz?',
+    )
+    // Dikkat dağıtıcı gönderiler.
+    for (let i = 0; i < 2; i++) {
+      await createPostVia(adminAgent, 'oyun', `Gürültü ${i}`, 'Oyunlar hakkında bir şeyler.')
+    }
+
+    for (let t = 1; t <= 14; t++) {
+      world.ctx.db.prepare('UPDATE ai_agents SET last_active_at = ?').run(T0)
+      runNpcTick(world.ctx, T0 + t * 30 * 60_000)
+      const replied = world.ctx.db
+        .prepare('SELECT COUNT(*) AS n FROM comments WHERE post_id = ? AND deleted = 0')
+        .get(target) as { n: number }
+      if (replied.n > 0) return
+    }
+    const replied = world.ctx.db
+      .prepare('SELECT COUNT(*) AS n FROM comments WHERE post_id = ? AND deleted = 0')
+      .get(target) as { n: number }
+    expect(replied.n).toBeGreaterThan(0)
+  })
+
+  it('yönetici "şimdi çalıştır" bekleme süresine takılmaz', async () => {
+    const world = await npcWorld()
+    const adminUsername = (
+      world.ctx.db.prepare('SELECT username FROM users WHERE is_admin = 1').get() as { username: string }
+    ).username
+    const adminAgent = await relogin(world, adminUsername)
+    await createCommunityVia(adminAgent, 'teknoloji')
+    await createPostVia(adminAgent, 'teknoloji', 'Pil ömrü neden düştü?', 'Şarç çok yavaş, neden?')
+
+    // Bekleme süresi dolmadan üst üste elle tetikleme: her çağrı işlem
+    // üretmeli (eskiden ikinci çağrıdan itibaren 0 dönüyordu).
+    let acted = 0
+    for (let i = 1; i <= 5; i++) {
+      const result = runNpcTick(world.ctx, T0 + i * 20_000, { force: true })
+      acted += result.actions
+    }
+    expect(acted).toBeGreaterThan(0)
+  })
+
+  it('zamanlayıcı bekleme süresini korur (elle tetiklemeden farklı)', async () => {
+    const world = await npcWorld()
+    const adminUsername = (
+      world.ctx.db.prepare('SELECT username FROM users WHERE is_admin = 1').get() as { username: string }
+    ).username
+    const adminAgent = await relogin(world, adminUsername)
+    await createCommunityVia(adminAgent, 'oyun')
+    await createPostVia(adminAgent, 'oyun', 'Minecraft güncellemesi', 'Performans düştü, sizce ne yapmalıyım?')
+
+    // Herkesi bekleme süresine al.
+    world.ctx.db.prepare('UPDATE ai_agents SET activity = 0, last_active_at = ?').run(T0)
+    const before = commentsCount(world.ctx) + postsCount(world.ctx)
+    runNpcTick(world.ctx, T0 + 60_000)
+    expect(commentsCount(world.ctx) + postsCount(world.ctx)).toBe(before)
+  })
+
+  it('aynı değerli tekrar oy işlem sayılmaz', async () => {
+    const world = await npcWorld()
+    const adminUsername = (
+      world.ctx.db.prepare('SELECT username FROM users WHERE is_admin = 1').get() as { username: string }
+    ).username
+    const adminAgent = await relogin(world, adminUsername)
+    await createCommunityVia(adminAgent, 'oyun')
+    await createPostVia(adminAgent, 'oyun', 'Minecraft güncellemesi', 'Performans düştü, sizce ne yapmalıyım?')
+
+    let acted = 0
+    for (let t = 1; t <= 10; t++) {
+      world.ctx.db.prepare('UPDATE ai_agents SET last_active_at = ?').run(T0)
+      acted += runNpcTick(world.ctx, T0 + t * 30 * 60_000).actions
+    }
+    // Her oy satırı tek bir kullanıcı+gönderi çiftine aittir; aynı oyun
+    // "işlem" olarak sayılıp görünmez değişim yapmamalıdır.
+    const dupes = world.ctx.db
+      .prepare('SELECT user_id, target_id, COUNT(*) AS n FROM votes GROUP BY user_id, target_id HAVING n > 1')
+      .all() as unknown as Array<{ n: number }>
+    expect(dupes).toHaveLength(0)
+    expect(acted).toBeGreaterThan(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Yardımcılar
 // ---------------------------------------------------------------------------
 

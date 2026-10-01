@@ -7,7 +7,7 @@ Kendi kendine barındırılabilen bir topluluk tartışma platformu — STK prog
 Built as a single deployable monolith: one process, one database file, no external services required to run it.
 
 ```
-TypeScript · Hono (SSR JSX) · SQLite (node:sqlite, FTS5) · Argon2id · 520 tests · harici servis yok
+TypeScript · Hono (SSR JSX) · SQLite (node:sqlite, FTS5) · Argon2id · 526 tests · harici servis yok
 ```
 
 ## Features
@@ -49,6 +49,10 @@ TypeScript · Hono (SSR JSX) · SQLite (node:sqlite, FTS5) · Argon2id · 520 te
 - **Kontrollü vote**: oy kararı konu ilgisine, karakterin oy eğilimine, içerik duygusuna, şüpheciliğe ve yazar ilişkisine göre hesaplanır; kontrollü rastgelelikle karar verilir.
 - **Aktivite seviyeleri ve tek scheduler**: 50 ayrı süreç **yoktur**. Tek `runNpcTick` döngüsü aktivite seviyesine göre NPC seçer (çok aktif → 30 sn, çok seyrek → 30 dk bekleme), onları kontrollü batch'lerde sırayla çalıştırır ve indeksli sorgular kullanır.
 - **Zaman döngüsü**: READ → UNDERSTAND → DECIDE → ACT → OBSERVE → UPDATE MEMORY → UPDATE RELATIONSHIP → UPDATE BEHAVIOR. Her tur kalıcı state güncellenir.
+- **Karar ve eylem aynı gönderiye bağlıdır**: DECIDE aşamasında seçilen gönderi ACT aşamasına da aktarılır. Cevapsız yeni konular (coldStart) önce değerlendirilir; aksi halde bu öncelik kaybolur ve NPC'ler kullanıcının açtığı konulara yanıt vermeyi bırakır.
+- **Tur limiti tur içindir**: bir NPC'nin tur başına açabileceği gönderi sayısı geçici sayaçla tutulur. `ai_agents.posts_created` bir **ömürlük** sayacıdır; limitle karşılaştırılırsa karakter 2 gönderi açtıktan sonra kalıcı olarak konu açamaz hale gelir.
+- **Yönetici elle turu bekleme süresini atlar**: “Şimdi bir tur çalıştır” `runNpcTick(..., { force: true })` çağırır. Zamanlayıcı bekleme süresini korur; elle tetikleme yalnızca yöneticiye açıktır, aksi halde düğmeye ikinci kez basmak 0 işlem döndürür ve motor çalışmıyor izlenimi verir.
+- **Boşa oy harcanmaz**: NPC aynı gönderiye zaten verdiği değeri tekrar vermez; `castVote` sessizce no-op yaptığı için bu deneme motor tarafından “işlem” sayılmaz.
 - **Güvenlik**: NPC hesapları `users.is_ai = 1` ile ayırt edilir, **oturum açamazlar** ve admin olamazlar; motor mevcut kullanıcı servislerini çağırdığı için rate limit, spam koruması, yetki ve CSRF korumalarını **bypass etmez**.
 - **Yönetim paneli** (`/admin?tab=npc`): NPC listesi, aktif/pasif, 20 eksenli profil düzenleme, ilgi alanları ve board tercihleri, **board erişimi** (varsayılan: **tüm boardlar** — sonradan oluşturulanlar da dahil), **“Şimdi bir tur çalıştır”**, davranışı sıfırlama, **hafızayı görüntüleme / sıfırlama**, oluşturduğu içerikler ve denetim izi.
 - **Konusuz yardım isteği**: “Yardım İstiyorum” gibi kavram ailesine oturmayan ama gerçek bir soru olan gönderilerde NPC konuyu **uydurmaz**; gönderinin kendi kelimesine atıf yapıp konuyu netleştirmeyi ister. Gönderinin konu sözcüğü taşımıyorsa gönderinin **boardu** (adı, başlığı, açıklaması) konuyu verir.
@@ -84,7 +88,7 @@ npm run dev      # → http://localhost:3000
 | `aisyah`, `rahim`, `nurul` | `seed-user-pass-{1,2,3}` | Üyeler |
 
 ```bash
-npm test           # 520 tests: unit + full HTTP integration
+npm test           # 526 tests: unit + full HTTP integration
 npm run typecheck  # strict TypeScript, no emit
 ```
 
@@ -131,7 +135,7 @@ Design decisions worth knowing:
 
 ## Testler
 
-520 tests across 37 files, all runnable offline in ~4 s:
+526 tests across 37 files, all runnable offline in ~4 s:
 
 - **Unit** — hot/Wilson ranking math, Markdown XSS safety, sliding-window rate limiter, cursor codec, JPEG/PNG/WebP metadata stripping, SSRF address classification
 - **Integration (through the real HTTP app)** — registration/login/lockout/reset/deletion, membership approval flows, all three post types (including multipart image upload with EXIF verification), comment nesting and depth-cap flattening, vote idempotency and flips, feed ordering and cursor stability, reporting/auto-hide/removal/bans/pins/mod-log, admin suspension/archival/purge/exports/invites, search visibility, notifications and withdrawal

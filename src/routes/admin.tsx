@@ -858,14 +858,19 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
    */
   app.post('/admin/npc/run', (c) => {
     requireAdmin(c.get('viewer'))
-    const result = runNpcTick(ctx)
+    // `force: true` → bekleme süresi atlanır. Yönetici düğmeye bastığında
+    // motorun çalıştığını görmek ister; bekleme süresi yüzünden “0 işlem”
+    // görmek “çalışmıyor” izlenimi veriyordu.
+    const result = runNpcTick(ctx, ctx.now(), { force: true })
     const coverage = npcBoardCoverage(ctx)
     const active = listNpcAgents(ctx, { onlyEnabled: true }).length
     const message =
       coverage.eligible === 0
         ? 'Uygun board yok. NPC erişimini genişletin (varsayılan: tüm boardlar).'
-        : `${result.actions} işlem yapıldı · ${result.boards} uygun board · ${active} aktif karakter.`
-    setFlash(c, coverage.eligible === 0 ? 'error' : 'ok', message)
+        : result.actions === 0
+          ? `İşlem yapılmadı. ${active} aktif karakter, ${result.boards} uygun board. Karakterler pasif olabilir veya okunabilir gönderi bulunamıyor olabilir.`
+          : `${result.actions} işlem yapıldı · ${result.boards} uygun board · ${active} aktif karakter.`
+    setFlash(c, coverage.eligible === 0 || result.actions === 0 ? 'error' : 'ok', message)
     return c.redirect('/admin?tab=npc')
   })
 
