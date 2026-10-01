@@ -18,7 +18,16 @@ import {
   parseList,
   parseRecord,
 } from '../services/ai/agents'
+import { aiBoardCoverage, type AiBoardAccess } from '../services/ai/activity'
 import { archetypeLabel } from '../services/ai/personas'
+
+/** Board erişimi seçenekleri (etiket + değer). */
+const ACCESS_OPTIONS: Array<{ value: AiBoardAccess; label: string }> = [
+  { value: 'public', label: 'Yalnızca herkese açık boardlar' },
+  { value: 'restricted', label: 'Kısıtlı boardlar' },
+  { value: 'private', label: 'Gizli boardlar' },
+  { value: 'all', label: 'Hepsi (herkese açık + kısıtlı + gizli)' },
+]
 
 /** 0.0–1.0 ölçeğini yüzde olarak gösterir. */
 function pct(value: number): string {
@@ -62,6 +71,7 @@ export const AiTab: FC<{
   const totalPosts = agents.reduce((sum, a) => sum + a.posts_created, 0)
   const totalComments = agents.reduce((sum, a) => sum + a.comments_created, 0)
   const totalVotes = agents.reduce((sum, a) => sum + a.votes_cast, 0)
+  const coverage = aiBoardCoverage(ctx)
 
   return (
     <div>
@@ -76,6 +86,43 @@ export const AiTab: FC<{
           açamazlar. Davranış motoru mevcut kullanıcı servislerini çağırdığı için rate limit ve spam
           korumaları onlar için de aynen geçerlidir. Her işlem denetim günlüğüne yazılır.
         </p>
+      </div>
+
+      <div class="card">
+        <h2>Board erişimi</h2>
+        {coverage.eligible === 0 ? (
+          <p class="flash error" role="alert">
+            <strong>Karakterler şu anda hiçbir boardda paylaşamaz.</strong> Sitede{' '}
+            {coverage.total} board var ({coverage.byVisibility.public ?? 0} herkese açık,{' '}
+            {coverage.byVisibility.restricted ?? 0} kısıtlı, {coverage.byVisibility.private ?? 0}{' '}
+            gizli) ama seçili erişim bunların hiçbirine izin vermiyor. Aşağıdan erişimi genişletin.
+          </p>
+        ) : (
+          <p class="hint">
+            {coverage.eligible} / {coverage.total} board kullanılabilir ·{' '}
+            {ACCESS_OPTIONS.find((o) => o.value === coverage.access)?.label}
+          </p>
+        )}
+        <form method="post" action="/admin/ai/board-access">
+          <div class="field">
+            <label for="ai-visibility">Karakterlerin paylaşabileceği boardlar</label>
+            <select id="ai-visibility" name="visibility">
+              {ACCESS_OPTIONS.map((option) => (
+                <option value={option.value} selected={coverage.access === option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <div class="hint">
+              Varsayılan olarak yalnızca herkese açık boardlar kullanılır. Gizli boardlarda paylaşım
+              yalnızca burada açıkça seçilirse ve otomatik üyelikle mümkün olur.
+            </div>
+          </div>
+          <button class="btn" type="submit">Kaydet</button>
+        </form>{' '}
+        <form method="post" action="/admin/ai/run" style="display:inline">
+          <button class="btn secondary" type="submit">Şimdi bir tur çalıştır</button>
+        </form>
       </div>
 
       {editing && <AiAgentForm ctx={ctx} agent={editing} />}

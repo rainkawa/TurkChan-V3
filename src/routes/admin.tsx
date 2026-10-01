@@ -31,7 +31,8 @@ import {
   updateAiAgent,
 } from '../services/ai/agents'
 import { reportQueue } from '../services/reports'
-import { siteAdminLog } from '../services/modlog'
+import { logAction, siteAdminLog } from '../services/modlog'
+import { aiBoardCoverage, runAiTick } from '../services/ai/activity'
 import { getSettings, updateSettings, type SiteSettings } from '../services/settings'
 import { getComment } from '../services/comments'
 import { AppError, notFound } from '../services/errors'
@@ -819,6 +820,50 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
   // tarafından zaten doğrulanır.
   // ==========================================================================
 
+  /**
+   * AI karakterlerinin paylaşabileceği board görünürlüğü.
+   *
+   * Varsayılan 'public'; gizli topluluklarda AI'ın paylaşması yönetici
+   * kararıdır. Değişiklik denetim günlüğüne yazılır.
+   */
+  app.post('/admin/ai/board-access', async (c) => {
+    const viewer = requireAdmin(c.get('viewer'))
+    const body = await formData(c)
+    const value = body.visibility ?? ''
+    if (!['public', 'restricted', 'private', 'all'].includes(value)) {
+      setFlash(c, 'error', 'Geçersiz board erişimi seçildi.')
+      return c.redirect('/admin?tab=ai')
+    }
+    updateSettings(ctx, { aiVisibility: value as SiteSettings['aiVisibility'] })
+    logAction(ctx, {
+      communityId: null,
+      actorId: viewer.id,
+      action: 'ai_board_access_update',
+      detail: value,
+    })
+    setFlash(c, 'ok', 'AI board erişimi güncellendi.')
+    return c.redirect('/admin?tab=ai')
+  })
+
+  /**
+   * Davranış motorunu beklemeden hemen bir tur çalıştırır.
+   *
+   * Yönetici "hiçbir şey olmuyor" dediğinde motorun gerçekten çalıştığını
+   * ve kaç işlem yaptığını görebilmesi için.
+   */
+  app.post('/admin/ai/run', (c) => {
+    const viewer = requireAdmin(c.get('viewer'))
+    const result = runAiTick(ctx)
+    const coverage = aiBoardCoverage(ctx)
+    const active = listAiAgents(ctx, { onlyEnabled: true }).length
+    const message =
+      coverage.eligible === 0
+        ? 'Uygun board yok. AI karakterleri yalnızca izin verilen görünürlükteki boardlarda paylaşır.'
+        : `${result.actions} işlem yapıldı · ${result.boards} uygun board · ${active} aktif karakter.`
+    setFlash(c, coverage.eligible === 0 ? 'error' : 'ok', message)
+    return c.redirect('/admin?tab=ai')
+  })
+
   /** Karakteri aktif/pasif yapar. */
   app.post('/admin/ai/toggle', async (c) => {
     const viewer = requireAdmin(c.get('viewer'))
@@ -929,7 +974,6 @@ export function adminRoutes(ctx: Ctx): Hono<AppEnv> {
       if (Number.isFinite(value) && value >= 1) patch[key] = Math.trunc(value)
     }
     updateSettings(ctx, patch)
-    const { logAction } = await import('../services/modlog')
     logAction(ctx, { communityId: null, actorId: (viewer as NonNullable<typeof viewer>).id, action: 'site_settings_update', detail: JSON.stringify(patch) })
     setFlash(c, 'ok', t.admin.siteSettingsUpdated)
     return c.redirect('/admin?tab=settings')

@@ -19,9 +19,10 @@ import type { AiAgentWithUser, CommunityRow, PostRow, UserRow } from '../../type
 import { createTextPost } from '../posts'
 import { createComment } from '../comments'
 import { castVote } from '../votes'
-import { joinCommunity, listDirectory } from '../communities'
-import { getCommunityById } from '../access'
+import { joinCommunity } from '../communities'
+import { activeBan, getCommunityById, getMembership } from '../access'
 import { isAdminPower } from '../ranks'
+import { getSettings } from '../settings'
 import { AppError } from '../errors'
 import { generateComment, generatePost, makeRng, detectTopic } from './voice'
 import {
@@ -49,6 +50,82 @@ export interface TickResult {
   posts: number
   comments: number
   votes: number
+  /** Karakterlerin paylaşabileceği board sayısı (0 ise motor sessiz kalır). */
+  boards: number
+}
+
+/** Topluluk görünürlüğü → AI'ın o boardda aktif olup olmadığı. */
+export type AiBoardAccess = 'public' | 'restricted' | 'private' | 'all'
+
+/**
+ * AI karakterlerinin paylaşabileceği board görünürlükleri.
+ *
+ * Varsayılan SADECE herkese açık boardlardır: gizli topluluklar sitede
+ * gizliliğin temel vaadi olduğu için AI oraya yönetici açıkça izin
+ * vermedikçe girmemelidir. Yönetici bu değeri Admin → AI Karakterler
+ * ekranından değiştirir.
+ */
+export function aiEligibleVisibilities(ctx: Ctx): string[] {
+  const access = (getSettings(ctx).aiVisibility ?? 'public') as AiBoardAccess
+  if (access === 'all') return ['public', 'restricted', 'private']
+  return [access]
+}
+
+/**
+ * AI'ın paylaşabileceği boardlar.
+ *
+ * Doğrudan sorgulanır (dizin değil): gizli boardları bir AI hesabı, kendi
+ * üyeliği olmadan göremez — ama yönetici izin verdiyse motor onlara
+ * üye olup paylaşabilmelidir.
+ */
+export function eligibleCommunities(ctx: Ctx): CommunityRow[] {
+  const vis = aiEligibleVisibilities(ctx)
+  const placeholders = vis.map(() => '?').join(', ')
+  return ctx.db
+    .prepare(
+      `SELECT * FROM communities
+        WHERE archived = 0 AND deleted_at IS NULL AND visibility IN (${placeholders})
+        ORDER BY name`,
+    )
+    .all(...vis) as unknown as CommunityRow[]
+}
+
+/**
+ * Bir karakterin paylaşabileceği boardlar.
+ *
+ * Genel listeden yalnızca karakterin yasaklandığı boardlar çıkarılır:
+ * moderatör bir AI hesabını bir boarddan yasaklarsa motor o boarda bir daha
+ * giremez (yasak kalkmadan da).
+ */
+function agentCommunities(ctx: Ctx, agentId: string): CommunityRow[] {
+  return eligibleCommunities(ctx).filter((c) => activeBan(ctx, agentId, c.id) === null)
+}
+
+/**
+ * AI'ın kullanabileceği boardların sayısını ve gerekçesini döner.
+ * Yönetim arayüzünde "hiçbir şey olmuyor" durumunu açıklamak için kullanılır.
+ */
+export function aiBoardCoverage(ctx: Ctx): {
+  access: AiBoardAccess
+  total: number
+  eligible: number
+  byVisibility: Record<string, number>
+} {
+  const rows = ctx.db
+    .prepare('SELECT visibility, COUNT(*) AS n FROM communities WHERE archived = 0 AND deleted_at IS NULL GROUP BY visibility')
+    .all() as unknown as Array<{ visibility: string; n: number }>
+  const byVisibility: Record<string, number> = { public: 0, restricted: 0, private: 0 }
+  let total = 0
+  for (const row of rows) {
+    byVisibility[row.visibility] = row.n
+    total += row.n
+  }
+  return {
+    access: (getSettings(ctx).aiVisibility ?? 'public') as AiBoardAccess,
+    total,
+    eligible: eligibleCommunities(ctx).length,
+    byVisibility,
+  }
 }
 
 /**
@@ -59,8 +136,13 @@ export interface TickResult {
  */
 export function runAiTick(ctx: Ctx, now: number = ctx.now()): TickResult {
   const agents = listEnabledAgents(ctx)
-  const result: TickResult = { actions: 0, posts: 0, comments: 0, votes: 0 }
+  const result: TickResult = { actions: 0, posts: 0, comments: 0, votes: 0, boards: 0 }
   if (agents.length === 0) return result
+
+  // Karakterlerin paylaşabileceği board yoksa motor sessizce hiçbir şey
+  // yapmaz; yönetim arayüzü bu sayıyı kullanıcıya gösterir.
+  result.boards = eligibleCommunities(ctx).length
+  if (result.boards === 0) return result
 
   const rng = makeRng(now)
 
@@ -141,6 +223,9 @@ function runOneAgent(ctx: Ctx, row: AiAgentWithUser, rng: () => number, now: num
   const interests = parseList(agent.interests)
   const dislikes = parseList(agent.dislikes)
 
+  // Kısıtlı/gizli boardlarda yazabilmek için önce üye olunması gerekir.
+  ensureAiMemberships(ctx, profile, user, rng)
+
   // Karar: gönderi mi, yorum mu, oy mu, yoksa hiçbir şey mi?
   const action = weightedChoice(rng, [
     ['post', agent.post_rate * 0.6],
@@ -186,10 +271,8 @@ function pickCommunity(
   ctx: Ctx,
   agent: AiAgentWithUser,
   rng: () => number,
-  viewer: UserRow,
 ): CommunityRow | null {
-  const dir = listDirectory(ctx, viewer)
-  const candidates = dir.filter((c) => !c.archived && c.deleted_at === null && c.visibility === 'public')
+  const candidates = agentCommunities(ctx, agent.user_id)
   if (candidates.length === 0) return null
 
   // Board tercihleri (şabbondan veya yönetimden gelen ağırlıklar).
@@ -231,7 +314,7 @@ function maybeOpenPost(
   now: number,
 ): boolean {
   if (agent.posts_created >= MAX_POSTS_PER_TICK) return false
-  const community = pickCommunity(ctx, agent, rng, user)
+  const community = pickCommunity(ctx, agent, rng)
   if (!community) return false
 
   const text = generatePost(agent, Math.floor(rng() * 2 ** 31))
@@ -279,7 +362,7 @@ function maybeComment(
   const post = posts[Math.floor(rng() * posts.length) % posts.length]!
 
   // Yorum yazacaksa bazen mevcut bir yoruma cevap verir (tartışma zinciri).
-  const parent = maybePickParent(ctx, post, rng)
+  const parent = maybePickParent(ctx, agent, post, rng)
 
   // Cevap verdiği yazarın karaktere ilişkisi cevabın tonunu etkiler.
   let peerRelation = 0
@@ -340,19 +423,27 @@ function candidatePosts(
   interests: string[],
   dislikes: string[],
 ): PostRow[] {
+  const vis = aiEligibleVisibilities(ctx)
+  const placeholders = vis.map(() => '?').join(', ')
   const rows = ctx.db
     .prepare(
       `SELECT p.* FROM posts p JOIN communities c ON c.id = p.community_id
         WHERE p.deleted = 0 AND p.removed = 0 AND p.auto_hidden = 0
-          AND c.archived = 0 AND c.deleted_at IS NULL AND c.visibility = 'public'
+          AND c.archived = 0 AND c.deleted_at IS NULL AND c.visibility IN (${placeholders})
+          AND p.community_id NOT IN (
+            SELECT community_id FROM bans
+             WHERE user_id = ? AND (expires_at IS NULL OR expires_at > ?)
+          )
         ORDER BY p.created_at DESC LIMIT 60`,
     )
-    .all() as unknown as PostRow[]
+    .all(...vis, agent.user_id, ctx.now()) as unknown as PostRow[]
   if (rows.length === 0) return []
 
-  // Kendi gönderisine yorum yapmaz.
+  // Kendi gönderisine yorum yapmaz: havuzda yalnızca kendi gönderileri
+  // varsa motor o tur yazmaz (kendi gönderisini yorumlamak yapay davranış).
   const mine = rows.filter((p) => p.author_id !== agent.user_id)
-  const pool = mine.length > 0 ? mine : rows
+  if (mine.length === 0) return []
+  const pool = mine
 
   const interestSet = interests.map((i) => i.toLowerCase())
   const dislikeSet = dislikes.map((d) => d.toLowerCase())
@@ -372,16 +463,22 @@ function candidatePosts(
 }
 
 /** Bazen bir yoruma cevap verir (tartışma zinciri). */
-function maybePickParent(ctx: Ctx, post: PostRow, rng: () => number): { id: string; body: string; author_id: string } | null {
+function maybePickParent(
+  ctx: Ctx,
+  agent: AiAgentWithUser,
+  post: PostRow,
+  rng: () => number,
+): { id: string; body: string; author_id: string } | null {
   // Yalnızca tartışması olan gönderilere cevap verilir.
   if (post.comment_count <= 0) return null
   const comments = ctx.db
     .prepare(
       `SELECT id, body, author_id FROM comments
         WHERE post_id = ? AND deleted = 0 AND removed = 0 AND auto_hidden = 0
+          AND author_id != ?
         ORDER BY created_at DESC LIMIT 10`,
     )
-    .all(post.id) as unknown as Array<{ id: string; body: string; author_id: string }>
+    .all(post.id, agent.user_id) as unknown as Array<{ id: string; body: string; author_id: string }>
   if (comments.length === 0) return null
   return comments[Math.floor(rng() * comments.length) % comments.length]!
 }
@@ -437,29 +534,59 @@ function maybeVote(
 }
 
 /**
- * Karakterleri boardlara yerleştirir (üyelik). Davranış motoru bir gönderi
- * açmadan önce üyeliğin gerektiği boardlarda çağrılır.
+ * Karakterleri boardlara yerleştirir (üyelik).
+ *
+ * Kısıtlı ve gizli boardlarda yazmak için onaylı üye olmak gerekir. AI
+ * hesabı gerçek bir kullanıcı olmadığı ve yönetici bu boardlarda AI'a izin
+ * verdiği için üyelik burada onaylanır — izin verilmemişse (varsayılan
+ * `public`) bu boardlar zaten aday listesinde bulunmaz.
  */
-export function ensureMemberships(ctx: Ctx, agent: AiAgentWithUser): number {
-  const user = userRow(ctx, agent.user_id)
-  if (!user) return 0
-  const dir = listDirectory(ctx, user)
+function ensureAiMemberships(
+  ctx: Ctx,
+  agent: AiAgentWithUser,
+  user: UserRow,
+  rng: () => number,
+): number {
   const prefs = parseRecord<number>(agent.board_prefs)
   let joined = 0
-  for (const community of dir) {
-    if (community.visibility !== 'public') continue
-    if (community.deleted_at !== null || community.archived) continue
-    const weight = prefs[community.name]
-    // Yalnızca tercih edilen veya rastgele bir kısmı.
-    if (weight === undefined && Math.random() > 0.4) continue
+  for (const community of agentCommunities(ctx, agent.user_id)) {
+    const membership = getMembership(ctx, user.id, community.id)
+    if (membership?.status === 'approved') continue
+    const pref = prefs[community.name]
+    // Tercih edilen boarda her turda katılınır; diğerlerine düşük olasılıkla
+    // (yoksa her karakter her yere üye olur ve ilgi alanı anlamını yitirir).
+    if (pref === undefined && rng() > 0.35) continue
     try {
       joinCommunity(ctx, user, community)
+      if (community.visibility !== 'public') {
+        ctx.db
+          .prepare(
+            `UPDATE memberships SET status = 'approved'
+              WHERE user_id = ? AND community_id = ? AND status = 'pending'`,
+          )
+          .run(user.id, community.id)
+      }
+      logAiAction(ctx, {
+        agentId: agent.user_id,
+        action: 'join',
+        targetType: 'community',
+        targetId: community.id,
+        communityId: community.id,
+        detail: community.visibility,
+      })
       joined += 1
     } catch (err) {
       if (!(err instanceof AppError)) throw err
     }
   }
   return joined
+}
+
+/** Dışa açık yardımcı: bir karakteri boardlara yerleştirir. */
+export function ensureMemberships(ctx: Ctx, agent: AiAgentWithUser): number {
+  const user = userRow(ctx, agent.user_id)
+  if (!user) return 0
+  return ensureAiMemberships(ctx, agent, user, makeRng())
 }
 
 /** Karakterin topluluk adını (board) döndürür — dışarıdan okuma için. */

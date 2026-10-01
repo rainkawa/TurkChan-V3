@@ -13,6 +13,11 @@ export interface SiteSettings {
   mediaPerPost: number
   /** Yorum başına izin verilen azami medya sayısı. */
   mediaPerComment: number
+  /**
+   * AI karakterlerinin paylaşabileceği board görünürlüğü.
+   * Varsayılan 'public': gizli topluluklara yönetici izin vermedikçe girmez.
+   */
+  aiVisibility: 'public' | 'restricted' | 'private' | 'all'
 }
 
 export const DEFAULT_SETTINGS: SiteSettings = {
@@ -25,6 +30,7 @@ export const DEFAULT_SETTINGS: SiteSettings = {
   reportsPerHour: 10,
   mediaPerPost: 10,
   mediaPerComment: 4,
+  aiVisibility: 'public',
 }
 
 export function getSettings(ctx: Ctx): SiteSettings {

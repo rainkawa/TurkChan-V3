@@ -103,8 +103,19 @@ function runAiActivity(): void {
   if (listAiAgents(ctx, { onlyEnabled: true }).length === 0) return
   try {
     const result = runAiTick(ctx)
-    if (result.actions > 0) {
-      logInfo('ai_tick', { actions: result.actions, posts: result.posts, comments: result.comments, votes: result.votes })
+    // Her tur loglanır: "hiçbir şey olmuyor" durumunda sebebin ne olduğu
+    // (0 uygun board gibi) terminalden de görülsün.
+    logInfo('ai_tick', {
+      actions: result.actions,
+      boards: result.boards,
+      posts: result.posts,
+      comments: result.comments,
+      votes: result.votes,
+    })
+    if (result.boards === 0) {
+      logInfo('ai_no_boards', {
+        reason: 'ai_visibility ayarı hiçbir boarda izin vermiyor (Admin → AI Karakterler)',
+      })
     }
   } catch (err) {
     logError(err instanceof Error ? err : new Error(String(err)), { event: 'ai_tick_failed' })

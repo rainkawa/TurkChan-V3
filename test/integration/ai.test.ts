@@ -13,12 +13,13 @@ import { describe, expect, test, beforeEach } from 'vitest'
 import { createTestWorld, registerUser, registerAdmin, createCommunityVia, Agent } from '../testUtils'
 import type { Ctx } from '../../src/context'
 import { createAiAgents, listAiAgents, getAiAgent, updateAiAgent, resetAiAgent, aiAgentContent, adjustRelationship, relationshipAffinity, adjustReputation, boardPresence, listEnabledAgents, parseList, parseRecord } from '../../src/services/ai/agents'
-import { runAiTick } from '../../src/services/ai/activity'
+import { runAiTick, aiBoardCoverage } from '../../src/services/ai/activity'
+import { updateSettings } from '../../src/services/settings'
 import { generatePost, generateComment, detectTopic, voiceSignature } from '../../src/services/ai/voice'
 import { PERSONAS, archetypeLabel } from '../../src/services/ai/personas'
 import { login } from '../../src/services/auth'
 import { getUserByUsername } from '../../src/services/auth'
-import type { AiAgentRow, AiAgentWithUser, UserRow } from '../../src/types'
+import type { AiAgentRow, AiAgentWithUser, CommunityRow, UserRow } from '../../src/types'
 
 
 /** registerUser'ın kullandığı varsayılan parola (test/testUtils.ts). */
@@ -502,6 +503,176 @@ describe('AI karakter sistemi', () => {
       expect(boardPresence(ctx, a.user_id)).toHaveLength(0)
       void communityId
       expect(parseRecord(agentByUsername(ctx, 'ayse_nur').agent.board_prefs)).toBeTruthy()
+    })
+  })
+
+  describe('board erişimi', () => {
+    /** Motorun ürettiği içerik sayıları (AI'ın yazdığı her şey). */
+    function aiContentCounts(ctx: Ctx, community?: string): { posts: number; comments: number; votes: number } {
+      const one = (sql: string, ...params: unknown[]): number =>
+        (ctx.db.prepare(sql).get(...(params as never[])) as { n: number }).n
+      const scope = community
+        ? `AND p.community_id = (SELECT id FROM communities WHERE name = ?)`
+        : ''
+      return {
+        posts: one(
+          `SELECT COUNT(*) AS n FROM posts p WHERE p.author_id IN (SELECT id FROM users WHERE is_ai = 1) ${scope}`,
+          ...(community ? [community] : []),
+        ),
+        comments: one(
+          `SELECT COUNT(*) AS n FROM comments c JOIN posts p ON p.id = c.post_id
+             WHERE c.author_id IN (SELECT id FROM users WHERE is_ai = 1) ${scope}`,
+          ...(community ? [community] : []),
+        ),
+        votes: one(
+          `SELECT COUNT(*) AS n FROM votes v JOIN posts p ON p.id = v.target_id AND v.target_type = 'post'
+             WHERE v.user_id IN (SELECT id FROM users WHERE is_ai = 1) ${scope}`,
+          ...(community ? [community] : []),
+        ),
+      }
+    }
+
+    /** Motoru birkaç tur çalıştırır (sanal saat ileri alınarak). */
+    function runTicks(ctx: Ctx, count = 10): void {
+      const t0 = Date.now()
+      for (let i = 0; i < count; i++) runAiTick(ctx, t0 + i * 10_000_000)
+    }
+
+    test('varsayılan olarak yalnızca herkese açık boardlar kullanılır', async () => {
+      const world = createTestWorld()
+      const ctx = world.ctx as Ctx
+      const { agent: admin } = await registerAdmin(world)
+      await createCommunityVia(admin, 'acik', 'public')
+      await createCommunityVia(admin, 'gizli', 'private')
+      createAiAgents(ctx)
+
+      const coverage = aiBoardCoverage(ctx)
+      expect(coverage.access).toBe('public')
+      expect(coverage.total).toBe(2)
+      expect(coverage.eligible).toBe(1)
+
+      // Herkese açık boardda paylaşım olur, gizli boardda HİÇ olmaz.
+      await admin.post('/c/acik/submit?type=text', { title: 'Açık konu', body: 'açık içerik' })
+      await admin.post('/c/gizli/submit?type=text', { title: 'Gizli konu', body: 'gizli içerik' })
+      runTicks(ctx)
+      expect(aiContentCounts(ctx, 'acik').posts + aiContentCounts(ctx, 'acik').comments)
+        .toBeGreaterThan(0)
+      expect(aiContentCounts(ctx, 'gizli')).toEqual({ posts: 0, comments: 0, votes: 0 })
+    })
+
+    test('yönetici izin verince gizli boardda da paylaşır', async () => {
+      const world = createTestWorld()
+      const ctx = world.ctx as Ctx
+      const { agent: admin } = await registerAdmin(world)
+      await createCommunityVia(admin, 'gizli', 'private')
+      await admin.post('/c/gizli/submit?type=text', { title: 'Gizli konu', body: 'gizli içerik' })
+      createAiAgents(ctx)
+
+      const res = await admin.post('/admin/ai/board-access', { visibility: 'all' })
+      expect(res.status).toBe(302)
+      expect(aiBoardCoverage(ctx).eligible).toBe(1)
+
+      runTicks(ctx)
+      const counts = aiContentCounts(ctx)
+      expect(counts.posts).toBeGreaterThan(0)
+      expect(counts.comments).toBeGreaterThan(0)
+      expect(counts.votes).toBeGreaterThan(0)
+    })
+
+    test('gizli boardda otomatik onaylı üye olur', async () => {
+      const world = createTestWorld()
+      const ctx = world.ctx as Ctx
+      const { agent: admin } = await registerAdmin(world)
+      await createCommunityVia(admin, 'gizli', 'private')
+      createAiAgents(ctx)
+      updateSettings(ctx, { aiVisibility: 'all' })
+      runTicks(ctx, 6)
+
+      const pending = ctx.db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM memberships m
+             JOIN users u ON u.id = m.user_id
+            WHERE u.is_ai = 1 AND m.status = 'pending'`,
+        )
+        .get() as { n: number }
+      expect(pending.n).toBe(0)
+      const approved = ctx.db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM memberships m
+             JOIN users u ON u.id = m.user_id
+             JOIN communities c ON c.id = m.community_id
+            WHERE u.is_ai = 1 AND c.visibility = 'private' AND m.status = 'approved'`,
+        )
+        .get() as { n: number }
+      expect(approved.n).toBeGreaterThan(0)
+    })
+
+    test('board erişimi değişikliği denetim günlüğüne yazılır', async () => {
+      const world = createTestWorld()
+      const ctx = world.ctx as Ctx
+      const { agent: admin } = await registerAdmin(world)
+      await createCommunityVia(admin, 'acik', 'public')
+      createAiAgents(ctx)
+      await admin.post('/admin/ai/board-access', { visibility: 'all' })
+      const row = ctx.db
+        .prepare("SELECT COUNT(*) AS n FROM mod_actions WHERE action = 'ai_board_access_update'")
+        .get() as { n: number }
+      expect(row.n).toBe(1)
+    })
+
+    test('yönetici motoru elle çalıştırabilir', async () => {
+      const world = createTestWorld()
+      const ctx = world.ctx as Ctx
+      const { agent: admin } = await registerAdmin(world)
+      await createCommunityVia(admin, 'acik', 'public')
+      createAiAgents(ctx)
+      const res = await admin.post('/admin/ai/run')
+      expect(res.status).toBe(302)
+      const html = await (await admin.get('/admin?tab=ai')).text()
+      expect(html).toContain('Board erişimi')
+      expect(html).toContain('1 / 1 board kullanılabilir')
+    })
+
+    test('board erişimi rotaları yalnızca yöneticiye açık', async () => {
+      const world = createTestWorld()
+      const { agent: admin } = await registerAdmin(world)
+      createAiAgents(world.ctx as Ctx)
+      await admin.post('/communities/new', {
+        name: 'gizli',
+        title: 'Gizli',
+        description: '',
+        visibility: 'private',
+      })
+      const { agent: member } = await registerUser(world, 'normal_user')
+      expect((await member.post('/admin/ai/board-access', { visibility: 'all' })).status).toBe(403)
+      expect((await member.post('/admin/ai/run')).status).toBe(403)
+    })
+
+    test('geçersiz board erişimi değeri kabul edilmez', async () => {
+      const world = createTestWorld()
+      const ctx = world.ctx as Ctx
+      const { agent: admin } = await registerAdmin(world)
+      await admin.post('/admin/ai/board-access', { visibility: 'herkese' })
+      expect(aiBoardCoverage(ctx).access).toBe('public')
+    })
+
+    test('moderatör bir karakteri yasaklarsa o boarda giremez', async () => {
+      const world = createTestWorld()
+      const ctx = world.ctx as Ctx
+      const { agent: admin, username } = await registerAdmin(world)
+      await createCommunityVia(admin, 'acik', 'public')
+      createAiAgents(ctx)
+
+      // Tüm karakterleri yasakla: motor artık hiçbir yerde paylaşamamalı.
+      const { banUser } = await import('../../src/services/moderation')
+      const community = ctx.db
+        .prepare('SELECT * FROM communities WHERE name = ?')
+        .get('acik') as unknown as CommunityRow
+      const adminRow = getUserByUsername(ctx, username)!
+      for (const a of listAiAgents(ctx)) banUser(ctx, adminRow, community, a.user_id, 7, 'test')
+
+      runTicks(ctx)
+      expect(aiContentCounts(ctx)).toEqual({ posts: 0, comments: 0, votes: 0 })
     })
   })
 
