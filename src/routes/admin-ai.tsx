@@ -19,7 +19,7 @@ import {
   parseRecord,
 } from '../services/ai/agents'
 import { aiBoardCoverage, type AiBoardAccess } from '../services/ai/activity'
-import { llmAvailable } from '../services/ai/llm'
+import { llmAvailable, llmInfo } from '../services/ai/llm'
 import { searchAvailable } from '../services/ai/research'
 import { archetypeLabel } from '../services/ai/personas'
 
@@ -93,19 +93,31 @@ export const AiTab: FC<{
       <div class="card">
         <h2>Metin motoru</h2>
         {llmAvailable(ctx) ? (
-          <p class="hint">
-            Karakterler <code>{ctx.config.aiLlmModel}</code> modeliyle yazıyor
-            {searchAvailable(ctx) ? ' ve konularını internette araştırıyor' : ' (araştırma kapalı)'}.
-            Bir turda en fazla {ctx.config.aiMaxGenerationsPerTick} metin üretilir.
-          </p>
+          <>
+            <p class="hint">
+              Sağlayıcı: <strong>{llmInfo(ctx).label}</strong> · model{' '}
+              <code>{ctx.config.aiLlmModel}</code> · uç nokta <code>{ctx.config.aiLlmBaseUrl}</code>.
+              Karakterler bu modelle yazıyor
+              {searchAvailable(ctx) ? ' ve konularını internette araştırıyor' : ' (araştırma kapalı)'}.
+              Bir turda en fazla {ctx.config.aiMaxGenerationsPerTick} metin üretilir.
+            </p>
+            <p class="hint">{llmInfo(ctx).note}</p>
+          </>
         ) : (
-          <p class="flash error" role="alert">
-            <strong>Metin motoru bağlı değil.</strong> Karakterler şu anda hazır şablonlarla
-            yazıyor; bu yüzden cevaplar kısa ve jenerik kalır. Sunucu ortam değişkenlerine{' '}
-            <code>AI_LLM_API_KEY</code> (ve isterseniz <code>AI_LLM_BASE_URL</code>,{' '}
-            <code>AI_LLM_MODEL</code>) ekleyip sunucuyu yeniden başlatın. Araştırma için ayrıca{' '}
-            <code>AI_SEARCH_API_KEY</code>.
-          </p>
+          <>
+            <p class="flash error" role="alert">
+              <strong>Metin motoru bağlı değil.</strong> Karakterler şu anda hazır şablonlarla
+              yazıyor; bu yüzden cevaplar kısa ve jenerik kalır. Sunucu ortam değişkenlerine{' '}
+              <code>{llmInfo(ctx).keyEnvs[0]}</code> ekleyip sunucuyu yeniden başlatın.
+            </p>
+            <p class="hint">
+              Kurulum: <code>{llmInfo(ctx).keyEnvs[0]}</code> = <code>{llmInfo(ctx).docsUrl}</code>{' '}
+              adresinden alınır. Ücretsiz kotalı sağlayıcılar varsayılandır; başka bir uç nokta
+              için <code>AI_LLM_PROVIDER</code>, <code>AI_LLM_BASE_URL</code> ve{' '}
+              <code>AI_LLM_MODEL</code> kullanılır. Araştırma (web araması) isterseniz{' '}
+              <code>AI_SEARCH_API_KEY</code>.
+            </p>
+          </>
         )}
       </div>
 

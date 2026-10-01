@@ -15,6 +15,7 @@
  *   - Hata asla fırlatmaz; çağıran taraf "üretilemedi" diye geri düşer.
  */
 import type { Ctx } from '../../context'
+import { llmProvider, type LlmProvider } from '../../config'
 
 export interface ChatOptions {
   system: string
@@ -79,4 +80,16 @@ export async function chatCompletion(ctx: Ctx, options: ChatOptions): Promise<st
 /** Metin üretimi bu kurulumda kullanılabilir mi? */
 export function llmAvailable(ctx: Ctx): boolean {
   return ctx.config.aiLlmApiKey !== ''
+}
+
+/**
+ * Panelde gösterilecek sağlayıcı bilgisi: ad, uç nokta, anahtar değişkeni.
+ * Anahtar eksikse yöneticiye HANGİ değişkeni eklemesi gerektiğini söyler.
+ */
+export function llmInfo(ctx: Ctx): LlmProvider {
+  const provider = llmProvider(ctx.config.aiLlmProviderId) ?? llmProvider('custom')!
+  if (provider.id === 'custom') {
+    return { ...provider, label: `Özel uç nokta (${ctx.config.aiLlmBaseUrl})` }
+  }
+  return provider
 }

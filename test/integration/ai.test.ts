@@ -21,6 +21,7 @@ import { PERSONAS, archetypeLabel } from '../../src/services/ai/personas'
 import { login } from '../../src/services/auth'
 import { getUserByUsername } from '../../src/services/auth'
 import type { AiAgentRow, AiAgentWithUser, CommunityRow, UserRow } from '../../src/types'
+import { loadConfig, LLM_PROVIDERS } from '../../src/config'
 
 
 /** registerUser'ın kullandığı varsayılan parola (test/testUtils.ts). */
@@ -265,9 +266,12 @@ describe('AI karakter sistemi', () => {
     test('küfürlü karakter küfürlü yazar, nazik karakter etmez', () => {
       const { agent: rude } = agentByUsername(ctx, 'kufurlu_furkan')
       const { agent: polite } = agentByUsername(ctx, 'sakin_emra')
+      // Tohumlar SABİT ve örneklem geniş: aksi hâlde test her koşuda farklı
+      // örneklem çeker ve küfür sayımı seyreklik nedeniyle titrer.
       const profanity = (agent: AiAgentWithUser): number =>
-        Array.from({ length: 40 }, () => generateComment(agent, 'bu konuda ne düşünüyorsunuz').body)
-          .filter((b) => /(boş ver|ne saçmalı)/i.test(b)).length
+        Array.from({ length: 200 }, (_, i) =>
+          generateComment(agent, 'bu konuda ne düşünüyorsunuz', 1000 + i * 37).body,
+        ).filter((b) => /(boş ver|ne saçmalı)/i.test(b)).length
       expect(profanity(rude)).toBeGreaterThan(profanity(polite))
       expect(profanity(polite)).toBe(0)
     })
@@ -1187,5 +1191,100 @@ test('panel metin motorunun bağlı olup olmadığını gösterir', async () => 
       expect(res.status).toBe(302)
       expect(listAiAgents(ctx)).toHaveLength(50)
     })
+  })
+})
+
+describe('metin motoru sağlayıcısı', () => {
+  test('kurulum değişkeni verilmezse ücretsiz bir sağlayıcı seçilir', () => {
+    const config = loadConfig({})
+    // Varsayılan ücretli OpenAI DEĞİL, ücretsiz kotalı Groq.
+    expect(config.aiLlmProviderId).toBe('groq')
+    expect(config.aiLlmBaseUrl).toBe('https://api.groq.com/openai/v1')
+    expect(config.aiLlmModel).not.toBe('gpt-4o-mini')
+    expect(config.aiLlmApiKey).toBe('')
+  })
+
+  test('sağlayıcının kendi anahtar değişkeni yeterlidir', () => {
+    const config = loadConfig({ GROQ_API_KEY: 'gsk_örnek' })
+    expect(config.aiLlmProviderId).toBe('groq')
+    expect(config.aiLlmApiKey).toBe('gsk_örnek')
+  })
+
+  test('anahtarı bulunan ücretsiz sağlayıcı otomatik seçilir', () => {
+    const config = loadConfig({ GEMINI_API_KEY: 'gemini-key' })
+    expect(config.aiLlmProviderId).toBe('gemini')
+    expect(config.aiLlmBaseUrl).toContain('generativelanguage.googleapis.com')
+    expect(config.aiLlmApiKey).toBe('gemini-key')
+  })
+
+  test('GOOGLE_API_KEY da Gemini için kabul edilir', () => {
+    const config = loadConfig({ GOOGLE_API_KEY: 'google-key' })
+    expect(config.aiLlmProviderId).toBe('gemini')
+    expect(config.aiLlmApiKey).toBe('google-key')
+  })
+
+  test('AI_LLM_PROVIDER ile sağlayıcı seçilir', () => {
+    const config = loadConfig({ AI_LLM_PROVIDER: 'openrouter', OPENROUTER_API_KEY: 'or-key' })
+    expect(config.aiLlmProviderId).toBe('openrouter')
+    expect(config.aiLlmBaseUrl).toBe('https://openrouter.ai/api/v1')
+    expect(config.aiLlmApiKey).toBe('or-key')
+  })
+
+  test('bilinmeyen sağlayıcı adı varsayılana düşer', () => {
+    expect(loadConfig({ AI_LLM_PROVIDER: 'uydurma' }).aiLlmProviderId).toBe('groq')
+  })
+
+  test('elle uç nokta verilirse özel sağlayıcı seçilir', () => {
+    const config = loadConfig({
+      AI_LLM_BASE_URL: 'https://ornek.local/v1/',
+      AI_LLM_MODEL: 'ozel-model',
+      AI_LLM_API_KEY: 'ozel-key',
+    })
+    expect(config.aiLlmProviderId).toBe('custom')
+    expect(config.aiLlmBaseUrl).toBe('https://ornek.local/v1')
+    expect(config.aiLlmModel).toBe('ozel-model')
+    expect(config.aiLlmApiKey).toBe('ozel-key')
+  })
+
+  test('genel anahtar sağlayıcınınkinden önce gelir', () => {
+    const config = loadConfig({ GROQ_API_KEY: 'gsk_sağlayıcı', AI_LLM_API_KEY: 'genel' })
+    expect(config.aiLlmApiKey).toBe('genel')
+  })
+
+  test('EXA_API_KEY web araması anahtarı olarak da kullanılabilir', () => {
+    expect(loadConfig({ EXA_API_KEY: 'exa-key' }).aiSearchApiKey).toBe('exa-key')
+  })
+
+  test('hazır profillerin hepsi OpenAI uyumlu ve geçerli', () => {
+    const ids = LLM_PROVIDERS.map((p) => p.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    for (const p of LLM_PROVIDERS) {
+      expect(p.baseUrl).toMatch(/^https:\/\//u)
+      expect(p.model.length).toBeGreaterThan(0)
+      expect(p.keyEnvs.length).toBeGreaterThan(0)
+      expect(p.label.length).toBeGreaterThan(0)
+    }
+    // Listede ücretsiz seçenek var olmalı.
+    expect(LLM_PROVIDERS.filter((p) => p.id !== 'openai').length).toBeGreaterThan(0)
+  })
+
+  test('panel eksik anahtarda hangi değişkenin ekleneceğini söyler', async () => {
+    const world = createTestWorld()
+    const { agent: admin } = await registerAdmin(world)
+    createAiAgents(world.ctx as Ctx)
+    const html = await (await admin.get('/admin?tab=ai')).text()
+    expect(html).toContain('GROQ_API_KEY')
+    expect(html).toContain('console.groq.com/keys')
+  })
+
+  test('panel etkin sağlayıcıyı adıyla gösterir', async () => {
+    const world = createTestWorld()
+    const ctx = world.ctx as Ctx
+    const { agent: admin } = await registerAdmin(world)
+    createAiAgents(ctx)
+    ctx.config.aiLlmApiKey = 'test-key'
+    const html = await (await admin.get('/admin?tab=ai')).text()
+    expect(html).toContain('Groq')
+    expect(html).toContain(ctx.config.aiLlmModel)
   })
 })
